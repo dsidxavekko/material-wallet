@@ -143,8 +143,7 @@ lib/
 
 ## License
 
-Released under the **MIT License** — see [`LICENSE`](LICENSE) (add one before
-publishing if it is missing).
+Released under the **MIT License** — see [`LICENSE`](LICENSE).
 
 ---
 
