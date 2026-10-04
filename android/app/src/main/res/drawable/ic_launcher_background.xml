@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Real shape drawable (not a @color alias): a <drawable android:drawable="@color/..."/>
+     indirection is not reliably resolved as an adaptive-icon background on every
+     launcher, which makes the launcher fall back to the generic Android robot. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#4F46E5"/>
+</shape>
