@@ -22,16 +22,28 @@ generated locally, encrypted, and stored only on this device.
     **PBKDF2-HMAC-SHA256** (600,000 rounds, OWASP 2023 guidance).
   - 6-digit PIN lock, changeable in Settings.
   - **Biometric unlock** (fingerprint / face) via `local_auth`.
+  - **Auto-lock** after a configurable time in the background, and
+    **attempt throttling** with escalating backoff after wrong PINs.
+  - Revealing the recovery phrase requires re-entering the PIN, and a copied
+    phrase is wiped from the clipboard automatically.
   - Screenshots and the app-switcher preview are blocked (`FLAG_SECURE`).
 - 🌐 **Multi-chain** — Bitcoin, EVM networks, Solana and Aptos (see table below).
-- 💸 **Send (dry-run)** — validates the address, checks the live balance and
-  fetches the real network fee; does not sign or broadcast.
+- 💸 **Send (dry-run)** — validates the recipient address per chain (bech32,
+  Base58Check, EIP-55, Aptos hex), checks the live balance and fetches the
+  network fee; does not sign or broadcast.
+- 📒 **Address book** — save recipients with local labels; labels show up in the
+  send flow and the activity list.
+- 🪙 **Token balances** — ERC-20 holdings with USD values on the Blockscout-backed
+  EVM networks.
 - 📷 **Receive** — real address as text and a scannable QR code.
 - 🔍 **QR scanner** — scan a recipient address with the camera.
 - 📊 **Live balance, activity & prices** — balances/history from public key-less
-  APIs, prices from CoinGecko (cached to respect rate limits).
-- 🎨 **Material 3 UI** — light / dark / system theme, multiple display currencies.
-- 🧪 **Tested** — unit and widget tests covering derivation, crypto and APIs.
+  APIs, prices from CoinGecko (cached to respect rate limits). The last snapshot
+  is cached locally, so the app opens with data and works offline.
+- 🎨 **Material 3 UI** — light / dark / system theme (persisted), multiple
+  display currencies.
+- 🧪 **Tested** — unit and widget tests covering derivation, crypto, address
+  validation, storage and APIs.
 
 ---
 
@@ -69,6 +81,10 @@ generated locally, encrypted, and stored only on this device.
 - When biometric unlock is enabled, the PIN is kept in the platform keystore
   (`flutter_secure_storage`) and released only after a successful biometric
   prompt.
+- The vault is re-locked after a configurable period in the background, and
+  repeated wrong PINs are penalised with an escalating, persisted backoff.
+- The seed is overwritten in memory on lock. Non-secret data (settings, the
+  address book and the last account snapshot) lives in `shared_preferences`.
 
 ---
 
@@ -134,10 +150,12 @@ lib/
 
 ## Roadmap
 
+- [x] Address book and contact labels.
+- [x] ERC-20 token balances.
+- [x] Auto-lock, PIN-attempt throttling and re-auth for the recovery phrase.
 - [ ] Sign and broadcast transactions (Bitcoin, EVM, Solana, Aptos).
-- [ ] Token balances (ERC-20 / SPL) and NFT display.
-- [ ] Address book and contact labels.
-- [ ] Biometric-protected reveal of the recovery phrase.
+- [ ] SPL token balances and NFT display.
+- [ ] Biometric (not only PIN) re-auth for revealing the recovery phrase.
 
 ---
 
