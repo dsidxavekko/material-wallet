@@ -150,11 +150,8 @@ lib/
 
 ## Roadmap
 
-- [x] Address book and contact labels.
-- [x] ERC-20 token balances.
-- [x] Auto-lock, PIN-attempt throttling and re-auth for the recovery phrase.
 - [ ] Sign and broadcast transactions (Bitcoin, EVM, Solana, Aptos).
-- [ ] SPL token balances and NFT display.
+- [ ] SPL token balances.
 - [ ] Biometric (not only PIN) re-auth for revealing the recovery phrase.
 
 ---
