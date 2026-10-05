@@ -9,6 +9,7 @@ import '../../core/utils/units.dart';
 import '../../data/models/chain_kind.dart';
 import '../../data/networks/chain_models.dart';
 import '../../data/networks/network_config.dart';
+import '../../data/wallet/address_validator.dart';
 import '../../shared/widgets/empty_state.dart';
 import '../../state/settings_controller.dart';
 import '../../state/wallet_controller.dart';
@@ -61,10 +62,13 @@ class _SendScreenState extends State<SendScreen> {
 
   bool get _hasEnoughFunds => _total <= _balance;
 
+  AddressValidation get _addressValidation =>
+      AddressValidator.validate(_network, _addressController.text);
+
   bool get _isValid =>
       _enteredAmount > BigInt.zero &&
       _hasEnoughFunds &&
-      _addressController.text.trim().length >= 8;
+      _addressValidation.valid;
 
   String get _availableLabel => Units.formatWithSymbol(
         _balance,
@@ -92,6 +96,8 @@ class _SendScreenState extends State<SendScreen> {
         context.select<SettingsController, AppCurrency>((s) => s.currency);
     final AccountSnapshot? snapshot = wallet.snapshot;
     final ColorScheme scheme = Theme.of(context).colorScheme;
+    final AddressValidation addressCheck =
+        AddressValidator.validate(network, _addressController.text);
 
     if (snapshot == null) {
       return Scaffold(
@@ -162,6 +168,10 @@ class _SendScreenState extends State<SendScreen> {
                         ChainKind.solana => 'Base58 address',
                         ChainKind.aptos => '0x… (64 hex chars)',
                       },
+                      errorText: _addressController.text.trim().isEmpty ||
+                              addressCheck.valid
+                          ? null
+                          : addressCheck.reason,
                       suffixIcon: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: <Widget>[
@@ -229,7 +239,7 @@ class _SendScreenState extends State<SendScreen> {
       }
       return;
     }
-    _addressController.text = text;
+    _addressController.text = _extractAddress(text);
     setState(() {});
   }
 
@@ -256,16 +266,17 @@ class _SendScreenState extends State<SendScreen> {
 
   Future<void> _prepare() async {
     final NetworkConfig network = _network;
+    final String recipient = _extractAddress(_addressController.text.trim());
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
       builder: (_) => _PreparedSheet(
         network: network,
-        recipient: _addressController.text.trim(),
+        recipient: recipient,
         amount: _enteredAmount,
         fee: _fee,
-        explorerUrl: network.explorerAddress(_addressController.text.trim()),
+        explorerUrl: network.explorerAddress(recipient),
       ),
     );
   }
