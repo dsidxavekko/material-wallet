@@ -6,6 +6,22 @@ import '../core/utils/formatters.dart';
 import '../data/networks/network_config.dart';
 import '../data/wallet/wallet_storage.dart';
 
+/// How long the app may stay in the background before it locks itself.
+///
+/// [seconds] is `null` for "Never"; `0` locks the moment the app is hidden.
+enum AutoLockDelay {
+  immediately('Immediately', 0),
+  seconds30('After 30 seconds', 30),
+  minute1('After 1 minute', 60),
+  minutes5('After 5 minutes', 300),
+  never('Never', null);
+
+  const AutoLockDelay(this.label, this.seconds);
+
+  final String label;
+  final int? seconds;
+}
+
 /// User preferences: theme, display currency, active network and switches.
 class SettingsController extends ChangeNotifier {
   SettingsController({this._storage = const WalletStorage()});
@@ -15,6 +31,7 @@ class SettingsController extends ChangeNotifier {
   ThemeMode _themeMode = ThemeMode.system;
   AppCurrency _currency = AppCurrency.usd;
   NetworkConfig _network = NetworkCatalog.bitcoin;
+  int? _autoLockSeconds = AutoLockDelay.minute1.seconds;
 
   ThemeMode get themeMode => _themeMode;
   AppCurrency get currency => _currency;
@@ -22,10 +39,17 @@ class SettingsController extends ChangeNotifier {
   /// The blockchain currently being viewed.
   NetworkConfig get network => _network;
 
+  /// Seconds the app may stay backgrounded before locking, or `null` for never.
+  int? get autoLockSeconds => _autoLockSeconds;
+
+  /// Whether the app should lock itself after being backgrounded.
+  bool get autoLockEnabled => _autoLockSeconds != null;
+
   /// Restores the persisted network and currency choices at app start.
   Future<void> load() async {
     final String? id = await _storage.readNetworkId();
     final String? code = await _storage.readCurrencyCode();
+    final int? autoLock = await _storage.readAutoLockSeconds();
     bool changed = false;
 
     if (id != null) {
@@ -43,6 +67,16 @@ class SettingsController extends ChangeNotifier {
     if (currency != _currency) {
       _currency = currency;
       changed = true;
+    }
+
+    if (autoLock != null) {
+      // Storage uses -1 for an explicit "Never"; `null` there means the user
+      // has not chosen yet, so the default stands.
+      final int? seconds = autoLock < 0 ? null : autoLock;
+      if (seconds != _autoLockSeconds) {
+        _autoLockSeconds = seconds;
+        changed = true;
+      }
     }
 
     if (changed) {
@@ -76,5 +110,15 @@ class SettingsController extends ChangeNotifier {
     _network = network;
     notifyListeners();
     unawaited(_storage.writeNetworkId(network.id));
+  }
+
+  /// Changes how long the app may stay backgrounded before locking itself.
+  void setAutoLockDelay(AutoLockDelay delay) {
+    if (_autoLockSeconds == delay.seconds) {
+      return;
+    }
+    _autoLockSeconds = delay.seconds;
+    notifyListeners();
+    unawaited(_storage.writeAutoLockSeconds(delay.seconds));
   }
 }

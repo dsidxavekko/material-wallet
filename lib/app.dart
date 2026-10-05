@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -45,8 +47,67 @@ class MaterialWalletApp extends StatelessWidget {
   }
 }
 
-class _AppView extends StatelessWidget {
+class _AppView extends StatefulWidget {
   const _AppView();
+
+  @override
+  State<_AppView> createState() => _AppViewState();
+}
+
+class _AppViewState extends State<_AppView> with WidgetsBindingObserver {
+  Timer? _autoLockTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    _autoLockTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// Locks the wallet once the app has been in the background for the delay
+  /// chosen in Settings.
+  ///
+  /// `paused` / `hidden` mean the app is really gone from the screen (unlike
+  /// the transient `inactive` on iOS, which fires for a swipe-down notification
+  /// and should not lock anything).
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
+        _scheduleAutoLock();
+      case AppLifecycleState.resumed:
+        _autoLockTimer?.cancel();
+        _autoLockTimer = null;
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.detached:
+        break;
+    }
+  }
+
+  void _scheduleAutoLock() {
+    _autoLockTimer?.cancel();
+
+    final SettingsController settings = context.read<SettingsController>();
+    final WalletIdentityController identity =
+        context.read<WalletIdentityController>();
+    if (!settings.autoLockEnabled || !identity.unlocked) {
+      return;
+    }
+
+    final int seconds = settings.autoLockSeconds ?? 0;
+    if (seconds <= 0) {
+      identity.lock();
+      return;
+    }
+    _autoLockTimer = Timer(Duration(seconds: seconds), identity.lock);
+  }
 
   @override
   Widget build(BuildContext context) {

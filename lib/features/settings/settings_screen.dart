@@ -303,6 +303,7 @@ class _SecuritySectionState extends State<_SecuritySection> {
   Widget build(BuildContext context) {
     final WalletIdentityController identity =
         context.watch<WalletIdentityController>();
+    final SettingsController settings = context.watch<SettingsController>();
 
     return _SettingsGroup(
       children: <Widget>[
@@ -321,7 +322,63 @@ class _SecuritySectionState extends State<_SecuritySection> {
                     : 'Confirms your PIN once to set up',
           ),
         ),
+        ListTile(
+          leading: const Icon(Icons.timer_outlined),
+          title: const Text('Auto-lock'),
+          subtitle: Text(_autoLockLabel(settings.autoLockSeconds)),
+          trailing: const Icon(Icons.chevron_right_rounded),
+          onTap: () => _pickAutoLock(settings),
+        ),
       ],
+    );
+  }
+
+  String _autoLockLabel(int? seconds) {
+    if (seconds == null) {
+      return 'Never';
+    }
+    if (seconds == 0) {
+      return 'Immediately';
+    }
+    if (seconds < 60) {
+      return 'After $seconds seconds';
+    }
+    return 'After ${seconds ~/ 60} minute${seconds == 60 ? '' : 's'}';
+  }
+
+  Future<void> _pickAutoLock(SettingsController settings) async {
+    final AutoLockDelay? chosen = await showDialog<AutoLockDelay>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: const Text('Auto-lock after'),
+        children: <Widget>[
+          RadioGroup<AutoLockDelay>(
+            groupValue: _delayFor(settings.autoLockSeconds),
+            onChanged: (AutoLockDelay? value) =>
+                Navigator.of(dialogContext).pop(value),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                for (final AutoLockDelay delay in AutoLockDelay.values)
+                  RadioListTile<AutoLockDelay>(
+                    value: delay,
+                    title: Text(delay.label),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    if (chosen != null && mounted) {
+      settings.setAutoLockDelay(chosen);
+    }
+  }
+
+  AutoLockDelay _delayFor(int? seconds) {
+    return AutoLockDelay.values.firstWhere(
+      (AutoLockDelay delay) => delay.seconds == seconds,
+      orElse: () => AutoLockDelay.minute1,
     );
   }
 }
