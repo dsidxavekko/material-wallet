@@ -28,6 +28,7 @@ class WalletStorage {
   static const String _throttleKey = 'nova.wallet.unlockThrottle';
   static const String _autoLockKey = 'nova.wallet.autoLockSeconds';
   static const String _themeKey = 'nova.wallet.themeMode';
+  static const String _cachePrefix = 'nova.wallet.cache.';
 
   /// The encrypted recovery phrase, or `null` when no wallet exists.
   Future<String?> readVault() async {
@@ -127,11 +128,27 @@ class WalletStorage {
     await prefs.setString(_themeKey, name);
   }
 
+  /// Reads the cached snapshot JSON for [id] (a network id), if any.
+  Future<String?> readCache(String id) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    return prefs.getString('$_cachePrefix$id');
+  }
+
+  Future<void> writeCache(String id, String value) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setString('$_cachePrefix$id', value);
+  }
+
   /// Removes the wallet. The selected network is intentionally preserved.
   Future<void> clear() async {
     await _secureStorage.delete(key: _vaultKey);
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.remove(_createdAtKey);
     await prefs.remove(_throttleKey);
+    for (final String key in prefs.getKeys().toList()) {
+      if (key.startsWith(_cachePrefix)) {
+        await prefs.remove(key);
+      }
+    }
   }
 }

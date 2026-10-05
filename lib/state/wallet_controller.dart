@@ -7,6 +7,7 @@ import '../data/networks/chain_api.dart';
 import '../data/networks/chain_models.dart';
 import '../data/networks/network_config.dart';
 import '../data/networks/price_api.dart';
+import '../data/wallet/snapshot_cache.dart';
 import 'settings_controller.dart';
 import 'wallet_identity_controller.dart';
 
@@ -21,8 +22,10 @@ class WalletController extends ChangeNotifier {
     required this.settings,
     ChainApi? chainApi,
     PriceApi? priceApi,
+    SnapshotCache? cache,
   })  : _chainApi = chainApi ?? ChainApi(),
-        _priceApi = priceApi ?? PriceApi() {
+        _priceApi = priceApi ?? PriceApi(),
+        _cache = cache ?? const SnapshotCache() {
     identity.addListener(_onDependencyChanged);
     settings.addListener(_onDependencyChanged);
     // Deferred so the very first notify happens after the first build.
@@ -33,6 +36,7 @@ class WalletController extends ChangeNotifier {
   final SettingsController settings;
   final ChainApi _chainApi;
   final PriceApi _priceApi;
+  final SnapshotCache _cache;
 
   AccountSnapshot? _snapshot;
   bool _loading = false;
@@ -124,6 +128,22 @@ class WalletController extends ChangeNotifier {
       return;
     }
 
+    // Show the last persisted snapshot for this network straight away, so the
+    // screen is useful before the network answers and while offline. A snapshot
+    // from a different network or address is never shown.
+    if (_snapshot?.network.id != network.id || _snapshot?.address != address) {
+      final AccountSnapshot? cached = await _cache.read(network.id);
+      if (token != _requestToken) {
+        return;
+      }
+      _snapshot = cached != null &&
+              cached.network.id == network.id &&
+              cached.address == address
+          ? cached
+          : null;
+      _safeNotify();
+    }
+
     if (force) {
       _priceApi.invalidateCache();
     }
@@ -181,6 +201,7 @@ class WalletController extends ChangeNotifier {
         price: price,
         fetchedAt: DateTime.now(),
       );
+      unawaited(_cache.write(_snapshot!));
     } on ChainApiException catch (error) {
       if (token != _requestToken) {
         return;
