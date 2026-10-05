@@ -13,6 +13,7 @@ import '../../state/settings_controller.dart';
 import '../../state/wallet_controller.dart';
 import '../../state/wallet_identity_controller.dart';
 import '../network/network_picker.dart';
+import 'address_book_screen.dart';
 import 'currency_picker.dart';
 
 /// Application preferences, wallet management and network switching.
@@ -441,6 +442,17 @@ class _WalletSection extends StatelessWidget {
                 showDragHandle: true,
                 isScrollControlled: true,
                 builder: (_) => const _ChangePinSheet(),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.contacts_rounded),
+              title: const Text('Address book'),
+              subtitle: const Text('Saved recipients and labels'),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const AddressBookScreen(),
+                ),
               ),
             ),
             ListTile(

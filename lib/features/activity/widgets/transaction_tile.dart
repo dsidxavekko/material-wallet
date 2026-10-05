@@ -18,6 +18,7 @@ class TransactionTile extends StatelessWidget {
     required this.currency,
     this.price,
     this.onExplorer,
+    this.counterpartyLabel,
   });
 
   final ChainTransaction transaction;
@@ -25,6 +26,9 @@ class TransactionTile extends StatelessWidget {
   final AppCurrency currency;
   final CoinPrice? price;
   final VoidCallback? onExplorer;
+
+  /// Address-book label for the counterparty, when one is saved.
+  final String? counterpartyLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -97,7 +101,7 @@ class TransactionTile extends StatelessWidget {
                   const SizedBox(height: 3),
                   Text(
                     '${AppFormat.relativeTime(transaction.timestamp)} · '
-                    '${AppFormat.shortAddress(transaction.counterparty, head: 6, tail: 4)}',
+                    '${counterpartyLabel ?? AppFormat.shortAddress(transaction.counterparty, head: 6, tail: 4)}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: text.bodySmall

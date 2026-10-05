@@ -6,6 +6,7 @@ import '../../core/utils/formatters.dart';
 import '../../core/utils/units.dart';
 import '../../data/networks/chain_models.dart';
 import '../../shared/widgets/empty_state.dart';
+import '../../state/contacts_controller.dart';
 import '../../state/settings_controller.dart';
 import '../../state/wallet_controller.dart';
 import '../home/widgets/state_cards.dart';
@@ -36,6 +37,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
   @override
   Widget build(BuildContext context) {
     final WalletController wallet = context.watch<WalletController>();
+    final ContactsController contacts = context.watch<ContactsController>();
     final AppCurrency currency =
         context.select<SettingsController, AppCurrency>((s) => s.currency);
     final AccountSnapshot? snapshot = wallet.snapshot;
@@ -111,6 +113,10 @@ class _ActivityScreenState extends State<ActivityScreen> {
                       network: snapshot.network,
                       currency: currency,
                       price: snapshot.price,
+                      counterpartyLabel: contacts.labelFor(
+                        item.counterparty,
+                        snapshot.network.id,
+                      ),
                       onExplorer: () => openExplorer(
                         context,
                         snapshot.network.explorerTx(item.hash),

@@ -8,6 +8,7 @@ import 'data/wallet/wallet_storage.dart';
 import 'features/lock/lock_screen.dart';
 import 'features/onboarding/onboarding_screen.dart';
 import 'features/shell/app_shell.dart';
+import 'state/contacts_controller.dart';
 import 'state/settings_controller.dart';
 import 'state/wallet_controller.dart';
 import 'state/wallet_identity_controller.dart';
@@ -31,6 +32,9 @@ class MaterialWalletApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider<SettingsController>(
           create: (_) => SettingsController()..load(),
+        ),
+        ChangeNotifierProvider<ContactsController>(
+          create: (_) => ContactsController()..load(),
         ),
         ChangeNotifierProvider<WalletIdentityController>(
           create: (_) => WalletIdentityController(storage: storage)..load(),

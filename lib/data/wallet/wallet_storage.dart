@@ -28,6 +28,7 @@ class WalletStorage {
   static const String _throttleKey = 'nova.wallet.unlockThrottle';
   static const String _autoLockKey = 'nova.wallet.autoLockSeconds';
   static const String _themeKey = 'nova.wallet.themeMode';
+  static const String _contactsKey = 'nova.wallet.contacts';
   static const String _cachePrefix = 'nova.wallet.cache.';
 
   /// The encrypted recovery phrase, or `null` when no wallet exists.
@@ -137,6 +138,17 @@ class WalletStorage {
   Future<void> writeCache(String id, String value) async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.setString('$_cachePrefix$id', value);
+  }
+
+  /// The address book as a JSON array. Kept across [clear] on purpose.
+  Future<String?> readContacts() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_contactsKey);
+  }
+
+  Future<void> writeContacts(String value) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_contactsKey, value);
   }
 
   /// Removes the wallet. The selected network is intentionally preserved.
