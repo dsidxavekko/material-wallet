@@ -6,8 +6,9 @@ generated locally, encrypted, and stored only on this device.
 
 > ⚠️ **Disclaimer**
 > This project is a **portfolio / educational app**. It derives real public
-> addresses and reads live on-chain data, but the *Send* flow only **validates
-> and estimates a fee** — it does **not** sign or broadcast transactions yet.
+> addresses, reads live on-chain data, and **signs and broadcasts real EVM
+> transactions** on-device. Bitcoin, Solana and Aptos send flows still only
+> validate and estimate a fee.
 > **Do not use it to store meaningful funds.**
 
 ---
@@ -28,9 +29,10 @@ generated locally, encrypted, and stored only on this device.
     phrase is wiped from the clipboard automatically.
   - Screenshots and the app-switcher preview are blocked (`FLAG_SECURE`).
 - 🌐 **Multi-chain** — Bitcoin, EVM networks, Solana and Aptos (see table below).
-- 💸 **Send (dry-run)** — validates the recipient address per chain (bech32,
-  Base58Check, EIP-55, Aptos hex), checks the live balance and fetches the
-  network fee; does not sign or broadcast.
+- 💸 **Send** — validates the recipient address per chain (bech32, Base58Check,
+  EIP-55, Aptos hex) against the live balance. On **EVM networks** the
+  transaction is signed on-device (EIP-155 + EIP-2, RFC-6979) and broadcast for
+  real after a PIN confirmation; other chains stop at a copyable summary.
 - 📒 **Address book** — save recipients with local labels; labels show up in the
   send flow and the activity list.
 - 🪙 **Token balances** — ERC-20 holdings with USD values on the Blockscout-backed
@@ -150,7 +152,10 @@ lib/
 
 ## Roadmap
 
-- [ ] Sign and broadcast transactions (Bitcoin, EVM, Solana, Aptos).
+- [x] Sign and broadcast transactions (EVM) — verified end-to-end on Sepolia.
+- [ ] Sign and broadcast transactions (Bitcoin, Solana, Aptos).
+- [ ] EIP-1559 typed transactions with a fee cap.
+- [ ] Reject a transfer whose live balance dropped since the last refresh.
 - [ ] SPL token balances.
 - [ ] Biometric (not only PIN) re-auth for revealing the recovery phrase.
 

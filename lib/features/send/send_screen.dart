@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -11,18 +13,20 @@ import '../../data/networks/chain_models.dart';
 import '../../data/networks/network_config.dart';
 import '../../data/wallet/address_validator.dart';
 import '../../data/wallet/contact_store.dart';
+import '../../data/wallet/seed_vault.dart';
 import '../../shared/widgets/empty_state.dart';
+import '../../shared/widgets/pin_confirm_dialog.dart';
 import '../../state/contacts_controller.dart';
+import '../../state/send_controller.dart';
 import '../../state/settings_controller.dart';
 import '../../state/wallet_controller.dart';
+import '../../state/wallet_identity_controller.dart';
 import '../scan/scan_screen.dart';
 
-/// Prepares an outgoing transfer against the **live** balance of the active
-/// network.
+/// Sends the native currency of the active network.
 ///
-/// The transaction is fully validated and the real network fee is fetched, but
-/// this build does not sign or broadcast — the confirmation sheet says so
-/// explicitly and lets the details be copied instead.
+/// EVM networks are signed on-device and broadcast for real; every other chain
+/// still stops at a validated, copyable summary.
 class SendScreen extends StatefulWidget {
   const SendScreen({super.key});
 
@@ -34,7 +38,13 @@ class _SendScreenState extends State<SendScreen> {
   final TextEditingController _amountController = TextEditingController();
   final TextEditingController _addressController = TextEditingController();
 
-  BigInt? _fee;
+  /// The gas price and limit that will actually be signed.
+  ///
+  /// Captured once, right before the confirmation sheet opens, and reused for
+  /// the signature — so the total the user approves is exactly the total that
+  /// leaves the account.
+  ({BigInt gasPrice, BigInt gasLimit})? _quote;
+  BigInt? _estimate;
   bool _loadingFee = true;
 
   @override
@@ -58,9 +68,16 @@ class _SendScreenState extends State<SendScreen> {
   BigInt get _enteredAmount =>
       Units.parse(_amountController.text, _network.decimals) ?? BigInt.zero;
 
-  BigInt get _effectiveFee => _fee ?? BigInt.zero;
+  BigInt get _effectiveFee {
+    final ({BigInt gasPrice, BigInt gasLimit})? quote = _quote;
+    if (quote != null) {
+      return quote.gasPrice * quote.gasLimit;
+    }
+    return _estimate ?? BigInt.zero;
+  }
 
-  BigInt get _total => _enteredAmount + (_enteredAmount > BigInt.zero ? _effectiveFee : BigInt.zero);
+  BigInt get _total =>
+      _enteredAmount + (_enteredAmount > BigInt.zero ? _effectiveFee : BigInt.zero);
 
   bool get _hasEnoughFunds => _total <= _balance;
 
@@ -72,6 +89,12 @@ class _SendScreenState extends State<SendScreen> {
       _hasEnoughFunds &&
       _addressValidation.valid;
 
+  /// Whether the network fee is known well enough to sign with.
+  ///
+  /// On a chain the wallet can broadcast, an unavailable quote blocks sending:
+  /// guessing a fee risks a transaction the user never approved.
+  bool get _feeKnown => _quote != null || (_estimate != null && !_network.canSign);
+
   String get _availableLabel => Units.formatWithSymbol(
         _balance,
         _network.decimals,
@@ -79,14 +102,46 @@ class _SendScreenState extends State<SendScreen> {
         maxDecimals: 8,
       );
 
+  /// Fetches a fresh quote for the amount and recipient currently entered.
+  ///
+  /// Safe to call on every keystroke: it only reads `_quote` when complete.
+  Future<void> _refreshQuote() async {
+    if (!_network.canSign) {
+      return;
+    }
+    final NetworkConfig network = _network;
+    final String recipient = _extractAddress(_addressController.text.trim());
+    if (recipient.isEmpty ||
+        !AddressValidator.validate(network, recipient).valid) {
+      return;
+    }
+
+    final SendController controller = SendController(
+      identity: context.read<WalletIdentityController>(),
+      network: network,
+      address: context.read<WalletController>().address ?? '',
+    );
+    final ({BigInt gasPrice, BigInt gasLimit})? quote =
+        await controller.prepare(to: recipient, value: _enteredAmount);
+    controller.dispose();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _quote = quote;
+      _loadingFee = false;
+    });
+  }
+
   Future<void> _loadFee() async {
     final BigInt? fee = await context.read<WalletController>().estimateFee();
-    if (mounted) {
-      setState(() {
-        _fee = fee;
-        _loadingFee = false;
-      });
+    if (!mounted) {
+      return;
     }
+    setState(() {
+      _estimate = fee;
+      _loadingFee = false;
+    });
   }
 
   @override
@@ -201,7 +256,7 @@ class _SendScreenState extends State<SendScreen> {
                     network: network,
                     currency: currency,
                     amount: _enteredAmount,
-                    fee: _fee,
+                    fee: _feeKnown ? _effectiveFee : null,
                     loadingFee: _loadingFee,
                   ),
                 ],
@@ -273,9 +328,31 @@ class _SendScreenState extends State<SendScreen> {
 
   Future<void> _prepare() async {
     final NetworkConfig network = _network;
+
+    // Re-quote immediately before review: the gas price moves, and the number
+    // shown here is the one that gets signed.
+    if (network.canSign) {
+      setState(() => _loadingFee = true);
+      await _refreshQuote();
+      if (!mounted) {
+        return;
+      }
+      if (_quote == null) {
+        showAppSnackBar(
+          context,
+          'Could not reach ${network.name} to price this transfer. '
+          'Nothing was sent.',
+          icon: Icons.cloud_off_rounded,
+        );
+        return;
+      }
+    }
+
     final ContactsController contacts = context.read<ContactsController>();
     final String recipient = _extractAddress(_addressController.text.trim());
     final bool alreadySaved = contacts.contains(recipient, network.id);
+    final ({BigInt gasPrice, BigInt gasLimit})? quote = _quote;
+
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -284,10 +361,124 @@ class _SendScreenState extends State<SendScreen> {
         network: network,
         recipient: recipient,
         amount: _enteredAmount,
-        fee: _fee,
+        fee: _effectiveFee,
         explorerUrl: network.explorerAddress(recipient),
         alreadySaved: alreadySaved,
         onSave: () => _saveRecipient(recipient, network),
+        // Signing is only offered with a quote that will actually be used.
+        onSend: network.canSign && quote != null
+            ? () => _signAndSend(recipient, quote)
+            : null,
+      ),
+    );
+  }
+
+  /// Confirms with the PIN, signs on-device and broadcasts.
+  ///
+  /// The sheet is popped first so the progress dialog owns the screen, then the
+  /// balance is refreshed so the UI reflects what actually left the account.
+  Future<void> _signAndSend(
+    String recipient,
+    ({BigInt gasPrice, BigInt gasLimit}) quote,
+  ) async {
+    final NetworkConfig network = _network;
+    final WalletIdentityController identity =
+        context.read<WalletIdentityController>();
+    final String? address = identity.addressFor(network);
+    if (address == null) {
+      return;
+    }
+
+    final String? pin = await PinConfirmDialog.show(
+      context,
+      title: 'Confirm transfer',
+      confirmLabel: 'Send',
+      icon: Icons.key_rounded,
+    );
+    if (pin == null || !mounted) {
+      return;
+    }
+
+    try {
+      await identity.verifyPin(pin);
+    } on SeedVaultException catch (error) {
+      if (mounted) {
+        showAppSnackBar(context, error.message, icon: Icons.lock_outline_rounded);
+      }
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
+
+    final NavigatorState navigator = Navigator.of(context);
+    navigator.pop(); // close the summary sheet
+
+    final SendController controller = SendController(
+      identity: identity,
+      network: network,
+      address: address,
+    );
+
+    unawaited(
+      _runTransfer(controller, recipient, network, quote),
+    );
+  }
+
+  /// Signs and broadcasts the already-reviewed quote behind a progress dialog,
+  /// then shows the outcome. The balance is refreshed so the UI matches the
+  /// chain.
+  Future<void> _runTransfer(
+    SendController controller,
+    String recipient,
+    NetworkConfig network,
+    ({BigInt gasPrice, BigInt gasLimit}) quote,
+  ) async {
+    final BigInt amount = _enteredAmount;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => ChangeNotifierProvider<SendController>.value(
+        value: controller,
+        child: _TransferProgressDialog(
+          recipient: recipient,
+          amount: amount,
+          gasPrice: quote.gasPrice,
+          gasLimit: quote.gasLimit,
+        ),
+      ),
+    );
+    final String? hash = controller.txHash;
+    final bool confirmed = controller.stage == SendStage.confirmed;
+    final String? error = controller.error;
+    controller.dispose();
+
+    if (!mounted) {
+      return;
+    }
+
+    if (hash == null) {
+      showAppSnackBar(
+        context,
+        error ?? 'The transfer failed. Nothing was sent.',
+        icon: Icons.error_outline_rounded,
+      );
+      return;
+    }
+
+    await context.read<WalletController>().refresh();
+    if (!mounted) {
+      return;
+    }
+
+    await showDialog<void>(
+      context: context,
+      builder: (_) => _TransferResultDialog(
+        network: network,
+        hash: hash,
+        confirmed: confirmed,
+        explorerUrl: network.explorerTx(hash),
       ),
     );
   }
@@ -582,8 +773,8 @@ class _SummaryCard extends StatelessWidget {
 
 /// Confirmation sheet shown once the transfer has been validated.
 ///
-/// This build does not sign or broadcast transactions, and says so plainly
-/// instead of pretending the funds moved.
+/// On a chain the wallet can sign for, [onSend] is wired to a real broadcast;
+/// elsewhere it stays `null` and the sheet is copy-only.
 class _PreparedSheet extends StatelessWidget {
   const _PreparedSheet({
     required this.network,
@@ -593,6 +784,7 @@ class _PreparedSheet extends StatelessWidget {
     required this.explorerUrl,
     required this.alreadySaved,
     required this.onSave,
+    this.onSend,
   });
 
   final NetworkConfig network;
@@ -602,6 +794,9 @@ class _PreparedSheet extends StatelessWidget {
   final String explorerUrl;
   final bool alreadySaved;
   final VoidCallback onSave;
+
+  /// Starts the PIN-confirmed transfer; `null` when signing is unsupported.
+  final VoidCallback? onSend;
 
   @override
   Widget build(BuildContext context) {
@@ -675,20 +870,31 @@ class _PreparedSheet extends StatelessWidget {
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      'Broadcasting is not enabled in this build — nothing was '
-                      'sent to the network. Restore your recovery phrase in a '
-                      'signing wallet to move funds.',
-                      style: text.bodySmall?.copyWith(
-                        color: scheme.onTertiaryContainer,
-                        height: 1.45,
-                      ),
+                      onSend == null
+                        ? 'Sending is not supported on ${network.name} yet. '
+                            'Restore your recovery phrase in a signing wallet '
+                            'to move funds.'
+                        : 'The transfer is signed on this device and sent '
+                            'straight to ${network.name}. It cannot be undone.',
+                    style: text.bodySmall?.copyWith(
+                      color: scheme.onTertiaryContainer,
+                      height: 1.45,
+                    ),
                     ),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 18),
-            FilledButton.icon(
+            if (onSend != null) ...<Widget>[
+              FilledButton.icon(
+                onPressed: onSend,
+                icon: const Icon(Icons.lock_rounded),
+                label: Text('Send ${network.symbol}'),
+              ),
+              const SizedBox(height: 10),
+            ],
+            OutlinedButton.icon(
               onPressed: () => _copy(context),
               icon: const Icon(Icons.copy_rounded),
               label: const Text('Copy details'),
@@ -756,5 +962,150 @@ class _PreparedSheet extends StatelessWidget {
         icon: Icons.copy_rounded,
       );
     }
+  }
+}
+
+/// Blocking dialog that drives a transfer from signing to confirmation.
+///
+/// The controller is injected by the caller, which owns its lifecycle, so the
+/// dialog only reacts to [SendStage] changes.
+class _TransferProgressDialog extends StatefulWidget {
+  const _TransferProgressDialog({
+    required this.recipient,
+    required this.amount,
+    required this.gasPrice,
+    required this.gasLimit,
+  });
+
+  final String recipient;
+  final BigInt amount;
+  final BigInt gasPrice;
+  final BigInt gasLimit;
+
+  @override
+  State<_TransferProgressDialog> createState() => _TransferProgressDialogState();
+}
+
+class _TransferProgressDialogState extends State<_TransferProgressDialog> {
+  @override
+  void initState() {
+    super.initState();
+    // Kick off after the first frame so the dialog is visible while the
+    // signing work happens.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      context.read<SendController>().send(
+            to: widget.recipient,
+            value: widget.amount,
+            gasPrice: widget.gasPrice,
+            gasLimit: widget.gasLimit,
+          );
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final SendController controller = context.watch<SendController>();
+    final TextTheme text = Theme.of(context).textTheme;
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final bool done = controller.stage == SendStage.confirmed ||
+        controller.stage == SendStage.failed ||
+        controller.stage == SendStage.broadcast;
+
+    return PopScope(
+      canPop: done,
+      child: AlertDialog(
+        title: Text(done ? 'Transfer submitted' : 'Sending…'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            if (!done) ...<Widget>[
+              const LinearProgressIndicator(),
+              const SizedBox(height: 18),
+            ],
+            Text(
+              controller.stage == SendStage.broadcasting ||
+                      controller.stage == SendStage.signing
+                  ? 'Signing on this device…'
+                  : controller.stage == SendStage.broadcast
+                      ? 'Waiting for ${widget.recipient.length > 12 ? '${widget.recipient.substring(0, 8)}…' : widget.recipient} to confirm…'
+                      : controller.stage == SendStage.confirmed
+                          ? 'Confirmed on-chain.'
+                          : controller.error ?? 'Broadcasting…',
+              style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+            ),
+            if (controller.txHash != null) ...<Widget>[
+              const SizedBox(height: 12),
+              Text(
+                'Tx ${controller.txHash!.length > 18 ? '${controller.txHash!.substring(0, 18)}…' : controller.txHash}',
+                style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+            ],
+          ],
+        ),
+        actions: <Widget>[
+          if (done)
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close'),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Shows the transaction hash once the node accepted the transfer.
+class _TransferResultDialog extends StatelessWidget {
+  const _TransferResultDialog({
+    required this.network,
+    required this.hash,
+    required this.confirmed,
+    required this.explorerUrl,
+  });
+
+  final NetworkConfig network;
+  final String hash;
+  final bool confirmed;
+  final String explorerUrl;
+
+  @override
+  Widget build(BuildContext context) {
+    final TextTheme text = Theme.of(context).textTheme;
+    return AlertDialog(
+      icon: Icon(
+        confirmed ? Icons.check_circle_rounded : Icons.schedule_rounded,
+      ),
+      title: Text(confirmed ? 'Transfer confirmed' : 'Transfer pending'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            confirmed
+                ? 'The funds left your wallet and the transaction is mined.'
+                : 'The transaction was accepted and will confirm shortly. You '
+                    'can follow it on the explorer.',
+            style: text.bodyMedium,
+          ),
+          const SizedBox(height: 12),
+          SelectableText(hash, style: text.bodySmall),
+        ],
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Done'),
+        ),
+        FilledButton.icon(
+          onPressed: () => openExplorer(context, explorerUrl),
+          icon: const Icon(Icons.open_in_new_rounded),
+          label: const Text('Explorer'),
+        ),
+      ],
+    );
   }
 }

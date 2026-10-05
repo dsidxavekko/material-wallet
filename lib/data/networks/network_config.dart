@@ -24,6 +24,8 @@ class NetworkConfig {
     this.rpcUrl,
     this.addressPath = '/address/{address}',
     this.txPath = '/tx/{hash}',
+    this.chainId,
+    this.sendRpcUrl,
   });
 
   final String id;
@@ -64,6 +66,22 @@ class NetworkConfig {
 
   /// Path template (after [explorerBase]) for a transaction link.
   final String txPath;
+
+  /// EIP-155 chain id, required to sign a transaction for this network.
+  ///
+  /// Binds a signature to one chain so it can never be replayed elsewhere.
+  /// `null` on chains the wallet cannot sign for (Bitcoin, Solana, Aptos).
+  final int? chainId;
+
+  /// JSON-RPC endpoint used **only** for broadcasting signed transactions.
+  ///
+  /// Kept separate from [rpcUrl] on purpose: setting `rpcUrl` switches balance
+  /// and history reads to JSON-RPC and disables the Blockscout token index, so
+  /// the two must not be conflated.
+  final String? sendRpcUrl;
+
+  /// `true` when the wallet can build and broadcast a transaction here.
+  bool get canSign => chainId != null && sendRpcUrl != null;
 
   String get group => switch (chain) {
         ChainKind.bitcoin => 'Bitcoin',
@@ -143,6 +161,8 @@ class NetworkCatalog {
     explorerBase: 'https://eth.blockscout.com',
     color: Color(0xFF627EEA),
     priceId: 'ethereum',
+    chainId: 1,
+    sendRpcUrl: 'https://ethereum-rpc.publicnode.com',
   );
 
   static const NetworkConfig sepolia = NetworkConfig(
@@ -155,6 +175,8 @@ class NetworkCatalog {
     explorerBase: 'https://eth-sepolia.blockscout.com',
     color: Color(0xFF627EEA),
     isTestnet: true,
+    chainId: 11155111,
+    sendRpcUrl: 'https://ethereum-sepolia-rpc.publicnode.com',
   );
 
   static const NetworkConfig base = NetworkConfig(
@@ -167,6 +189,8 @@ class NetworkCatalog {
     explorerBase: 'https://base.blockscout.com',
     color: Color(0xFF0052FF),
     priceId: 'ethereum',
+    chainId: 8453,
+    sendRpcUrl: 'https://base-rpc.publicnode.com',
   );
 
   static const NetworkConfig polygon = NetworkConfig(
@@ -179,6 +203,8 @@ class NetworkCatalog {
     explorerBase: 'https://polygon.blockscout.com',
     color: Color(0xFF8247E5),
     priceId: 'polygon-ecosystem-token',
+    chainId: 137,
+    sendRpcUrl: 'https://polygon-bor-rpc.publicnode.com',
   );
 
   static const NetworkConfig arbitrum = NetworkConfig(
@@ -191,6 +217,8 @@ class NetworkCatalog {
     explorerBase: 'https://arbitrum.blockscout.com',
     color: Color(0xFF28A0F0),
     priceId: 'ethereum',
+    chainId: 42161,
+    sendRpcUrl: 'https://arbitrum-one-rpc.publicnode.com',
   );
 
   // --- BNB Chain (key-less JSON-RPC) ---------------------------------------
@@ -209,6 +237,7 @@ class NetworkCatalog {
     explorerBase: 'https://bscscan.com',
     color: Color(0xFFF0B90B),
     priceId: 'binancecoin',
+    chainId: 56,
   );
 
   // --- Solana --------------------------------------------------------------

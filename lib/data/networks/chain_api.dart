@@ -160,6 +160,118 @@ class ChainApi {
     }
   }
 
+  // --- EVM transaction submission -------------------------------------------
+
+  /// Number of transactions already sent from [address] — the next transaction
+  /// must use this as its nonce.
+  Future<int> getTransactionCount(
+    NetworkConfig network,
+    String address,
+  ) async {
+    final Object? result = await _rpc(
+      _signingRpc(network),
+      'eth_getTransactionCount',
+      <Object?>[address, 'pending'],
+    );
+    return _hexToBigInt(result).toInt();
+  }
+
+  /// Current gas price in wei, from the signing RPC.
+  Future<BigInt> fetchGasPrice(NetworkConfig network) async {
+    final Object? result =
+        await _rpc(_signingRpc(network), 'eth_gasPrice', const <Object?>[]);
+    return _hexToBigInt(result);
+  }
+
+  /// Gas units a native transfer to [to] of [value] wei would use.
+  ///
+  /// Falls back to 21,000 (the exact cost of a plain value transfer) when the
+  /// node cannot estimate, so a transfer is never blocked by an estimator that
+  /// dislikes an unfunded account.
+  Future<BigInt> estimateTransferGas({
+    required NetworkConfig network,
+    required String from,
+    required String to,
+    required BigInt value,
+  }) async {
+    try {
+      final Object? result = await _rpc(
+        _signingRpc(network),
+        'eth_estimateGas',
+        <Object?>[
+          <String, Object?>{
+            'from': from,
+            'to': to,
+            'value': _quantity(value),
+          },
+        ],
+      );
+      final BigInt gas = _hexToBigInt(result);
+      return gas > BigInt.zero ? gas : BigInt.from(21000);
+    } catch (_) {
+      return BigInt.from(21000);
+    }
+  }
+
+  /// Broadcasts a signed transaction and returns its hash.
+  Future<String> sendRawTransaction(
+    NetworkConfig network,
+    String rawTransaction,
+  ) async {
+    final Object? result = await _rpc(
+      _signingRpc(network),
+      'eth_sendRawTransaction',
+      <Object?>[rawTransaction],
+    );
+    if (result is! String || result.isEmpty) {
+      throw const ChainApiException(
+        'The node accepted the transaction but returned no hash.',
+        retryable: false,
+      );
+    }
+    return result;
+  }
+
+  /// Waits until [hash] is mined, returning whether it succeeded.
+  ///
+  /// [attempts] polls with a growing delay; giving up returns `null` rather than
+  /// claiming failure, because the transaction may still confirm later.
+  Future<bool?> waitForReceipt(
+    NetworkConfig network,
+    String hash, {
+    int attempts = 12,
+  }) async {
+    for (int i = 0; i < attempts; i++) {
+      await Future<void>.delayed(Duration(seconds: 2 + i));
+      final Object? result = await _rpc(
+        _signingRpc(network),
+        'eth_getTransactionReceipt',
+        <Object?>[hash],
+      );
+      if (result is! Map<String, Object?>) {
+        continue; // still in the mempool
+      }
+      return result['status'] == '0x1';
+    }
+    return null;
+  }
+
+  /// RPC endpoint used for signing; throws on chains the wallet cannot sign for.
+  String _signingRpc(NetworkConfig network) {
+    final String? url = network.sendRpcUrl;
+    if (network.chain != ChainKind.evm || url == null) {
+      throw ChainApiException(
+        '${network.name} does not support sending yet.',
+        retryable: false,
+      );
+    }
+    return url;
+  }
+
+  /// `0x`-prefixed minimal hex quantity for a [BigInt].
+  static String _quantity(BigInt value) =>
+      '0x${value == BigInt.zero ? '0' : value.toRadixString(16)}';
+
   // --- HTTP ----------------------------------------------------------------
 
   /// ERC-20 balances for [address], largest USD value first.

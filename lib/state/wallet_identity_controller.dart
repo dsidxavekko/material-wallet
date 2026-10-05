@@ -119,6 +119,12 @@ class WalletIdentityController extends ChangeNotifier {
     };
   }
 
+  /// The decrypted BIP-39 seed, or `null` while locked.
+  ///
+  /// Exposed for on-device transaction signing. Callers must treat the result
+  /// as read-only and copy what they need — [lock] overwrites the original.
+  Uint8List? get seed => _seed;
+
   // --- mnemonic helpers ----------------------------------------------------
 
   /// 128 bits → 12 words, 256 bits → 24 words.
