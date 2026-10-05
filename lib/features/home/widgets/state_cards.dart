@@ -42,10 +42,14 @@ class ErrorCard extends StatelessWidget {
     super.key,
     required this.message,
     required this.onRetry,
+    this.showRetry = true,
   });
 
   final String message;
   final VoidCallback onRetry;
+
+  /// Hidden for errors a retry cannot fix (e.g. an unparseable response).
+  final bool showRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -83,14 +87,15 @@ class ErrorCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: FilledButton.tonalIcon(
-                onPressed: onRetry,
-                icon: const Icon(Icons.refresh_rounded, size: 18),
-                label: const Text('Try again'),
+            if (showRetry)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: FilledButton.tonalIcon(
+                  onPressed: onRetry,
+                  icon: const Icon(Icons.refresh_rounded, size: 18),
+                  label: const Text('Try again'),
+                ),
               ),
-            ),
           ],
         ),
       ),

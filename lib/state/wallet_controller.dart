@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../core/utils/app_log.dart';
 import '../data/networks/chain_api.dart';
 import '../data/networks/chain_models.dart';
 import '../data/networks/network_config.dart';
@@ -36,6 +37,7 @@ class WalletController extends ChangeNotifier {
   AccountSnapshot? _snapshot;
   bool _loading = false;
   String? _error;
+  bool _errorRetryable = true;
   String? _lastKey;
   int _requestToken = 0;
   bool _disposed = false;
@@ -48,6 +50,10 @@ class WalletController extends ChangeNotifier {
 
   String? get error => _error;
 
+  /// Whether the last [error] is worth retrying (network hiccups are, a
+  /// malformed response is not).
+  bool get errorRetryable => _errorRetryable;
+
   /// Receive address for the active network, or `null` while locked.
   String? get address => identity.addressFor(network);
 
@@ -58,9 +64,9 @@ class WalletController extends ChangeNotifier {
   /// Bypasses the price cache so the user actually sees a fresh value.
   Future<void> refresh() => _load(force: true);
 
-  /// Re-fetches only to refresh the market price after a failure, bypassing the
-  /// cached value (used by the "Retry" action on the balance card).
-  Future<void> retryPrice() => _load(force: true);
+  /// Re-fetches balance, history and price after a failure, bypassing the
+  /// caches (used by the "Retry" action on the balance card).
+  Future<void> retryPrice() => refresh();
 
   /// Network fee estimate for a simple transfer on the active network.
   ///
@@ -113,6 +119,7 @@ class WalletController extends ChangeNotifier {
       _snapshot = null;
       _loading = false;
       _error = null;
+      _errorRetryable = true;
       _safeNotify();
       return;
     }
@@ -123,6 +130,7 @@ class WalletController extends ChangeNotifier {
 
     _loading = true;
     _error = null;
+    _errorRetryable = true;
     _safeNotify();
 
     try {
@@ -178,11 +186,19 @@ class WalletController extends ChangeNotifier {
         return;
       }
       _error = error.message;
-    } catch (_) {
+      _errorRetryable = error.retryable;
+      AppLog.warning('Failed to load ${network.name}', error);
+    } catch (error, stackTrace) {
       if (token != _requestToken) {
         return;
       }
       _error = 'Something went wrong while loading ${network.name}.';
+      _errorRetryable = true;
+      AppLog.error(
+        'Unexpected failure loading ${network.name}',
+        error,
+        stackTrace,
+      );
     } finally {
       if (token == _requestToken) {
         _loading = false;

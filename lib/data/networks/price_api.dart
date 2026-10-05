@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../../core/utils/app_log.dart';
 import 'chain_models.dart';
 
 /// Fetches market prices from the public CoinGecko API.
@@ -76,7 +77,10 @@ class PriceApi {
       _priceCache[coinGeckoId] =
           _CacheEntry<CoinPrice>(price, _now());
       return price;
-    } catch (_) {
+    } catch (error) {
+      // Expected under CoinGecko rate limits (HTTP 429); the caller falls back
+      // to a previously cached price.
+      AppLog.warning('Price fetch failed for $coinGeckoId', error);
       return null;
     }
   }
@@ -109,7 +113,8 @@ class PriceApi {
           raw.map((value) => value - min + 1).toList(growable: false);
       _chartCache[coinGeckoId] = _CacheEntry<List<double>>(chart, _now());
       return chart;
-    } catch (_) {
+    } catch (error) {
+      AppLog.warning('Chart fetch failed for $coinGeckoId', error);
       return const <double>[];
     }
   }

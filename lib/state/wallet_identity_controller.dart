@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:bip39/bip39.dart' as bip39;
 import 'package:flutter/foundation.dart';
 
+import '../core/utils/app_log.dart';
 import '../data/models/chain_kind.dart';
 import '../data/networks/network_config.dart';
 import '../data/wallet/address_deriver.dart';
@@ -17,6 +18,11 @@ import '../data/wallet/wallet_storage.dart';
 enum WalletStatus {
   /// Reading the vault from storage.
   loading,
+
+  /// Storage could not be read; the wallet is neither known to exist nor
+  /// known to be absent, so the user must retry rather than be shown
+  /// onboarding (which could overwrite a real wallet).
+  failed,
 
   /// No wallet yet — show onboarding.
   empty,
@@ -145,22 +151,33 @@ class WalletIdentityController extends ChangeNotifier {
   /// The biometric flag is refreshed in the background so a slow keystore can
   /// never delay the first frame.
   Future<void> load() async {
-    _vault = await _storage.readVault();
-    _createdAt = await _storage.readCreatedAt();
-    _throttle = await _storage.readThrottle();
-    _status = _vault == null ? WalletStatus.empty : WalletStatus.locked;
+    try {
+      _vault = await _storage.readVault();
+      _createdAt = await _storage.readCreatedAt();
+      _throttle = await _storage.readThrottle();
+      _status = _vault == null ? WalletStatus.empty : WalletStatus.locked;
+    } catch (error, stackTrace) {
+      // Never fall through to `empty`: if the keystore merely hiccuped, showing
+      // onboarding would let the user overwrite a wallet that still exists.
+      AppLog.error('Failed to read the wallet vault', error, stackTrace);
+      _status = WalletStatus.failed;
+    }
     notifyListeners();
 
-    if (_vault != null) {
+    if (_status == WalletStatus.locked) {
       unawaited(_refreshBiometricState());
     }
   }
 
   Future<void> _refreshBiometricState() async {
-    final bool enabled = await _pinStore.hasPin;
-    if (enabled != _biometricsEnabled) {
-      _biometricsEnabled = enabled;
-      notifyListeners();
+    try {
+      final bool enabled = await _pinStore.hasPin;
+      if (enabled != _biometricsEnabled) {
+        _biometricsEnabled = enabled;
+        notifyListeners();
+      }
+    } catch (error, stackTrace) {
+      AppLog.warning('Could not read the biometric flag', error, stackTrace);
     }
   }
 

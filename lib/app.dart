@@ -137,10 +137,60 @@ class RootGate extends StatelessWidget {
 
     return switch (identity.status) {
       WalletStatus.loading => const _SplashScreen(),
+      WalletStatus.failed => const _LoadFailedScreen(),
       WalletStatus.empty => const OnboardingScreen(),
       WalletStatus.locked => const LockScreen(),
       WalletStatus.unlocked => const AppShell(),
     };
+  }
+}
+
+/// Shown when the vault could not be read at start.
+///
+/// Onboarding is deliberately not shown here: if the keystore only failed
+/// temporarily, letting the user "create a new wallet" would overwrite the
+/// existing one.
+class _LoadFailedScreen extends StatelessWidget {
+  const _LoadFailedScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    final TextTheme text = Theme.of(context).textTheme;
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+
+    return Scaffold(
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(Icons.error_outline_rounded, size: 44, color: scheme.error),
+              const SizedBox(height: 16),
+              Text(
+                'Could not open your wallet',
+                textAlign: TextAlign.center,
+                style: text.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'The secure storage on this device did not respond. Your '
+                'wallet is not lost — try again.',
+                textAlign: TextAlign.center,
+                style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+              const SizedBox(height: 22),
+              FilledButton.icon(
+                onPressed: () =>
+                    context.read<WalletIdentityController>().load(),
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Try again'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

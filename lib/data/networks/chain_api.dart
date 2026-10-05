@@ -7,11 +7,34 @@ import '../models/chain_kind.dart';
 import 'chain_models.dart';
 import 'network_config.dart';
 
+/// Coarse categories for a [ChainApiException], so callers and logs can tell a
+/// transient network problem from a response the app simply cannot use.
+class ChainApiErrorCode {
+  const ChainApiErrorCode._();
+
+  static const String timeout = 'timeout';
+  static const String network = 'network';
+  static const String http = 'http';
+  static const String parse = 'parse';
+  static const String node = 'node';
+  static const String unknown = 'unknown';
+}
+
 /// Raised when a blockchain API cannot be reached or returns an error.
 class ChainApiException implements Exception {
-  const ChainApiException(this.message);
+  const ChainApiException(
+    this.message, {
+    this.code = ChainApiErrorCode.unknown,
+    this.retryable = true,
+  });
 
   final String message;
+
+  /// One of the [ChainApiErrorCode] values.
+  final String code;
+
+  /// Whether trying again could plausibly succeed.
+  final bool retryable;
 
   @override
   String toString() => message;
@@ -166,10 +189,14 @@ class ChainApi {
         headers: const <String, String>{'Accept': 'application/json'},
       ).timeout(timeout);
     } on TimeoutException {
-      throw const ChainApiException('The network request timed out.');
+      throw const ChainApiException(
+        'The network request timed out.',
+        code: ChainApiErrorCode.timeout,
+      );
     } catch (_) {
       throw const ChainApiException(
         'Could not reach the blockchain API. Check your connection.',
+        code: ChainApiErrorCode.network,
       );
     }
 
@@ -180,13 +207,19 @@ class ChainApi {
     if (response.statusCode >= 400) {
       throw ChainApiException(
         'The API rejected the request (HTTP ${response.statusCode}).',
+        code: ChainApiErrorCode.http,
+        retryable: response.statusCode >= 500 || response.statusCode == 429,
       );
     }
 
     try {
       return jsonDecode(utf8.decode(response.bodyBytes));
     } catch (_) {
-      throw const ChainApiException('Unexpected response from the API.');
+      throw const ChainApiException(
+        'Unexpected response from the API.',
+        code: ChainApiErrorCode.parse,
+        retryable: false,
+      );
     }
   }
 
@@ -211,16 +244,22 @@ class ChainApi {
           )
           .timeout(timeout);
     } on TimeoutException {
-      throw const ChainApiException('The network request timed out.');
+      throw const ChainApiException(
+        'The network request timed out.',
+        code: ChainApiErrorCode.timeout,
+      );
     } catch (_) {
       throw const ChainApiException(
         'Could not reach the blockchain API. Check your connection.',
+        code: ChainApiErrorCode.network,
       );
     }
 
     if (response.statusCode >= 400) {
       throw ChainApiException(
         'The API rejected the request (HTTP ${response.statusCode}).',
+        code: ChainApiErrorCode.http,
+        retryable: response.statusCode >= 500 || response.statusCode == 429,
       );
     }
 
@@ -228,17 +267,27 @@ class ChainApi {
     try {
       decoded = jsonDecode(utf8.decode(response.bodyBytes));
     } catch (_) {
-      throw const ChainApiException('Unexpected response from the API.');
+      throw const ChainApiException(
+        'Unexpected response from the API.',
+        code: ChainApiErrorCode.parse,
+        retryable: false,
+      );
     }
 
     if (decoded is! Map<String, Object?>) {
-      throw const ChainApiException('Unexpected response from the API.');
+      throw const ChainApiException(
+        'Unexpected response from the API.',
+        code: ChainApiErrorCode.parse,
+        retryable: false,
+      );
     }
 
     final Object? error = decoded['error'];
     if (error is Map<String, Object?>) {
       throw ChainApiException(
         error['message'] as String? ?? 'The node rejected the request.',
+        code: ChainApiErrorCode.node,
+        retryable: false,
       );
     }
 

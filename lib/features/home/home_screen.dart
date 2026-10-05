@@ -67,7 +67,11 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 16),
             if (wallet.error != null) ...<Widget>[
-              ErrorCard(message: wallet.error!, onRetry: wallet.refresh),
+              ErrorCard(
+                message: wallet.error!,
+                onRetry: wallet.refresh,
+                showRetry: wallet.errorRetryable,
+              ),
               const SizedBox(height: 16),
             ],
             if (snapshot != null)

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../core/utils/app_log.dart';
 import '../core/utils/formatters.dart';
 import '../data/networks/network_config.dart';
 import '../data/wallet/wallet_storage.dart';
@@ -47,40 +48,46 @@ class SettingsController extends ChangeNotifier {
 
   /// Restores the persisted network and currency choices at app start.
   Future<void> load() async {
-    final String? id = await _storage.readNetworkId();
-    final String? code = await _storage.readCurrencyCode();
-    final int? autoLock = await _storage.readAutoLockSeconds();
-    bool changed = false;
+    try {
+      final String? id = await _storage.readNetworkId();
+      final String? code = await _storage.readCurrencyCode();
+      final int? autoLock = await _storage.readAutoLockSeconds();
+      bool changed = false;
 
-    if (id != null) {
-      final NetworkConfig network = NetworkCatalog.byId(id);
-      if (network != _network) {
-        _network = network;
+      if (id != null) {
+        final NetworkConfig network = NetworkCatalog.byId(id);
+        if (network != _network) {
+          _network = network;
+          changed = true;
+        }
+      }
+
+      final AppCurrency currency = AppCurrency.values.firstWhere(
+        (AppCurrency value) => value.code == code,
+        orElse: () => _currency,
+      );
+      if (currency != _currency) {
+        _currency = currency;
         changed = true;
       }
-    }
 
-    final AppCurrency currency = AppCurrency.values.firstWhere(
-      (AppCurrency value) => value.code == code,
-      orElse: () => _currency,
-    );
-    if (currency != _currency) {
-      _currency = currency;
-      changed = true;
-    }
-
-    if (autoLock != null) {
-      // Storage uses -1 for an explicit "Never"; `null` there means the user
-      // has not chosen yet, so the default stands.
-      final int? seconds = autoLock < 0 ? null : autoLock;
-      if (seconds != _autoLockSeconds) {
-        _autoLockSeconds = seconds;
-        changed = true;
+      if (autoLock != null) {
+        // Storage uses -1 for an explicit "Never"; `null` there means the user
+        // has not chosen yet, so the default stands.
+        final int? seconds = autoLock < 0 ? null : autoLock;
+        if (seconds != _autoLockSeconds) {
+          _autoLockSeconds = seconds;
+          changed = true;
+        }
       }
-    }
 
-    if (changed) {
-      notifyListeners();
+      if (changed) {
+        notifyListeners();
+      }
+    } catch (error, stackTrace) {
+      // Preferences are not critical: fall back to the defaults rather than
+      // blocking app start.
+      AppLog.warning('Could not restore settings', error, stackTrace);
     }
   }
 
