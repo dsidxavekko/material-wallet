@@ -68,10 +68,6 @@ class WalletController extends ChangeNotifier {
   /// Bypasses the price cache so the user actually sees a fresh value.
   Future<void> refresh() => _load(force: true);
 
-  /// Re-fetches balance, history and price after a failure, bypassing the
-  /// caches (used by the "Retry" action on the balance card).
-  Future<void> retryPrice() => refresh();
-
   /// Network fee estimate for a simple transfer on the active network.
   ///
   /// Returns `null` when the estimate is unavailable.

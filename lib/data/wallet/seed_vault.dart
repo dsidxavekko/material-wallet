@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:pointycastle/export.dart';
 
 import 'pbkdf2.dart';
@@ -51,8 +52,9 @@ class SeedVault {
 
   /// Encrypts [mnemonic] under [pin]; returns a JSON string ready to store.
   ///
-  /// [rounds] is exposed so tests can use a cheap value; production code should
-  /// keep the default.
+  /// Synchronous counterpart of [encryptAsync], used by tests to build vaults
+  /// without spinning up a Future. Production code should use [encryptAsync].
+  @visibleForTesting
   static String encrypt(
     String mnemonic,
     String pin, {
@@ -67,7 +69,8 @@ class SeedVault {
   /// Decrypts a payload produced by [encrypt].
   ///
   /// Throws [SeedVaultException] when the PIN is wrong or the payload was
-  /// modified.
+  /// modified. Synchronous counterpart of [decryptAsync], for tests.
+  @visibleForTesting
   static String decrypt(String payload, String pin) {
     final _VaultPayload parsed = _parse(payload);
     return _open(parsed, deriveKey(pin, parsed.salt, parsed.rounds));
@@ -100,6 +103,7 @@ class SeedVault {
   // --- key derivation -------------------------------------------------------
 
   /// Synchronous PBKDF2-HMAC-SHA256 derivation. Exposed for tests.
+  @visibleForTesting
   static Uint8List deriveKey(String pin, Uint8List salt, int rounds) =>
       pbkdf2Sync(
         Pbkdf2Hash.sha256,

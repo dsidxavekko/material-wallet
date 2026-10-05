@@ -178,8 +178,6 @@ class AccountSnapshot {
   /// Human readable native balance, e.g. `0.842`.
   String get nativeLabel => Units.format(balance, network.decimals);
 
-  int get pendingCount => transactions.where((t) => t.isPending).length;
-
   Map<String, Object?> toJson() => <String, Object?>{
         'networkId': network.id,
         'address': address,

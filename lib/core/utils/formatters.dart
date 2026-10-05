@@ -23,9 +23,6 @@ enum AppCurrency {
 class AppFormat {
   const AppFormat._();
 
-  static final NumberFormat _cryptoAmount = NumberFormat('#,##0.######');
-  static final NumberFormat _compact = NumberFormat.compact();
-
   /// Formats a USD value in the user's selected [currency].
   static String fiat(
     double usdValue,
@@ -36,16 +33,6 @@ class AppFormat {
       symbol: currency.symbol,
       decimalDigits: decimalDigits,
     ).format(usdValue * currency.usdRate);
-  }
-
-  /// Compact USD value such as `$1.2M`, useful for market caps and volumes.
-  static String compactFiat(double usdValue, AppCurrency currency) {
-    return '${currency.symbol}${_compact.format(usdValue * currency.usdRate)}';
-  }
-
-  /// Token amount with grouping and up to six decimals, e.g. `1,240.5 BTC`.
-  static String cryptoAmount(double amount, String symbol) {
-    return '${_cryptoAmount.format(amount)} $symbol';
   }
 
   /// Signed percentage such as `+2.41%` / `-0.87%`.
@@ -98,13 +85,4 @@ class AppFormat {
     }
     return DateFormat.yMMMMd().format(time);
   }
-
-  /// `14:05` style clock label.
-  static String clock(DateTime time) => DateFormat.Hm().format(time);
-}
-
-/// Small helper used by list tiles to phrase transaction timestamps.
-String amountWithSign(double amount, String symbol) {
-  final String sign = amount >= 0 ? '+' : '-';
-  return '$sign${AppFormat.cryptoAmount(amount.abs(), symbol)}';
 }

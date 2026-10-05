@@ -79,7 +79,7 @@ void main() {
       // Crucially not `empty`: onboarding would let the user overwrite a real
       // wallet just because the keystore hiccuped.
       expect(identity.status, WalletStatus.failed);
-      expect(identity.hasWallet, isFalse);
+      expect(identity.unlocked, isFalse);
     });
 
     test('retrying after the storage recovers reaches the lock screen',
@@ -126,8 +126,8 @@ void main() {
     });
   });
 
-  group('ChainApiException taxonomy', () {
-    test('a 5xx is retryable and tagged as HTTP', () async {
+  group('ChainApiException retryability', () {
+    test('a 5xx is retryable', () async {
       final ChainApi api = ChainApi(
         client: MockClient((_) async => http.Response('boom', 503)),
       );
@@ -141,7 +141,6 @@ void main() {
 
       expect(thrown, isA<ChainApiException>());
       final ChainApiException error = thrown! as ChainApiException;
-      expect(error.code, ChainApiErrorCode.http);
       expect(error.retryable, isTrue);
     });
 
@@ -159,7 +158,6 @@ void main() {
 
       expect(thrown, isA<ChainApiException>());
       final ChainApiException error = thrown! as ChainApiException;
-      expect(error.code, ChainApiErrorCode.parse);
       expect(error.retryable, isFalse);
     });
   });

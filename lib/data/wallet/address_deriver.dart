@@ -37,7 +37,7 @@ class AddressDeriver {
   /// this once and reuse it for every address instead of per-derivation.
   static Uint8List seedFromMnemonic(String mnemonic) => pbkdf2Sync(
         Pbkdf2Hash.sha512,
-        Uint8List.fromList(utf8.encode(_normalize(mnemonic))),
+        Uint8List.fromList(utf8.encode(normalize(mnemonic))),
         Uint8List.fromList(utf8.encode('mnemonic')),
         _seedRounds,
         _seedLength,
@@ -46,7 +46,7 @@ class AddressDeriver {
   /// Platform-optimised [seedFromMnemonic] (Web Crypto on the web).
   static Future<Uint8List> seedFromMnemonicAsync(String mnemonic) => pbkdf2(
         hash: Pbkdf2Hash.sha512,
-        password: Uint8List.fromList(utf8.encode(_normalize(mnemonic))),
+        password: Uint8List.fromList(utf8.encode(normalize(mnemonic))),
         salt: Uint8List.fromList(utf8.encode('mnemonic')),
         iterations: _seedRounds,
         keyLength: _seedLength,
@@ -110,16 +110,8 @@ class AddressDeriver {
     return '0x${hex.encode(authenticationKey)}';
   }
 
-  /// Convenience helper that computes the seed on the fly.
-  static String bitcoinAddress(String mnemonic, {String hrp = 'bc'}) =>
-      bitcoinAddressFromSeed(seedFromMnemonic(mnemonic), hrp: hrp);
-
-  /// Convenience helper that computes the seed on the fly.
-  static String ethereumAddress(String mnemonic) =>
-      ethereumAddressFromSeed(seedFromMnemonic(mnemonic));
-
   /// Lower-cases and collapses whitespace so pasted phrases validate reliably.
-  static String _normalize(String mnemonic) => mnemonic
+  static String normalize(String mnemonic) => mnemonic
       .trim()
       .toLowerCase()
       .split(RegExp(r'\s+'))

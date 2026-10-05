@@ -11,43 +11,42 @@ void main() {
       'abandon abandon abandon about';
 
   group('AddressDeriver — known test vectors', () {
+    final Uint8List vectorSeed =
+        AddressDeriver.seedFromMnemonic(vectorMnemonic);
+
     test('derives the BIP-84 Bitcoin address', () {
       expect(
-        AddressDeriver.bitcoinAddress(vectorMnemonic),
+        AddressDeriver.bitcoinAddressFromSeed(vectorSeed),
         'bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu',
       );
     });
 
     test('derives the BIP-44 Ethereum address (EIP-55 checksummed)', () {
       expect(
-        AddressDeriver.ethereumAddress(vectorMnemonic),
+        AddressDeriver.ethereumAddressFromSeed(vectorSeed),
         '0x9858EfFD232B4033E47d90003D41EC34EcaEda94',
       );
     });
 
-    test('passing the seed in directly gives the same addresses', () {
-      final Uint8List seed = AddressDeriver.seedFromMnemonic(vectorMnemonic);
-
+    test('async seed derivation matches the sync one', () async {
       expect(
-        AddressDeriver.bitcoinAddressFromSeed(seed),
-        AddressDeriver.bitcoinAddress(vectorMnemonic),
-      );
-      expect(
-        AddressDeriver.ethereumAddressFromSeed(seed),
-        AddressDeriver.ethereumAddress(vectorMnemonic),
+        await AddressDeriver.seedFromMnemonicAsync(vectorMnemonic),
+        vectorSeed,
       );
     });
 
     test('different phrases produce different addresses', () {
-      final String other = WalletIdentityController.generateMnemonic();
+      final Uint8List other = AddressDeriver.seedFromMnemonic(
+        WalletIdentityController.generateMnemonic(),
+      );
 
       expect(
-        AddressDeriver.bitcoinAddress(other),
-        isNot(AddressDeriver.bitcoinAddress(vectorMnemonic)),
+        AddressDeriver.bitcoinAddressFromSeed(other),
+        isNot(AddressDeriver.bitcoinAddressFromSeed(vectorSeed)),
       );
       expect(
-        AddressDeriver.ethereumAddress(other),
-        isNot(AddressDeriver.ethereumAddress(vectorMnemonic)),
+        AddressDeriver.ethereumAddressFromSeed(other),
+        isNot(AddressDeriver.ethereumAddressFromSeed(vectorSeed)),
       );
     });
   });

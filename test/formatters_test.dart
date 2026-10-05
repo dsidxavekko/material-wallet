@@ -27,12 +27,6 @@ void main() {
     });
   });
 
-  group('AppFormat.cryptoAmount', () {
-    test('groups thousands and trims trailing zeros', () {
-      expect(AppFormat.cryptoAmount(1234.5, 'BTC'), '1,234.5 BTC');
-    });
-  });
-
   group('AppFormat.shortAddress', () {
     test('keeps short strings untouched', () {
       expect(AppFormat.shortAddress('0x1234'), '0x1234');

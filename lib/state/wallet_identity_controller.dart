@@ -89,10 +89,6 @@ class WalletIdentityController extends ChangeNotifier {
 
   bool get loading => _status == WalletStatus.loading;
 
-  /// `true` when a wallet exists on the device, locked or not.
-  bool get hasWallet =>
-      _status == WalletStatus.locked || _status == WalletStatus.unlocked;
-
   bool get unlocked => _status == WalletStatus.unlocked;
 
   WalletAccount? get account => _account;
@@ -102,9 +98,6 @@ class WalletIdentityController extends ChangeNotifier {
   DateTime? get createdAt => _createdAt;
 
   String? get evmAddress => _evmAddress;
-
-  /// The mainnet Bitcoin address (`bc1q…`).
-  String? get bitcoinAddress => _bitcoinAddresses['bc'];
 
   /// Receive address for [network], or `null` while locked or empty.
   String? addressFor(NetworkConfig network) {
@@ -137,12 +130,7 @@ class WalletIdentityController extends ChangeNotifier {
       bip39.validateMnemonic(normalize(value));
 
   /// Trims, lower-cases and collapses whitespace.
-  static String normalize(String value) => value
-      .trim()
-      .toLowerCase()
-      .split(RegExp(r'\s+'))
-      .where((word) => word.isNotEmpty)
-      .join(' ');
+  static String normalize(String value) => AddressDeriver.normalize(value);
 
   // --- lifecycle -----------------------------------------------------------
 
@@ -259,13 +247,6 @@ class WalletIdentityController extends ChangeNotifier {
     await _adopt(WalletAccount(mnemonic: normalized, createdAt: now));
     notifyListeners();
   }
-
-  /// Alias that reads better when the phrase was typed by the user.
-  Future<void> importWallet({
-    required String mnemonic,
-    required String pin,
-  }) =>
-      createWallet(mnemonic: mnemonic, pin: pin);
 
   /// Verifies [currentPin] and re-encrypts the phrase under [newPin].
   Future<void> changePin({

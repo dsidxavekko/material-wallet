@@ -106,7 +106,7 @@ class _HomeScreenState extends State<HomeScreen> {
           onToggleVisibility: () =>
               setState(() => _hideBalance = !_hideBalance),
           onCurrencyTap: () => _pickCurrency(context),
-          onRetryPrice: wallet.retryPrice,
+          onRetryPrice: wallet.refresh,
         ),
         const SizedBox(height: 20),
         QuickActions(

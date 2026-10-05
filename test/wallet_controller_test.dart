@@ -252,7 +252,7 @@ void main() {
     wallet.dispose();
   });
 
-  test('retryPrice forces a fresh request even within the cache TTL', () async {
+  test('refresh forces a fresh request even within the cache TTL', () async {
     final WalletIdentityController identity = await storedWallet();
     await identity.unlock(pin);
 
@@ -297,7 +297,7 @@ void main() {
 
     // The default TTL (60 s) would suppress a second request; retry must bypass
     // the cache and hit the network again.
-    await wallet.retryPrice();
+    await wallet.refresh();
     await settle(wallet);
     expect(priceRequests, 2);
     expect(wallet.snapshot?.price?.usd, 60000);
