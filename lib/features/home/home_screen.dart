@@ -8,6 +8,7 @@ import '../../core/utils/formatters.dart';
 import '../../data/networks/chain_models.dart';
 import '../../shared/widgets/quick_actions.dart';
 import '../../shared/widgets/section_header.dart';
+import '../../state/contacts_controller.dart';
 import '../../state/settings_controller.dart';
 import '../../state/wallet_controller.dart';
 import '../activity/activity_screen.dart';
@@ -19,6 +20,7 @@ import '../settings/currency_picker.dart';
 import 'widgets/account_balance_card.dart';
 import 'widgets/address_card.dart';
 import 'widgets/state_cards.dart';
+import 'widgets/token_list.dart';
 
 /// Wallet tab: live balance, address and recent on-chain activity.
 class HomeScreen extends StatefulWidget {
@@ -34,6 +36,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final WalletController wallet = context.watch<WalletController>();
+    final ContactsController contacts = context.watch<ContactsController>();
     final AppCurrency currency =
         context.select<SettingsController, AppCurrency>((s) => s.currency);
     final AccountSnapshot? snapshot = wallet.snapshot;
@@ -67,11 +70,15 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 16),
             if (wallet.error != null) ...<Widget>[
-              ErrorCard(message: wallet.error!, onRetry: wallet.refresh),
+              ErrorCard(
+                message: wallet.error!,
+                onRetry: wallet.refresh,
+                showRetry: wallet.errorRetryable,
+              ),
               const SizedBox(height: 16),
             ],
             if (snapshot != null)
-              _content(snapshot, currency, wallet)
+              _content(snapshot, currency, wallet, contacts)
             else
               const LoadingCard(),
           ],
@@ -84,6 +91,7 @@ class _HomeScreenState extends State<HomeScreen> {
     AccountSnapshot snapshot,
     AppCurrency currency,
     WalletController wallet,
+    ContactsController contacts,
   ) {
     final List<ChainTransaction> recent =
         snapshot.transactions.take(5).toList(growable: false);
@@ -105,6 +113,11 @@ class _HomeScreenState extends State<HomeScreen> {
           onSend: () => _push(context, const SendScreen()),
           onReceive: () => _push(context, const ReceiveScreen()),
         ),
+        if (snapshot.tokens.isNotEmpty) ...<Widget>[
+          const SizedBox(height: 26),
+          const SectionHeader(title: 'Tokens'),
+          TokenList(tokens: snapshot.tokens, currency: currency),
+        ],
         const SizedBox(height: 26),
         const SectionHeader(title: 'Your address'),
         AddressCard(
@@ -138,6 +151,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     network: snapshot.network,
                     currency: currency,
                     price: snapshot.price,
+                    counterpartyLabel: contacts.labelFor(
+                      recent[i].counterparty,
+                      snapshot.network.id,
+                    ),
                     onExplorer: () => openExplorer(
                       context,
                       snapshot.network.explorerTx(recent[i].hash),

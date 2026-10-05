@@ -9,7 +9,10 @@ import '../../core/utils/units.dart';
 import '../../data/models/chain_kind.dart';
 import '../../data/networks/chain_models.dart';
 import '../../data/networks/network_config.dart';
+import '../../data/wallet/address_validator.dart';
+import '../../data/wallet/contact_store.dart';
 import '../../shared/widgets/empty_state.dart';
+import '../../state/contacts_controller.dart';
 import '../../state/settings_controller.dart';
 import '../../state/wallet_controller.dart';
 import '../scan/scan_screen.dart';
@@ -61,10 +64,13 @@ class _SendScreenState extends State<SendScreen> {
 
   bool get _hasEnoughFunds => _total <= _balance;
 
+  AddressValidation get _addressValidation =>
+      AddressValidator.validate(_network, _addressController.text);
+
   bool get _isValid =>
       _enteredAmount > BigInt.zero &&
       _hasEnoughFunds &&
-      _addressController.text.trim().length >= 8;
+      _addressValidation.valid;
 
   String get _availableLabel => Units.formatWithSymbol(
         _balance,
@@ -92,6 +98,8 @@ class _SendScreenState extends State<SendScreen> {
         context.select<SettingsController, AppCurrency>((s) => s.currency);
     final AccountSnapshot? snapshot = wallet.snapshot;
     final ColorScheme scheme = Theme.of(context).colorScheme;
+    final AddressValidation addressCheck =
+        AddressValidator.validate(network, _addressController.text);
 
     if (snapshot == null) {
       return Scaffold(
@@ -162,9 +170,18 @@ class _SendScreenState extends State<SendScreen> {
                         ChainKind.solana => 'Base58 address',
                         ChainKind.aptos => '0x… (64 hex chars)',
                       },
+                      errorText: _addressController.text.trim().isEmpty ||
+                              addressCheck.valid
+                          ? null
+                          : addressCheck.reason,
                       suffixIcon: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: <Widget>[
+                          IconButton(
+                            tooltip: 'Address book',
+                            icon: const Icon(Icons.contacts_rounded),
+                            onPressed: _openAddressBook,
+                          ),
                           IconButton(
                             tooltip: 'Scan QR code',
                             icon: const Icon(Icons.qr_code_scanner_rounded),
@@ -229,7 +246,7 @@ class _SendScreenState extends State<SendScreen> {
       }
       return;
     }
-    _addressController.text = text;
+    _addressController.text = _extractAddress(text);
     setState(() {});
   }
 
@@ -256,17 +273,165 @@ class _SendScreenState extends State<SendScreen> {
 
   Future<void> _prepare() async {
     final NetworkConfig network = _network;
+    final ContactsController contacts = context.read<ContactsController>();
+    final String recipient = _extractAddress(_addressController.text.trim());
+    final bool alreadySaved = contacts.contains(recipient, network.id);
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
       builder: (_) => _PreparedSheet(
         network: network,
-        recipient: _addressController.text.trim(),
+        recipient: recipient,
         amount: _enteredAmount,
         fee: _fee,
-        explorerUrl: network.explorerAddress(_addressController.text.trim()),
+        explorerUrl: network.explorerAddress(recipient),
+        alreadySaved: alreadySaved,
+        onSave: () => _saveRecipient(recipient, network),
       ),
+    );
+  }
+
+  /// Lets the user pick a saved recipient for the active network.
+  Future<void> _openAddressBook() async {
+    final NetworkConfig network = _network;
+    final ContactsController contacts = context.read<ContactsController>();
+    final Contact? picked = await showModalBottomSheet<Contact>(
+      context: context,
+      showDragHandle: true,
+      builder: (_) => _AddressBookSheet(
+        contacts: contacts.forNetwork(network.id),
+        network: network,
+      ),
+    );
+    if (picked == null || !mounted) {
+      return;
+    }
+    setState(() => _addressController.text = picked.address);
+  }
+
+  /// Prompts for a label and stores [address] in the address book.
+  Future<void> _saveRecipient(String address, NetworkConfig network) async {
+    final String? label = await showDialog<String>(
+      context: context,
+      builder: (_) => const _LabelDialog(),
+    );
+    if (label == null || label.isEmpty || !mounted) {
+      return;
+    }
+    await context
+        .read<ContactsController>()
+        .save(Contact(label: label, address: address, networkId: network.id));
+    if (mounted) {
+      showAppSnackBar(
+        context,
+        'Saved “$label”.',
+        icon: Icons.check_circle_outline_rounded,
+      );
+    }
+  }
+}
+
+/// Bottom sheet listing the saved recipients for a network.
+class _AddressBookSheet extends StatelessWidget {
+  const _AddressBookSheet({required this.contacts, required this.network});
+
+  final List<Contact> contacts;
+  final NetworkConfig network;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: contacts.isEmpty
+          ? EmptyState(
+              icon: Icons.contacts_rounded,
+              title: 'No saved recipients',
+              message:
+                  'Save a recipient from the transfer summary and it will '
+                  'show up here.',
+            )
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+                  child: Text(
+                    '${network.name} recipients',
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleLarge
+                        ?.copyWith(fontWeight: FontWeight.w800),
+                  ),
+                ),
+                Flexible(
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: contacts.length,
+                    itemBuilder: (BuildContext context, int index) {
+                      final Contact contact = contacts[index];
+                      return ListTile(
+                        leading: const Icon(Icons.person_outline_rounded),
+                        title: Text(contact.label),
+                        subtitle: Text(
+                          AppFormat.shortAddress(contact.address),
+                        ),
+                        onTap: () => Navigator.of(context).pop(contact),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+    );
+  }
+}
+
+/// Simple single-field dialog that owns and disposes its controller.
+class _LabelDialog extends StatefulWidget {
+  const _LabelDialog();
+
+  @override
+  State<_LabelDialog> createState() => _LabelDialogState();
+}
+
+class _LabelDialogState extends State<_LabelDialog> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() => Navigator.of(context).pop(_controller.text.trim());
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      icon: const Icon(Icons.person_add_alt_1_rounded),
+      title: const Text('Save recipient'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        textCapitalization: TextCapitalization.sentences,
+        decoration: const InputDecoration(
+          labelText: 'Label',
+          hintText: 'e.g. Exchange',
+        ),
+        onSubmitted: (_) => _submit(),
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('Save'),
+        ),
+      ],
     );
   }
 }
@@ -426,6 +591,8 @@ class _PreparedSheet extends StatelessWidget {
     required this.amount,
     required this.fee,
     required this.explorerUrl,
+    required this.alreadySaved,
+    required this.onSave,
   });
 
   final NetworkConfig network;
@@ -433,6 +600,8 @@ class _PreparedSheet extends StatelessWidget {
   final BigInt amount;
   final BigInt? fee;
   final String explorerUrl;
+  final bool alreadySaved;
+  final VoidCallback onSave;
 
   @override
   Widget build(BuildContext context) {
@@ -524,6 +693,14 @@ class _PreparedSheet extends StatelessWidget {
               icon: const Icon(Icons.copy_rounded),
               label: const Text('Copy details'),
             ),
+            if (!alreadySaved) ...<Widget>[
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: onSave,
+                icon: const Icon(Icons.person_add_alt_1_rounded),
+                label: const Text('Save recipient'),
+              ),
+            ],
             const SizedBox(height: 10),
             OutlinedButton.icon(
               onPressed: () => openExplorer(context, explorerUrl),

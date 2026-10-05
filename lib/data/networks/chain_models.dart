@@ -38,6 +38,29 @@ class ChainTransaction {
     final String sign = amount.isNegative ? '−' : '+';
     return '$sign${Units.formatWithSymbol(amount.abs(), network.decimals, network.symbol)}';
   }
+
+  Map<String, Object?> toJson() => <String, Object?>{
+        'hash': hash,
+        'timestamp': timestamp.toIso8601String(),
+        'amount': amount.toString(),
+        'fee': fee.toString(),
+        'counterparty': counterparty,
+        'isIncoming': isIncoming,
+        'confirmed': confirmed,
+        'failed': failed,
+      };
+
+  factory ChainTransaction.fromJson(Map<String, Object?> json) =>
+      ChainTransaction(
+        hash: json['hash'] as String,
+        timestamp: DateTime.parse(json['timestamp'] as String),
+        amount: BigInt.parse(json['amount'] as String),
+        fee: BigInt.parse(json['fee'] as String),
+        counterparty: json['counterparty'] as String,
+        isIncoming: json['isIncoming'] as bool? ?? false,
+        confirmed: json['confirmed'] as bool? ?? false,
+        failed: json['failed'] as bool? ?? false,
+      );
 }
 
 /// Spot price of the network's native coin plus its 24h change.
@@ -48,6 +71,71 @@ class CoinPrice {
 
   /// Percentage change over the last 24 hours.
   final double change24h;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+        'usd': usd,
+        'change24h': change24h,
+      };
+
+  factory CoinPrice.fromJson(Map<String, Object?> json) => CoinPrice(
+        usd: (json['usd'] as num).toDouble(),
+        change24h: (json['change24h'] as num?)?.toDouble() ?? 0,
+      );
+}
+
+/// An ERC-20 token balance returned by Blockscout.
+class TokenBalance {
+  const TokenBalance({
+    required this.symbol,
+    required this.name,
+    required this.decimals,
+    required this.balance,
+    required this.contractAddress,
+    this.usdRate,
+  });
+
+  final String symbol;
+  final String name;
+  final int decimals;
+
+  /// Raw balance in the token's smallest unit.
+  final BigInt balance;
+
+  final String contractAddress;
+
+  /// USD price per whole token, when Blockscout knows one.
+  final double? usdRate;
+
+  /// Whole-token amount as a `double`.
+  double get amount => Units.toDouble(balance, decimals);
+
+  /// Human readable amount, capped at six decimals.
+  String get amountLabel => Units.format(
+        balance,
+        decimals,
+        maxDecimals: decimals > 6 ? 6 : decimals,
+      );
+
+  /// USD value of the holding, or `null` without a rate.
+  double? get usdValue => usdRate == null ? null : amount * usdRate!;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+        'symbol': symbol,
+        'name': name,
+        'decimals': decimals,
+        'balance': balance.toString(),
+        'contractAddress': contractAddress,
+        'usdRate': usdRate,
+      };
+
+  factory TokenBalance.fromJson(Map<String, Object?> json) => TokenBalance(
+        symbol: json['symbol'] as String? ?? '?',
+        name: json['name'] as String? ?? '',
+        decimals: (json['decimals'] as num?)?.toInt() ?? 0,
+        balance: BigInt.tryParse(json['balance'] as String? ?? '0') ?? BigInt.zero,
+        contractAddress: json['contractAddress'] as String? ?? '',
+        usdRate: (json['usdRate'] as num?)?.toDouble(),
+      );
 }
 
 /// Everything the UI needs to render the account for the selected network.
@@ -60,6 +148,7 @@ class AccountSnapshot {
     required this.chart,
     required this.fetchedAt,
     this.price,
+    this.tokens = const <TokenBalance>[],
   });
 
   final NetworkConfig network;
@@ -69,6 +158,9 @@ class AccountSnapshot {
   final BigInt balance;
 
   final List<ChainTransaction> transactions;
+
+  /// ERC-20 holdings (empty on networks without token support).
+  final List<TokenBalance> tokens;
 
   /// Normalised price series for the 24h chart (may be empty).
   final List<double> chart;
@@ -87,4 +179,65 @@ class AccountSnapshot {
   String get nativeLabel => Units.format(balance, network.decimals);
 
   int get pendingCount => transactions.where((t) => t.isPending).length;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+        'networkId': network.id,
+        'address': address,
+        'balance': balance.toString(),
+        'transactions':
+            transactions.map((ChainTransaction t) => t.toJson()).toList(),
+        'tokens': tokens.map((TokenBalance t) => t.toJson()).toList(),
+        'chart': chart,
+        'fetchedAt': fetchedAt.toIso8601String(),
+        'price': price?.toJson(),
+      };
+
+  /// Rebuilds a snapshot from [toJson], or returns `null` when the payload is
+  /// malformed or names a network this build does not know. Callers treat a
+  /// `null` result as a cache miss.
+  static AccountSnapshot? fromJson(Map<String, Object?> json) {
+    try {
+      final String networkId = json['networkId'] as String;
+      final NetworkConfig network = NetworkCatalog.byId(networkId);
+      if (network.id != networkId) {
+        return null;
+      }
+      final List<Object?> transactions =
+          json['transactions'] as List<Object?>? ?? const <Object?>[];
+      final List<Object?> chart =
+          json['chart'] as List<Object?>? ?? const <Object?>[];
+      final List<Object?> tokens =
+          json['tokens'] as List<Object?>? ?? const <Object?>[];
+      final Object? price = json['price'];
+      return AccountSnapshot(
+        network: network,
+        address: json['address'] as String,
+        balance: BigInt.parse(json['balance'] as String),
+        transactions: <ChainTransaction>[
+          for (final Object? item in transactions)
+            ChainTransaction.fromJson(
+              (item! as Map<Object?, Object?>).cast<String, Object?>(),
+            ),
+        ],
+        tokens: <TokenBalance>[
+          for (final Object? item in tokens)
+            TokenBalance.fromJson(
+              (item! as Map<Object?, Object?>).cast<String, Object?>(),
+            ),
+        ],
+        chart: <double>[
+          for (final Object? value in chart) (value! as num).toDouble(),
+        ],
+        fetchedAt: DateTime.parse(json['fetchedAt'] as String),
+        price: price == null
+            ? null
+            : CoinPrice.fromJson(
+                (price as Map<Object?, Object?>).cast<String, Object?>(),
+              ),
+      );
+    } catch (_) {
+      // A corrupt cache is a cache miss, never a crash.
+      return null;
+    }
+  }
 }

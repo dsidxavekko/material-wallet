@@ -3,15 +3,39 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../../core/utils/app_log.dart';
 import '../models/chain_kind.dart';
 import 'chain_models.dart';
 import 'network_config.dart';
 
+/// Coarse categories for a [ChainApiException], so callers and logs can tell a
+/// transient network problem from a response the app simply cannot use.
+class ChainApiErrorCode {
+  const ChainApiErrorCode._();
+
+  static const String timeout = 'timeout';
+  static const String network = 'network';
+  static const String http = 'http';
+  static const String parse = 'parse';
+  static const String node = 'node';
+  static const String unknown = 'unknown';
+}
+
 /// Raised when a blockchain API cannot be reached or returns an error.
 class ChainApiException implements Exception {
-  const ChainApiException(this.message);
+  const ChainApiException(
+    this.message, {
+    this.code = ChainApiErrorCode.unknown,
+    this.retryable = true,
+  });
 
   final String message;
+
+  /// One of the [ChainApiErrorCode] values.
+  final String code;
+
+  /// Whether trying again could plausibly succeed.
+  final bool retryable;
 
   @override
   String toString() => message;
@@ -158,6 +182,76 @@ class ChainApi {
 
   // --- HTTP ----------------------------------------------------------------
 
+  /// ERC-20 balances for [address], largest USD value first.
+  ///
+  /// Returns an empty list on chains without a token index (Bitcoin, Solana,
+  /// Aptos, and the JSON-RPC-only BNB Chain) and whenever the request fails:
+  /// token data is a bonus and must never break the balance screen.
+  Future<List<TokenBalance>> fetchTokenBalances(
+    NetworkConfig network,
+    String address,
+  ) async {
+    if (network.chain != ChainKind.evm || network.rpcUrl != null) {
+      return const <TokenBalance>[];
+    }
+    try {
+      final Object? json = await _get(
+        '${network.apiBase}/addresses/$address/tokens?type=ERC-20',
+      );
+      return _parseTokenBalances(json);
+    } catch (error) {
+      AppLog.warning('Token balances unavailable for ${network.name}', error);
+      return const <TokenBalance>[];
+    }
+  }
+
+  static List<TokenBalance> _parseTokenBalances(Object? json) {
+    if (json is! Map<String, Object?>) {
+      return const <TokenBalance>[];
+    }
+    final Object? items = json['items'];
+    if (items is! List) {
+      return const <TokenBalance>[];
+    }
+
+    final List<TokenBalance> tokens = <TokenBalance>[];
+    for (final Object? item in items) {
+      if (item is! Map) {
+        continue;
+      }
+      final Object? token = item['token'];
+      if (token is! Map) {
+        continue;
+      }
+      final Object? value = item['value'];
+      final BigInt balance = BigInt.tryParse('$value') ?? BigInt.zero;
+      if (balance <= BigInt.zero) {
+        continue;
+      }
+
+      final Object? decimals = token['decimals'];
+      final int decimalsValue = decimals is num
+          ? decimals.toInt()
+          : int.tryParse('$decimals') ?? 0;
+      final String symbol = (token['symbol'] as String? ?? '').trim();
+
+      tokens.add(TokenBalance(
+        symbol: symbol.isEmpty ? '?' : symbol,
+        name: token['name'] as String? ?? '',
+        decimals: decimalsValue,
+        balance: balance,
+        contractAddress: token['address_hash'] as String? ?? '',
+        usdRate: double.tryParse('${token['exchange_rate']}'),
+      ));
+    }
+
+    tokens.sort((TokenBalance a, TokenBalance b) {
+      final int byValue = (b.usdValue ?? -1).compareTo(a.usdValue ?? -1);
+      return byValue != 0 ? byValue : a.symbol.compareTo(b.symbol);
+    });
+    return tokens;
+  }
+
   Future<Object?> _get(String url) async {
     final http.Response response;
     try {
@@ -166,10 +260,14 @@ class ChainApi {
         headers: const <String, String>{'Accept': 'application/json'},
       ).timeout(timeout);
     } on TimeoutException {
-      throw const ChainApiException('The network request timed out.');
+      throw const ChainApiException(
+        'The network request timed out.',
+        code: ChainApiErrorCode.timeout,
+      );
     } catch (_) {
       throw const ChainApiException(
         'Could not reach the blockchain API. Check your connection.',
+        code: ChainApiErrorCode.network,
       );
     }
 
@@ -180,13 +278,19 @@ class ChainApi {
     if (response.statusCode >= 400) {
       throw ChainApiException(
         'The API rejected the request (HTTP ${response.statusCode}).',
+        code: ChainApiErrorCode.http,
+        retryable: response.statusCode >= 500 || response.statusCode == 429,
       );
     }
 
     try {
       return jsonDecode(utf8.decode(response.bodyBytes));
     } catch (_) {
-      throw const ChainApiException('Unexpected response from the API.');
+      throw const ChainApiException(
+        'Unexpected response from the API.',
+        code: ChainApiErrorCode.parse,
+        retryable: false,
+      );
     }
   }
 
@@ -211,16 +315,22 @@ class ChainApi {
           )
           .timeout(timeout);
     } on TimeoutException {
-      throw const ChainApiException('The network request timed out.');
+      throw const ChainApiException(
+        'The network request timed out.',
+        code: ChainApiErrorCode.timeout,
+      );
     } catch (_) {
       throw const ChainApiException(
         'Could not reach the blockchain API. Check your connection.',
+        code: ChainApiErrorCode.network,
       );
     }
 
     if (response.statusCode >= 400) {
       throw ChainApiException(
         'The API rejected the request (HTTP ${response.statusCode}).',
+        code: ChainApiErrorCode.http,
+        retryable: response.statusCode >= 500 || response.statusCode == 429,
       );
     }
 
@@ -228,17 +338,27 @@ class ChainApi {
     try {
       decoded = jsonDecode(utf8.decode(response.bodyBytes));
     } catch (_) {
-      throw const ChainApiException('Unexpected response from the API.');
+      throw const ChainApiException(
+        'Unexpected response from the API.',
+        code: ChainApiErrorCode.parse,
+        retryable: false,
+      );
     }
 
     if (decoded is! Map<String, Object?>) {
-      throw const ChainApiException('Unexpected response from the API.');
+      throw const ChainApiException(
+        'Unexpected response from the API.',
+        code: ChainApiErrorCode.parse,
+        retryable: false,
+      );
     }
 
     final Object? error = decoded['error'];
     if (error is Map<String, Object?>) {
       throw ChainApiException(
         error['message'] as String? ?? 'The node rejected the request.',
+        code: ChainApiErrorCode.node,
+        retryable: false,
       );
     }
 

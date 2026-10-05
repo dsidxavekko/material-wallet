@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -20,6 +22,18 @@ class _LockScreenState extends State<LockScreen> {
   bool _busy = false;
 
   bool _promptedBiometrics = false;
+
+  /// Ticks once a second while a wrong-PIN penalty is active, so the
+  /// "Try again in …" label counts down without user input.
+  Timer? _lockoutTicker;
+
+  @override
+  void initState() {
+    super.initState();
+    if (context.read<WalletIdentityController>().unlockThrottled) {
+      _startLockoutTicker();
+    }
+  }
 
   @override
   void didChangeDependencies() {
@@ -54,18 +68,32 @@ class _LockScreenState extends State<LockScreen> {
       _error = null;
     });
 
-    final bool unlocked = await identity.unlockWithBiometrics();
+    await identity.unlockWithBiometrics();
     if (!mounted) {
       return;
     }
     setState(() => _busy = false);
-    if (!unlocked) {
-      // Ignore — the PIN field below is always available.
-    }
+    // On failure the PIN field below is always available — nothing to do.
+  }
+
+  void _startLockoutTicker() {
+    _lockoutTicker?.cancel();
+    _lockoutTicker = Timer.periodic(const Duration(seconds: 1), (Timer timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (!context.read<WalletIdentityController>().unlockThrottled) {
+        timer.cancel();
+        _lockoutTicker = null;
+      }
+      setState(() {});
+    });
   }
 
   @override
   void dispose() {
+    _lockoutTicker?.cancel();
     _pinController.dispose();
     super.dispose();
   }
@@ -74,6 +102,12 @@ class _LockScreenState extends State<LockScreen> {
   Widget build(BuildContext context) {
     final TextTheme text = Theme.of(context).textTheme;
     final ColorScheme scheme = Theme.of(context).colorScheme;
+    final WalletIdentityController identity =
+        context.watch<WalletIdentityController>();
+    final bool throttled = identity.unlockThrottled;
+    final String? throttleHint =
+        throttled ? identity.throttle.retryHint(DateTime.now()) : null;
+    final bool blocked = _busy || throttled;
 
     return Scaffold(
       body: SafeArea(
@@ -118,8 +152,8 @@ class _LockScreenState extends State<LockScreen> {
                   controller: _pinController,
                   label: 'PIN',
                   autofocus: true,
-                  enabled: !_busy,
-                  errorText: _error,
+                  enabled: !blocked,
+                  errorText: throttleHint ?? _error,
                   textInputAction: TextInputAction.done,
                   onSubmitted: (_) => _unlock(),
                   onChanged: (_) {
@@ -128,9 +162,13 @@ class _LockScreenState extends State<LockScreen> {
                     }
                   },
                 ),
+                if (throttleHint != null) ...<Widget>[
+                  const SizedBox(height: 10),
+                  _ThrottleNotice(hint: throttleHint),
+                ],
                 const SizedBox(height: 20),
                 FilledButton.icon(
-                  onPressed: _busy ? null : _unlock,
+                  onPressed: blocked ? null : _unlock,
                   icon: _busy
                       ? const SizedBox(
                           width: 18,
@@ -140,9 +178,7 @@ class _LockScreenState extends State<LockScreen> {
                       : const Icon(Icons.lock_open_rounded),
                   label: Text(_busy ? 'Decrypting…' : 'Unlock'),
                 ),
-                if (context
-                    .watch<WalletIdentityController>()
-                    .biometricsEnabled) ...<Widget>[
+                if (identity.biometricsEnabled) ...<Widget>[
                   const SizedBox(height: 8),
                   OutlinedButton.icon(
                     onPressed: _busy ? null : _tryBiometrics,
@@ -176,21 +212,32 @@ class _LockScreenState extends State<LockScreen> {
       return;
     }
 
+    final WalletIdentityController identity =
+        context.read<WalletIdentityController>();
+    if (identity.unlockThrottled) {
+      // The button is disabled in that state, but guard here too in case the
+      // lockout expired between the last frame and the tap.
+      _startLockoutTicker();
+      setState(() {});
+      return;
+    }
+
     setState(() {
       _busy = true;
       _error = null;
     });
 
     try {
-      await context
-          .read<WalletIdentityController>()
-          .unlock(_pinController.text);
+      await identity.unlock(_pinController.text);
     } on SeedVaultException catch (error) {
       if (mounted) {
         setState(() {
           _busy = false;
           _error = error.message;
         });
+        if (identity.unlockThrottled) {
+          _startLockoutTicker();
+        }
       }
       return;
     } catch (_) {
@@ -247,5 +294,31 @@ class _LockScreenState extends State<LockScreen> {
       icon: Icons.delete_outline_rounded,
     );
     await identity.removeWallet();
+  }
+}
+
+/// Small error-toned notice shown while a wrong-PIN penalty is counting down.
+class _ThrottleNotice extends StatelessWidget {
+  const _ThrottleNotice({required this.hint});
+
+  final String hint;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Icon(Icons.timer_outlined, size: 18, color: scheme.error),
+        const SizedBox(width: 6),
+        Text(
+          hint,
+          style: Theme.of(context)
+              .textTheme
+              .bodyMedium
+              ?.copyWith(color: scheme.error),
+        ),
+      ],
+    );
   }
 }

@@ -2,10 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../core/utils/app_log.dart';
 import '../data/networks/chain_api.dart';
 import '../data/networks/chain_models.dart';
 import '../data/networks/network_config.dart';
 import '../data/networks/price_api.dart';
+import '../data/wallet/snapshot_cache.dart';
 import 'settings_controller.dart';
 import 'wallet_identity_controller.dart';
 
@@ -20,8 +22,10 @@ class WalletController extends ChangeNotifier {
     required this.settings,
     ChainApi? chainApi,
     PriceApi? priceApi,
+    SnapshotCache? cache,
   })  : _chainApi = chainApi ?? ChainApi(),
-        _priceApi = priceApi ?? PriceApi() {
+        _priceApi = priceApi ?? PriceApi(),
+        _cache = cache ?? const SnapshotCache() {
     identity.addListener(_onDependencyChanged);
     settings.addListener(_onDependencyChanged);
     // Deferred so the very first notify happens after the first build.
@@ -32,10 +36,12 @@ class WalletController extends ChangeNotifier {
   final SettingsController settings;
   final ChainApi _chainApi;
   final PriceApi _priceApi;
+  final SnapshotCache _cache;
 
   AccountSnapshot? _snapshot;
   bool _loading = false;
   String? _error;
+  bool _errorRetryable = true;
   String? _lastKey;
   int _requestToken = 0;
   bool _disposed = false;
@@ -48,6 +54,10 @@ class WalletController extends ChangeNotifier {
 
   String? get error => _error;
 
+  /// Whether the last [error] is worth retrying (network hiccups are, a
+  /// malformed response is not).
+  bool get errorRetryable => _errorRetryable;
+
   /// Receive address for the active network, or `null` while locked.
   String? get address => identity.addressFor(network);
 
@@ -58,9 +68,9 @@ class WalletController extends ChangeNotifier {
   /// Bypasses the price cache so the user actually sees a fresh value.
   Future<void> refresh() => _load(force: true);
 
-  /// Re-fetches only to refresh the market price after a failure, bypassing the
-  /// cached value (used by the "Retry" action on the balance card).
-  Future<void> retryPrice() => _load(force: true);
+  /// Re-fetches balance, history and price after a failure, bypassing the
+  /// caches (used by the "Retry" action on the balance card).
+  Future<void> retryPrice() => refresh();
 
   /// Network fee estimate for a simple transfer on the active network.
   ///
@@ -113,8 +123,25 @@ class WalletController extends ChangeNotifier {
       _snapshot = null;
       _loading = false;
       _error = null;
+      _errorRetryable = true;
       _safeNotify();
       return;
+    }
+
+    // Show the last persisted snapshot for this network straight away, so the
+    // screen is useful before the network answers and while offline. A snapshot
+    // from a different network or address is never shown.
+    if (_snapshot?.network.id != network.id || _snapshot?.address != address) {
+      final AccountSnapshot? cached = await _cache.read(network.id);
+      if (token != _requestToken) {
+        return;
+      }
+      _snapshot = cached != null &&
+              cached.network.id == network.id &&
+              cached.address == address
+          ? cached
+          : null;
+      _safeNotify();
     }
 
     if (force) {
@@ -123,6 +150,7 @@ class WalletController extends ChangeNotifier {
 
     _loading = true;
     _error = null;
+    _errorRetryable = true;
     _safeNotify();
 
     try {
@@ -133,6 +161,7 @@ class WalletController extends ChangeNotifier {
           await Future.wait<Object?>(<Future<Object?>>[
         _chainApi.fetchBalance(network, address),
         _chainApi.fetchTransactions(network, address),
+        _chainApi.fetchTokenBalances(network, address),
         network.priceId == null
             ? Future<Object?>.value()
             : _priceApi.fetchPrice(network.priceId!),
@@ -148,8 +177,9 @@ class WalletController extends ChangeNotifier {
       final BigInt balance = results[0]! as BigInt;
       final List<ChainTransaction> transactions =
           results[1]! as List<ChainTransaction>;
-      final CoinPrice? fetchedPrice = results[2] as CoinPrice?;
-      final List<double> fetchedChart = results[3]! as List<double>;
+      final List<TokenBalance> tokens = results[2]! as List<TokenBalance>;
+      final CoinPrice? fetchedPrice = results[3] as CoinPrice?;
+      final List<double> fetchedChart = results[4]! as List<double>;
 
       // CoinGecko's free tier rate-limits aggressively (HTTP 429), so a price
       // request can fail even though the balance loaded fine. When that happens
@@ -171,18 +201,28 @@ class WalletController extends ChangeNotifier {
         transactions: transactions,
         chart: chart,
         price: price,
+        tokens: tokens,
         fetchedAt: DateTime.now(),
       );
+      unawaited(_cache.write(_snapshot!));
     } on ChainApiException catch (error) {
       if (token != _requestToken) {
         return;
       }
       _error = error.message;
-    } catch (_) {
+      _errorRetryable = error.retryable;
+      AppLog.warning('Failed to load ${network.name}', error);
+    } catch (error, stackTrace) {
       if (token != _requestToken) {
         return;
       }
       _error = 'Something went wrong while loading ${network.name}.';
+      _errorRetryable = true;
+      AppLog.error(
+        'Unexpected failure loading ${network.name}',
+        error,
+        stackTrace,
+      );
     } finally {
       if (token == _requestToken) {
         _loading = false;

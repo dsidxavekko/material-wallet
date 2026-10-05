@@ -7,11 +7,13 @@ import '../../core/utils/formatters.dart';
 import '../../data/networks/network_config.dart';
 import '../../data/wallet/seed_vault.dart';
 import '../../shared/widgets/mnemonic_grid.dart';
+import '../../shared/widgets/pin_confirm_dialog.dart';
 import '../../shared/widgets/pin_field.dart';
 import '../../state/settings_controller.dart';
 import '../../state/wallet_controller.dart';
 import '../../state/wallet_identity_controller.dart';
 import '../network/network_picker.dart';
+import 'address_book_screen.dart';
 import 'currency_picker.dart';
 
 /// Application preferences, wallet management and network switching.
@@ -263,46 +265,32 @@ class _SecuritySectionState extends State<_SecuritySection> {
       return;
     }
 
-    await identity.enableBiometrics(pin);
+    final bool enabled = await identity.enableBiometrics(pin);
     if (mounted) {
-      showAppSnackBar(context, 'Fingerprint unlock enabled.',
-          icon: Icons.fingerprint_rounded);
+      showAppSnackBar(
+        context,
+        enabled
+            ? 'Fingerprint unlock enabled.'
+            : 'Fingerprint unlock was not enabled.',
+        icon: enabled
+            ? Icons.fingerprint_rounded
+            : Icons.error_outline_rounded,
+      );
     }
   }
 
-  Future<String?> _confirmPin() {
-    final TextEditingController controller = TextEditingController();
-    return showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        icon: const Icon(Icons.fingerprint_rounded),
-        title: const Text('Confirm your PIN'),
-        content: PinField(
-          controller: controller,
-          label: 'PIN',
-          autofocus: true,
-          textInputAction: TextInputAction.done,
-          onSubmitted: (String value) =>
-              Navigator.of(dialogContext).pop(value),
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(controller.text),
-            child: const Text('Enable'),
-          ),
-        ],
-      ),
-    );
-  }
+  Future<String?> _confirmPin() => PinConfirmDialog.show(
+        context,
+        title: 'Confirm your PIN',
+        confirmLabel: 'Enable',
+        icon: Icons.fingerprint_rounded,
+      );
 
   @override
   Widget build(BuildContext context) {
     final WalletIdentityController identity =
         context.watch<WalletIdentityController>();
+    final SettingsController settings = context.watch<SettingsController>();
 
     return _SettingsGroup(
       children: <Widget>[
@@ -321,7 +309,63 @@ class _SecuritySectionState extends State<_SecuritySection> {
                     : 'Confirms your PIN once to set up',
           ),
         ),
+        ListTile(
+          leading: const Icon(Icons.timer_outlined),
+          title: const Text('Auto-lock'),
+          subtitle: Text(_autoLockLabel(settings.autoLockSeconds)),
+          trailing: const Icon(Icons.chevron_right_rounded),
+          onTap: () => _pickAutoLock(settings),
+        ),
       ],
+    );
+  }
+
+  String _autoLockLabel(int? seconds) {
+    if (seconds == null) {
+      return 'Never';
+    }
+    if (seconds == 0) {
+      return 'Immediately';
+    }
+    if (seconds < 60) {
+      return 'After $seconds seconds';
+    }
+    return 'After ${seconds ~/ 60} minute${seconds == 60 ? '' : 's'}';
+  }
+
+  Future<void> _pickAutoLock(SettingsController settings) async {
+    final AutoLockDelay? chosen = await showDialog<AutoLockDelay>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: const Text('Auto-lock after'),
+        children: <Widget>[
+          RadioGroup<AutoLockDelay>(
+            groupValue: _delayFor(settings.autoLockSeconds),
+            onChanged: (AutoLockDelay? value) =>
+                Navigator.of(dialogContext).pop(value),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                for (final AutoLockDelay delay in AutoLockDelay.values)
+                  RadioListTile<AutoLockDelay>(
+                    value: delay,
+                    title: Text(delay.label),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    if (chosen != null && mounted) {
+      settings.setAutoLockDelay(chosen);
+    }
+  }
+
+  AutoLockDelay _delayFor(int? seconds) {
+    return AutoLockDelay.values.firstWhere(
+      (AutoLockDelay delay) => delay.seconds == seconds,
+      orElse: () => AutoLockDelay.minute1,
     );
   }
 }
@@ -401,6 +445,17 @@ class _WalletSection extends StatelessWidget {
               ),
             ),
             ListTile(
+              leading: const Icon(Icons.contacts_rounded),
+              title: const Text('Address book'),
+              subtitle: const Text('Saved recipients and labels'),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const AddressBookScreen(),
+                ),
+              ),
+            ),
+            ListTile(
               leading: const Icon(Icons.lock_outline_rounded),
               title: const Text('Lock wallet'),
               subtitle: const Text('Clear the decrypted seed from memory'),
@@ -463,6 +518,31 @@ class _WalletSection extends StatelessWidget {
     );
 
     if (!(confirmed ?? false) || !context.mounted) {
+      return;
+    }
+
+    // The recovery phrase is the keys to the wallet: require the PIN again
+    // even though the app is already unlocked, so an unattended phone cannot
+    // be used to walk off with it.
+    final String? pin = await PinConfirmDialog.show(
+      context,
+      title: 'Confirm your PIN',
+      confirmLabel: 'Reveal',
+      icon: Icons.key_rounded,
+    );
+    if (pin == null || !context.mounted) {
+      return;
+    }
+    try {
+      await identity.verifyPin(pin);
+    } on SeedVaultException catch (error) {
+      if (context.mounted) {
+        showAppSnackBar(context, error.message,
+            icon: Icons.error_outline_rounded);
+      }
+      return;
+    }
+    if (!context.mounted) {
       return;
     }
 

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
+import '../../core/utils/clipboard.dart';
 import '../../core/utils/feedback.dart';
 import '../../shared/widgets/mnemonic_grid.dart';
 import '../../state/wallet_identity_controller.dart';
@@ -110,11 +110,11 @@ class _CreateWalletScreenState extends State<CreateWalletScreen> {
   }
 
   Future<void> _copyPhrase() async {
-    await Clipboard.setData(ClipboardData(text: _mnemonic));
+    await copySensitiveText(_mnemonic);
     if (mounted) {
       showAppSnackBar(
         context,
-        'Recovery phrase copied to clipboard',
+        'Recovery phrase copied — cleared automatically',
         icon: Icons.copy_rounded,
       );
     }

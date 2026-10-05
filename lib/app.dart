@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -6,6 +8,7 @@ import 'data/wallet/wallet_storage.dart';
 import 'features/lock/lock_screen.dart';
 import 'features/onboarding/onboarding_screen.dart';
 import 'features/shell/app_shell.dart';
+import 'state/contacts_controller.dart';
 import 'state/settings_controller.dart';
 import 'state/wallet_controller.dart';
 import 'state/wallet_identity_controller.dart';
@@ -30,6 +33,9 @@ class MaterialWalletApp extends StatelessWidget {
         ChangeNotifierProvider<SettingsController>(
           create: (_) => SettingsController()..load(),
         ),
+        ChangeNotifierProvider<ContactsController>(
+          create: (_) => ContactsController()..load(),
+        ),
         ChangeNotifierProvider<WalletIdentityController>(
           create: (_) => WalletIdentityController(storage: storage)..load(),
         ),
@@ -45,8 +51,67 @@ class MaterialWalletApp extends StatelessWidget {
   }
 }
 
-class _AppView extends StatelessWidget {
+class _AppView extends StatefulWidget {
   const _AppView();
+
+  @override
+  State<_AppView> createState() => _AppViewState();
+}
+
+class _AppViewState extends State<_AppView> with WidgetsBindingObserver {
+  Timer? _autoLockTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    _autoLockTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// Locks the wallet once the app has been in the background for the delay
+  /// chosen in Settings.
+  ///
+  /// `paused` / `hidden` mean the app is really gone from the screen (unlike
+  /// the transient `inactive` on iOS, which fires for a swipe-down notification
+  /// and should not lock anything).
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
+        _scheduleAutoLock();
+      case AppLifecycleState.resumed:
+        _autoLockTimer?.cancel();
+        _autoLockTimer = null;
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.detached:
+        break;
+    }
+  }
+
+  void _scheduleAutoLock() {
+    _autoLockTimer?.cancel();
+
+    final SettingsController settings = context.read<SettingsController>();
+    final WalletIdentityController identity =
+        context.read<WalletIdentityController>();
+    if (!settings.autoLockEnabled || !identity.unlocked) {
+      return;
+    }
+
+    final int seconds = settings.autoLockSeconds ?? 0;
+    if (seconds <= 0) {
+      identity.lock();
+      return;
+    }
+    _autoLockTimer = Timer(Duration(seconds: seconds), identity.lock);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -76,10 +141,60 @@ class RootGate extends StatelessWidget {
 
     return switch (identity.status) {
       WalletStatus.loading => const _SplashScreen(),
+      WalletStatus.failed => const _LoadFailedScreen(),
       WalletStatus.empty => const OnboardingScreen(),
       WalletStatus.locked => const LockScreen(),
       WalletStatus.unlocked => const AppShell(),
     };
+  }
+}
+
+/// Shown when the vault could not be read at start.
+///
+/// Onboarding is deliberately not shown here: if the keystore only failed
+/// temporarily, letting the user "create a new wallet" would overwrite the
+/// existing one.
+class _LoadFailedScreen extends StatelessWidget {
+  const _LoadFailedScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    final TextTheme text = Theme.of(context).textTheme;
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+
+    return Scaffold(
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(Icons.error_outline_rounded, size: 44, color: scheme.error),
+              const SizedBox(height: 16),
+              Text(
+                'Could not open your wallet',
+                textAlign: TextAlign.center,
+                style: text.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'The secure storage on this device did not respond. Your '
+                'wallet is not lost — try again.',
+                textAlign: TextAlign.center,
+                style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+              const SizedBox(height: 22),
+              FilledButton.icon(
+                onPressed: () =>
+                    context.read<WalletIdentityController>().load(),
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Try again'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

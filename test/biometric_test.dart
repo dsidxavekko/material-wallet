@@ -141,6 +141,20 @@ void main() {
       expect(biometrics.prompts, 0);
     });
 
+    test('enableBiometrics reports failure when the prompt is cancelled',
+        () async {
+      final _FakeBiometrics biometrics = _FakeBiometrics();
+      final _FakePinStore store = _FakePinStore();
+      final WalletIdentityController identity =
+          await newWallet(biometrics: biometrics, store: store);
+      await identity.createWallet(mnemonic: mnemonic, pin: pin);
+
+      biometrics.result = false;
+      expect(await identity.enableBiometrics(pin), isFalse);
+      expect(identity.biometricsEnabled, isFalse);
+      expect(store.pin, isNull);
+    });
+
     test('changing the PIN keeps the stored copy in sync', () async {
       final _FakeBiometrics biometrics = _FakeBiometrics();
       final _FakePinStore store = _FakePinStore();

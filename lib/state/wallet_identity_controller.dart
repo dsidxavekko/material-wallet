@@ -3,12 +3,14 @@ import 'dart:async';
 import 'package:bip39/bip39.dart' as bip39;
 import 'package:flutter/foundation.dart';
 
+import '../core/utils/app_log.dart';
 import '../data/models/chain_kind.dart';
 import '../data/networks/network_config.dart';
 import '../data/wallet/address_deriver.dart';
 import '../data/wallet/biometric_auth.dart';
 import '../data/wallet/secure_pin_store.dart';
 import '../data/wallet/seed_vault.dart';
+import '../data/wallet/unlock_throttle.dart';
 import '../data/wallet/wallet_account.dart';
 import '../data/wallet/wallet_storage.dart';
 
@@ -16,6 +18,11 @@ import '../data/wallet/wallet_storage.dart';
 enum WalletStatus {
   /// Reading the vault from storage.
   loading,
+
+  /// Storage could not be read; the wallet is neither known to exist nor
+  /// known to be absent, so the user must retry rather than be shown
+  /// onboarding (which could overwrite a real wallet).
+  failed,
 
   /// No wallet yet — show onboarding.
   empty,
@@ -38,12 +45,17 @@ class WalletIdentityController extends ChangeNotifier {
     BiometricAuth? biometrics,
     this._pinStore = const SecurePinStore(),
     int? kdfRounds,
+    DateTime Function()? clock,
   })  : _biometrics = biometrics ?? BiometricAuth(),
-        _kdfRounds = kdfRounds ?? SeedVault.iterations;
+        _kdfRounds = kdfRounds ?? SeedVault.iterations,
+        _clock = clock ?? DateTime.now;
 
   final WalletStorage _storage;
   final BiometricAuth _biometrics;
   final SecurePinStore _pinStore;
+
+  /// Source of "now", injectable so backoff tests need no real waiting.
+  final DateTime Function() _clock;
 
   /// PBKDF2 rounds used when a new vault is created or re-encrypted. Exposed so
   /// tests can use a cheap value instead of the production [SeedVault.iterations].
@@ -64,6 +76,14 @@ class WalletIdentityController extends ChangeNotifier {
   String? _solanaAddress;
   String? _aptosAddress;
   final Map<String, String> _bitcoinAddresses = <String, String>{};
+
+  UnlockThrottle _throttle = UnlockThrottle.none;
+
+  /// Backoff applied to repeated wrong PIN entries. Persisted across restarts.
+  UnlockThrottle get throttle => _throttle;
+
+  /// `true` while a wrong-PIN penalty is in force.
+  bool get unlockThrottled => _throttle.isThrottledAt(_clock());
 
   WalletStatus get status => _status;
 
@@ -131,28 +151,60 @@ class WalletIdentityController extends ChangeNotifier {
   /// The biometric flag is refreshed in the background so a slow keystore can
   /// never delay the first frame.
   Future<void> load() async {
-    _vault = await _storage.readVault();
-    _createdAt = await _storage.readCreatedAt();
-    _status = _vault == null ? WalletStatus.empty : WalletStatus.locked;
+    try {
+      _vault = await _storage.readVault();
+      _createdAt = await _storage.readCreatedAt();
+      _throttle = await _storage.readThrottle();
+      _status = _vault == null ? WalletStatus.empty : WalletStatus.locked;
+    } catch (error, stackTrace) {
+      // Never fall through to `empty`: if the keystore merely hiccuped, showing
+      // onboarding would let the user overwrite a wallet that still exists.
+      AppLog.error('Failed to read the wallet vault', error, stackTrace);
+      _status = WalletStatus.failed;
+    }
     notifyListeners();
 
-    if (_vault != null) {
+    if (_status == WalletStatus.locked) {
       unawaited(_refreshBiometricState());
     }
   }
 
   Future<void> _refreshBiometricState() async {
-    final bool enabled = await _pinStore.hasPin;
-    if (enabled != _biometricsEnabled) {
-      _biometricsEnabled = enabled;
-      notifyListeners();
+    try {
+      final bool enabled = await _pinStore.hasPin;
+      if (enabled != _biometricsEnabled) {
+        _biometricsEnabled = enabled;
+        notifyListeners();
+      }
+    } catch (error, stackTrace) {
+      AppLog.warning('Could not read the biometric flag', error, stackTrace);
     }
   }
 
   /// Decrypts the stored phrase and derives the addresses.
   ///
-  /// Throws [SeedVaultException] when the PIN is wrong.
+  /// Throws [SeedVaultException] when the PIN is wrong, or while a wrong-PIN
+  /// penalty from earlier attempts is still in force.
   Future<void> unlock(String pin) async {
+    final DateTime now = _clock();
+    if (_throttle.isThrottledAt(now)) {
+      throw SeedVaultException(_throttle.retryHint(now));
+    }
+    try {
+      await _decryptInto(pin);
+    } on SeedVaultException {
+      // Only a genuinely wrong PIN reaches here: a throttled call was rejected
+      // above, so a lockout cannot feed on itself.
+      _throttle = _throttle.recordFailure(now);
+      await _storage.writeThrottle(_throttle);
+      notifyListeners();
+      rethrow;
+    }
+    await _clearThrottle();
+  }
+
+  /// Decrypts [pin] and adopts the resulting account. No throttle handling.
+  Future<void> _decryptInto(String pin) async {
     final String? vault = _vault;
     if (vault == null) {
       throw const SeedVaultException('No wallet on this device.');
@@ -165,6 +217,14 @@ class WalletIdentityController extends ChangeNotifier {
       ),
     );
     notifyListeners();
+  }
+
+  Future<void> _clearThrottle() async {
+    if (_throttle.failedAttempts == 0 && _throttle.lockedUntil == null) {
+      return;
+    }
+    _throttle = UnlockThrottle.none;
+    await _storage.writeThrottle(_throttle);
   }
 
   /// Encrypts [mnemonic] with [pin] and stores it on the device.
@@ -191,6 +251,8 @@ class WalletIdentityController extends ChangeNotifier {
 
     _vault = payload;
     _createdAt = now;
+    _throttle = UnlockThrottle.none;
+    await _storage.writeThrottle(_throttle);
     if (useBiometrics) {
       await enableBiometrics(pin);
     }
@@ -246,6 +308,7 @@ class WalletIdentityController extends ChangeNotifier {
     _vault = null;
     _createdAt = null;
     _biometricsEnabled = false;
+    _throttle = UnlockThrottle.none;
     _clearMemory();
     _status = WalletStatus.empty;
     notifyListeners();
@@ -258,16 +321,21 @@ class WalletIdentityController extends ChangeNotifier {
 
   /// Runs a biometric check and, on success, keeps [pin] in the keystore so
   /// later launches can be unlocked with a fingerprint.
-  Future<void> enableBiometrics(String pin) async {
+  ///
+  /// Returns `true` only when the PIN was actually stored. It returns `false`
+  /// when the device has no biometrics or the user cancels the prompt, so
+  /// callers can report the real outcome instead of assuming success.
+  Future<bool> enableBiometrics(String pin) async {
     if (!await canUseBiometrics()) {
-      return;
+      return false;
     }
     if (!await _biometrics.authenticate(reason: 'Enable fingerprint unlock')) {
-      return;
+      return false;
     }
     await _pinStore.write(pin);
     _biometricsEnabled = true;
     notifyListeners();
+    return true;
   }
 
   /// Forgets the stored PIN; the wallet goes back to PIN-only unlocking.
@@ -280,6 +348,10 @@ class WalletIdentityController extends ChangeNotifier {
   }
 
   /// Unlocks using the fingerprint prompt plus the PIN from the keystore.
+  ///
+  /// Biometric success is its own authorisation factor, so it is not subject to
+  /// the wrong-PIN backoff (a fingerprint cannot be guessed offline). A
+  /// successful unlock clears any pending PIN penalty.
   ///
   /// Returns `false` (and leaves the wallet locked) when biometrics is off, the
   /// prompt is cancelled, or no PIN is stored.
@@ -294,7 +366,8 @@ class WalletIdentityController extends ChangeNotifier {
     if (pin == null) {
       return false;
     }
-    await unlock(pin);
+    await _decryptInto(pin);
+    await _clearThrottle();
     return true;
   }
 
@@ -320,6 +393,13 @@ class WalletIdentityController extends ChangeNotifier {
   }
 
   void _clearMemory() {
+    // Overwrite the derived seed before dropping the reference so it does not
+    // linger in the heap until the GC runs. (The mnemonic itself is an
+    // immutable String and cannot be wiped the same way.)
+    final Uint8List? seed = _seed;
+    if (seed != null) {
+      seed.fillRange(0, seed.length, 0);
+    }
     _account = null;
     _seed = null;
     _evmAddress = null;
