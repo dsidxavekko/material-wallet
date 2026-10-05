@@ -5,6 +5,7 @@ import 'package:crypto_wallet/data/wallet/seed_vault.dart';
 import 'package:crypto_wallet/data/wallet/wallet_storage.dart';
 import 'package:crypto_wallet/state/settings_controller.dart';
 import 'package:crypto_wallet/state/wallet_identity_controller.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -40,6 +41,26 @@ class _FlakyStorage extends WalletStorage {
 class _BrokenPrefs extends WalletStorage {
   @override
   Future<String?> readNetworkId() async => throw StateError('no prefs');
+}
+
+/// In-memory preferences for round-trip tests.
+class _MemoryStorage extends WalletStorage {
+  String? theme;
+
+  @override
+  Future<String?> readNetworkId() async => null;
+
+  @override
+  Future<String?> readCurrencyCode() async => null;
+
+  @override
+  Future<int?> readAutoLockSeconds() async => null;
+
+  @override
+  Future<String?> readThemeMode() async => theme;
+
+  @override
+  Future<void> writeThemeMode(String name) async => theme = name;
 }
 
 void main() {
@@ -91,6 +112,19 @@ void main() {
       expect(settings.network.id, NetworkCatalog.bitcoin.id);
       expect(settings.currency, AppCurrency.usd);
       expect(settings.autoLockEnabled, isTrue);
+    });
+
+    test('restores the previously chosen theme', () async {
+      final _MemoryStorage storage = _MemoryStorage();
+      final SettingsController first = SettingsController(storage: storage);
+      first.setThemeMode(ThemeMode.dark);
+      // setThemeMode persists fire-and-forget.
+      await Future<void>.delayed(Duration.zero);
+
+      final SettingsController second = SettingsController(storage: storage);
+      await second.load();
+
+      expect(second.themeMode, ThemeMode.dark);
     });
   });
 

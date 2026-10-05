@@ -27,6 +27,7 @@ class WalletStorage {
   static const String _currencyKey = 'nova.wallet.currency';
   static const String _throttleKey = 'nova.wallet.unlockThrottle';
   static const String _autoLockKey = 'nova.wallet.autoLockSeconds';
+  static const String _themeKey = 'nova.wallet.themeMode';
 
   /// The encrypted recovery phrase, or `null` when no wallet exists.
   Future<String?> readVault() async {
@@ -113,6 +114,17 @@ class WalletStorage {
   Future<void> writeAutoLockSeconds(int? seconds) async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_autoLockKey, seconds ?? -1);
+  }
+
+  /// The persisted [ThemeMode] name (`system` / `light` / `dark`).
+  Future<String?> readThemeMode() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_themeKey);
+  }
+
+  Future<void> writeThemeMode(String name) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_themeKey, name);
   }
 
   /// Removes the wallet. The selected network is intentionally preserved.

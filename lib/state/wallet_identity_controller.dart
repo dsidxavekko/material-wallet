@@ -393,6 +393,13 @@ class WalletIdentityController extends ChangeNotifier {
   }
 
   void _clearMemory() {
+    // Overwrite the derived seed before dropping the reference so it does not
+    // linger in the heap until the GC runs. (The mnemonic itself is an
+    // immutable String and cannot be wiped the same way.)
+    final Uint8List? seed = _seed;
+    if (seed != null) {
+      seed.fillRange(0, seed.length, 0);
+    }
     _account = null;
     _seed = null;
     _evmAddress = null;

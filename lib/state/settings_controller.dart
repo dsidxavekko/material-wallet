@@ -52,6 +52,7 @@ class SettingsController extends ChangeNotifier {
       final String? id = await _storage.readNetworkId();
       final String? code = await _storage.readCurrencyCode();
       final int? autoLock = await _storage.readAutoLockSeconds();
+      final String? themeName = await _storage.readThemeMode();
       bool changed = false;
 
       if (id != null) {
@@ -69,6 +70,17 @@ class SettingsController extends ChangeNotifier {
       if (currency != _currency) {
         _currency = currency;
         changed = true;
+      }
+
+      if (themeName != null) {
+        final ThemeMode theme = ThemeMode.values.firstWhere(
+          (ThemeMode value) => value.name == themeName,
+          orElse: () => _themeMode,
+        );
+        if (theme != _themeMode) {
+          _themeMode = theme;
+          changed = true;
+        }
       }
 
       if (autoLock != null) {
@@ -97,6 +109,7 @@ class SettingsController extends ChangeNotifier {
     }
     _themeMode = mode;
     notifyListeners();
+    unawaited(_storage.writeThemeMode(mode.name));
   }
 
   /// Switches the display currency and persists the choice.
