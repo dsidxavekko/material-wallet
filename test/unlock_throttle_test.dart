@@ -29,9 +29,7 @@ class _FakeWalletStorage extends WalletStorage {
 
 /// In-memory stand-in for the fingerprint prompt.
 class _FakeBiometrics extends BiometricAuth {
-  _FakeBiometrics({this.available = true});
-
-  bool available;
+  bool available = true;
   bool result = true;
 
   @override

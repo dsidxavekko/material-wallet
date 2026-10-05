@@ -13,8 +13,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 /// Storage whose keystore read can be made to fail on demand.
 class _FlakyStorage extends WalletStorage {
-  _FlakyStorage({this.vault});
-
   String? vault;
   bool failReads = false;
 

@@ -51,7 +51,7 @@ class UnlockThrottle {
     if (attempts <= 0) {
       return Duration.zero;
     }
-    return backoff[attempts > backoff.length ? backoff.length : attempts - 1];
+    return backoff[(attempts - 1).clamp(0, backoff.length - 1)];
   }
 
   /// Advances the counter after a rejected PIN.
@@ -103,7 +103,7 @@ class UnlockThrottle {
     }
     final Object? attempts = json['failedAttempts'];
     final int count = attempts is num && attempts > 0 ? attempts.toInt() : 0;
-    final String? raw = json['lockedUntil'];
+    final Object? raw = json['lockedUntil'];
     final DateTime? until =
         raw is String ? DateTime.tryParse(raw)?.toLocal() : null;
     return UnlockThrottle(failedAttempts: count, lockedUntil: until);
