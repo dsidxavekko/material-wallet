@@ -20,6 +20,7 @@ import '../settings/currency_picker.dart';
 import 'widgets/account_balance_card.dart';
 import 'widgets/address_card.dart';
 import 'widgets/state_cards.dart';
+import 'widgets/token_list.dart';
 
 /// Wallet tab: live balance, address and recent on-chain activity.
 class HomeScreen extends StatefulWidget {
@@ -112,6 +113,11 @@ class _HomeScreenState extends State<HomeScreen> {
           onSend: () => _push(context, const SendScreen()),
           onReceive: () => _push(context, const ReceiveScreen()),
         ),
+        if (snapshot.tokens.isNotEmpty) ...<Widget>[
+          const SizedBox(height: 26),
+          const SectionHeader(title: 'Tokens'),
+          TokenList(tokens: snapshot.tokens, currency: currency),
+        ],
         const SizedBox(height: 26),
         const SectionHeader(title: 'Your address'),
         AddressCard(

@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../../core/utils/app_log.dart';
 import '../models/chain_kind.dart';
 import 'chain_models.dart';
 import 'network_config.dart';
@@ -180,6 +181,76 @@ class ChainApi {
   }
 
   // --- HTTP ----------------------------------------------------------------
+
+  /// ERC-20 balances for [address], largest USD value first.
+  ///
+  /// Returns an empty list on chains without a token index (Bitcoin, Solana,
+  /// Aptos, and the JSON-RPC-only BNB Chain) and whenever the request fails:
+  /// token data is a bonus and must never break the balance screen.
+  Future<List<TokenBalance>> fetchTokenBalances(
+    NetworkConfig network,
+    String address,
+  ) async {
+    if (network.chain != ChainKind.evm || network.rpcUrl != null) {
+      return const <TokenBalance>[];
+    }
+    try {
+      final Object? json = await _get(
+        '${network.apiBase}/addresses/$address/tokens?type=ERC-20',
+      );
+      return _parseTokenBalances(json);
+    } catch (error) {
+      AppLog.warning('Token balances unavailable for ${network.name}', error);
+      return const <TokenBalance>[];
+    }
+  }
+
+  static List<TokenBalance> _parseTokenBalances(Object? json) {
+    if (json is! Map<String, Object?>) {
+      return const <TokenBalance>[];
+    }
+    final Object? items = json['items'];
+    if (items is! List) {
+      return const <TokenBalance>[];
+    }
+
+    final List<TokenBalance> tokens = <TokenBalance>[];
+    for (final Object? item in items) {
+      if (item is! Map) {
+        continue;
+      }
+      final Object? token = item['token'];
+      if (token is! Map) {
+        continue;
+      }
+      final Object? value = item['value'];
+      final BigInt balance = BigInt.tryParse('$value') ?? BigInt.zero;
+      if (balance <= BigInt.zero) {
+        continue;
+      }
+
+      final Object? decimals = token['decimals'];
+      final int decimalsValue = decimals is num
+          ? decimals.toInt()
+          : int.tryParse('$decimals') ?? 0;
+      final String symbol = (token['symbol'] as String? ?? '').trim();
+
+      tokens.add(TokenBalance(
+        symbol: symbol.isEmpty ? '?' : symbol,
+        name: token['name'] as String? ?? '',
+        decimals: decimalsValue,
+        balance: balance,
+        contractAddress: token['address_hash'] as String? ?? '',
+        usdRate: double.tryParse('${token['exchange_rate']}'),
+      ));
+    }
+
+    tokens.sort((TokenBalance a, TokenBalance b) {
+      final int byValue = (b.usdValue ?? -1).compareTo(a.usdValue ?? -1);
+      return byValue != 0 ? byValue : a.symbol.compareTo(b.symbol);
+    });
+    return tokens;
+  }
 
   Future<Object?> _get(String url) async {
     final http.Response response;

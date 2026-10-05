@@ -161,6 +161,7 @@ class WalletController extends ChangeNotifier {
           await Future.wait<Object?>(<Future<Object?>>[
         _chainApi.fetchBalance(network, address),
         _chainApi.fetchTransactions(network, address),
+        _chainApi.fetchTokenBalances(network, address),
         network.priceId == null
             ? Future<Object?>.value()
             : _priceApi.fetchPrice(network.priceId!),
@@ -176,8 +177,9 @@ class WalletController extends ChangeNotifier {
       final BigInt balance = results[0]! as BigInt;
       final List<ChainTransaction> transactions =
           results[1]! as List<ChainTransaction>;
-      final CoinPrice? fetchedPrice = results[2] as CoinPrice?;
-      final List<double> fetchedChart = results[3]! as List<double>;
+      final List<TokenBalance> tokens = results[2]! as List<TokenBalance>;
+      final CoinPrice? fetchedPrice = results[3] as CoinPrice?;
+      final List<double> fetchedChart = results[4]! as List<double>;
 
       // CoinGecko's free tier rate-limits aggressively (HTTP 429), so a price
       // request can fail even though the balance loaded fine. When that happens
@@ -199,6 +201,7 @@ class WalletController extends ChangeNotifier {
         transactions: transactions,
         chart: chart,
         price: price,
+        tokens: tokens,
         fetchedAt: DateTime.now(),
       );
       unawaited(_cache.write(_snapshot!));

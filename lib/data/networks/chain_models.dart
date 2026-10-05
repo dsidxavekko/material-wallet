@@ -83,6 +83,61 @@ class CoinPrice {
       );
 }
 
+/// An ERC-20 token balance returned by Blockscout.
+class TokenBalance {
+  const TokenBalance({
+    required this.symbol,
+    required this.name,
+    required this.decimals,
+    required this.balance,
+    required this.contractAddress,
+    this.usdRate,
+  });
+
+  final String symbol;
+  final String name;
+  final int decimals;
+
+  /// Raw balance in the token's smallest unit.
+  final BigInt balance;
+
+  final String contractAddress;
+
+  /// USD price per whole token, when Blockscout knows one.
+  final double? usdRate;
+
+  /// Whole-token amount as a `double`.
+  double get amount => Units.toDouble(balance, decimals);
+
+  /// Human readable amount, capped at six decimals.
+  String get amountLabel => Units.format(
+        balance,
+        decimals,
+        maxDecimals: decimals > 6 ? 6 : decimals,
+      );
+
+  /// USD value of the holding, or `null` without a rate.
+  double? get usdValue => usdRate == null ? null : amount * usdRate!;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+        'symbol': symbol,
+        'name': name,
+        'decimals': decimals,
+        'balance': balance.toString(),
+        'contractAddress': contractAddress,
+        'usdRate': usdRate,
+      };
+
+  factory TokenBalance.fromJson(Map<String, Object?> json) => TokenBalance(
+        symbol: json['symbol'] as String? ?? '?',
+        name: json['name'] as String? ?? '',
+        decimals: (json['decimals'] as num?)?.toInt() ?? 0,
+        balance: BigInt.tryParse(json['balance'] as String? ?? '0') ?? BigInt.zero,
+        contractAddress: json['contractAddress'] as String? ?? '',
+        usdRate: (json['usdRate'] as num?)?.toDouble(),
+      );
+}
+
 /// Everything the UI needs to render the account for the selected network.
 class AccountSnapshot {
   const AccountSnapshot({
@@ -93,6 +148,7 @@ class AccountSnapshot {
     required this.chart,
     required this.fetchedAt,
     this.price,
+    this.tokens = const <TokenBalance>[],
   });
 
   final NetworkConfig network;
@@ -102,6 +158,9 @@ class AccountSnapshot {
   final BigInt balance;
 
   final List<ChainTransaction> transactions;
+
+  /// ERC-20 holdings (empty on networks without token support).
+  final List<TokenBalance> tokens;
 
   /// Normalised price series for the 24h chart (may be empty).
   final List<double> chart;
@@ -127,6 +186,7 @@ class AccountSnapshot {
         'balance': balance.toString(),
         'transactions':
             transactions.map((ChainTransaction t) => t.toJson()).toList(),
+        'tokens': tokens.map((TokenBalance t) => t.toJson()).toList(),
         'chart': chart,
         'fetchedAt': fetchedAt.toIso8601String(),
         'price': price?.toJson(),
@@ -146,6 +206,8 @@ class AccountSnapshot {
           json['transactions'] as List<Object?>? ?? const <Object?>[];
       final List<Object?> chart =
           json['chart'] as List<Object?>? ?? const <Object?>[];
+      final List<Object?> tokens =
+          json['tokens'] as List<Object?>? ?? const <Object?>[];
       final Object? price = json['price'];
       return AccountSnapshot(
         network: network,
@@ -154,6 +216,12 @@ class AccountSnapshot {
         transactions: <ChainTransaction>[
           for (final Object? item in transactions)
             ChainTransaction.fromJson(
+              (item! as Map<Object?, Object?>).cast<String, Object?>(),
+            ),
+        ],
+        tokens: <TokenBalance>[
+          for (final Object? item in tokens)
+            TokenBalance.fromJson(
               (item! as Map<Object?, Object?>).cast<String, Object?>(),
             ),
         ],

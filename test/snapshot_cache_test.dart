@@ -59,6 +59,16 @@ void main() {
       ],
       chart: <double>[1, 2, 3.5],
       price: const CoinPrice(usd: 2500, change24h: -1.5),
+      tokens: <TokenBalance>[
+        TokenBalance(
+          symbol: 'USDT',
+          name: 'Tether',
+          decimals: 6,
+          balance: BigInt.from(291368219),
+          contractAddress: '0xusdt',
+          usdRate: 1.0,
+        ),
+      ],
       fetchedAt: DateTime(2026, 2, 3, 6),
     );
 
@@ -73,6 +83,8 @@ void main() {
     expect(restored.transactions.single.amount, BigInt.from(-42));
     expect(restored.chart, <double>[1, 2, 3.5]);
     expect(restored.price?.usd, 2500);
+    expect(restored.tokens.single.symbol, 'USDT');
+    expect(restored.tokens.single.balance, BigInt.from(291368219));
   });
 
   test('a corrupt payload is a cache miss, not a crash', () {
