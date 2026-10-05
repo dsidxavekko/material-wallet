@@ -7,6 +7,7 @@ import '../../core/utils/formatters.dart';
 import '../../data/networks/network_config.dart';
 import '../../data/wallet/seed_vault.dart';
 import '../../shared/widgets/mnemonic_grid.dart';
+import '../../shared/widgets/pin_confirm_dialog.dart';
 import '../../shared/widgets/pin_field.dart';
 import '../../state/settings_controller.dart';
 import '../../state/wallet_controller.dart';
@@ -263,41 +264,26 @@ class _SecuritySectionState extends State<_SecuritySection> {
       return;
     }
 
-    await identity.enableBiometrics(pin);
+    final bool enabled = await identity.enableBiometrics(pin);
     if (mounted) {
-      showAppSnackBar(context, 'Fingerprint unlock enabled.',
-          icon: Icons.fingerprint_rounded);
+      showAppSnackBar(
+        context,
+        enabled
+            ? 'Fingerprint unlock enabled.'
+            : 'Fingerprint unlock was not enabled.',
+        icon: enabled
+            ? Icons.fingerprint_rounded
+            : Icons.error_outline_rounded,
+      );
     }
   }
 
-  Future<String?> _confirmPin() {
-    final TextEditingController controller = TextEditingController();
-    return showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        icon: const Icon(Icons.fingerprint_rounded),
-        title: const Text('Confirm your PIN'),
-        content: PinField(
-          controller: controller,
-          label: 'PIN',
-          autofocus: true,
-          textInputAction: TextInputAction.done,
-          onSubmitted: (String value) =>
-              Navigator.of(dialogContext).pop(value),
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(controller.text),
-            child: const Text('Enable'),
-          ),
-        ],
-      ),
-    );
-  }
+  Future<String?> _confirmPin() => PinConfirmDialog.show(
+        context,
+        title: 'Confirm your PIN',
+        confirmLabel: 'Enable',
+        icon: Icons.fingerprint_rounded,
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -520,6 +506,31 @@ class _WalletSection extends StatelessWidget {
     );
 
     if (!(confirmed ?? false) || !context.mounted) {
+      return;
+    }
+
+    // The recovery phrase is the keys to the wallet: require the PIN again
+    // even though the app is already unlocked, so an unattended phone cannot
+    // be used to walk off with it.
+    final String? pin = await PinConfirmDialog.show(
+      context,
+      title: 'Confirm your PIN',
+      confirmLabel: 'Reveal',
+      icon: Icons.key_rounded,
+    );
+    if (pin == null || !context.mounted) {
+      return;
+    }
+    try {
+      await identity.verifyPin(pin);
+    } on SeedVaultException catch (error) {
+      if (context.mounted) {
+        showAppSnackBar(context, error.message,
+            icon: Icons.error_outline_rounded);
+      }
+      return;
+    }
+    if (!context.mounted) {
       return;
     }
 

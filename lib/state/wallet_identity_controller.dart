@@ -304,16 +304,21 @@ class WalletIdentityController extends ChangeNotifier {
 
   /// Runs a biometric check and, on success, keeps [pin] in the keystore so
   /// later launches can be unlocked with a fingerprint.
-  Future<void> enableBiometrics(String pin) async {
+  ///
+  /// Returns `true` only when the PIN was actually stored. It returns `false`
+  /// when the device has no biometrics or the user cancels the prompt, so
+  /// callers can report the real outcome instead of assuming success.
+  Future<bool> enableBiometrics(String pin) async {
     if (!await canUseBiometrics()) {
-      return;
+      return false;
     }
     if (!await _biometrics.authenticate(reason: 'Enable fingerprint unlock')) {
-      return;
+      return false;
     }
     await _pinStore.write(pin);
     _biometricsEnabled = true;
     notifyListeners();
+    return true;
   }
 
   /// Forgets the stored PIN; the wallet goes back to PIN-only unlocking.
