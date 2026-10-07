@@ -170,12 +170,49 @@ class EvmSigner {
   static Uint8List erc20TransferData({
     required String to,
     required BigInt amount,
-  }) {
-    final BytesBuilder builder = BytesBuilder();
-    builder.add(const <int>[0xa9, 0x05, 0x9c, 0xbb]);
-    builder.add(Uint8List(12)); // left-pad the address to a 32-byte word
-    builder.add(_addressToBytes(to));
-    builder.add(_word(amount));
+  }) =>
+      _encodeCall(const <int>[0xa9, 0x05, 0x9c, 0xbb], <Uint8List>[
+        _addressWord(to),
+        _word(amount),
+      ]);
+
+  /// ABI-encoded calldata for an ERC-20 `approve(address,uint256)`.
+  ///
+  /// Selector `0x095ea7b3`. Passing [amount] `0` revokes an existing approval:
+  /// the standard way to stop a contract that was granted access to a token,
+  /// which is otherwise impossible to undo from inside a wallet.
+  static Uint8List erc20ApproveData({
+    required String spender,
+    required BigInt amount,
+  }) =>
+      _encodeCall(const <int>[0x09, 0x5e, 0xa7, 0xb3], <Uint8List>[
+        _addressWord(spender),
+        _word(amount),
+      ]);
+
+  /// ABI-encoded calldata for an ERC-20 `balanceOf(address)` read.
+  ///
+  /// Selector `0x70a08231`, used with `eth_call` to re-read a holding right
+  /// before signing — the balance rendered on screen may already be stale.
+  static Uint8List erc20BalanceOfData(String owner) =>
+      _encodeCall(const <int>[0x70, 0xa0, 0x82, 0x31], <Uint8List>[
+        _addressWord(owner),
+      ]);
+
+  /// A 4-byte selector followed by [args], each already ABI-encoded.
+  static Uint8List _encodeCall(List<int> selector, List<Uint8List> args) {
+    final BytesBuilder builder = BytesBuilder()..add(selector);
+    for (final Uint8List arg in args) {
+      builder.add(arg);
+    }
+    return builder.toBytes();
+  }
+
+  /// An address left-padded to a full 32-byte ABI word.
+  static Uint8List _addressWord(String address) {
+    final BytesBuilder builder = BytesBuilder()
+      ..add(Uint8List(12))
+      ..add(_addressToBytes(address));
     return builder.toBytes();
   }
 

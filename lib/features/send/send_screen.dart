@@ -11,17 +11,17 @@ import '../../core/utils/units.dart';
 import '../../data/models/chain_kind.dart';
 import '../../data/networks/chain_models.dart';
 import '../../data/networks/network_config.dart';
+import '../../data/wallet/address_guard.dart';
 import '../../data/wallet/address_validator.dart';
 import '../../data/wallet/contact_store.dart';
 import '../../data/wallet/evm_signer.dart';
-import '../../data/wallet/seed_vault.dart';
 import '../../shared/widgets/empty_state.dart';
-import '../../shared/widgets/pin_confirm_dialog.dart';
 import '../../state/contacts_controller.dart';
 import '../../state/send_controller.dart';
 import '../../state/settings_controller.dart';
 import '../../state/wallet_controller.dart';
 import '../../state/wallet_identity_controller.dart';
+import '../lock/sensitive_auth.dart';
 import '../scan/scan_screen.dart';
 import 'transfer_success_screen.dart';
 import 'widgets/transfer_progress_dialog.dart';
@@ -31,11 +31,20 @@ import 'widgets/transfer_progress_dialog.dart';
 /// EVM networks are signed on-device and broadcast for real; every other chain
 /// still stops at a validated, copyable summary.
 class SendScreen extends StatefulWidget {
-  const SendScreen({super.key, this.token});
+  const SendScreen({
+    super.key,
+    this.token,
+    this.initialRecipient,
+    this.initialAmount,
+  });
 
   /// When set, the transfer is an ERC-20 `transfer` of this token instead of
   /// the chain's native currency.
   final TokenBalance? token;
+
+  /// Prefill from a payment deep link.
+  final String? initialRecipient;
+  final String? initialAmount;
 
   @override
   State<SendScreen> createState() => _SendScreenState();
@@ -50,6 +59,10 @@ class _SendScreenState extends State<SendScreen> {
   /// approves is exactly the total that leaves the account.
   ({BigInt baseFee, BigInt maxPriorityFeePerGas, BigInt gasLimit})? _quote;
   FeePreset _preset = FeePreset.normal;
+
+  /// User-entered fee, in wei per gas, used when [_preset] is custom.
+  BigInt? _customTipWei;
+  BigInt? _customCapWei;
   BigInt? _estimate;
   bool _loadingFee = true;
 
@@ -69,14 +82,29 @@ class _SendScreenState extends State<SendScreen> {
   BigInt get _balance => widget.token?.balance ?? _nativeBalance;
 
   /// The tip for the selected [FeePreset].
-  BigInt get _priority => _preset.tipFor(_quote?.maxPriorityFeePerGas ?? BigInt.zero);
+  BigInt get _priority => _preset == FeePreset.custom
+      ? (_customTipWei ?? BigInt.zero)
+      : _preset.tipFor(_quote?.maxPriorityFeePerGas ?? BigInt.zero);
 
   /// The fee cap for the selected [FeePreset].
-  BigInt get _cap => _preset.capFor(_quote?.baseFee ?? BigInt.zero, _quote?.maxPriorityFeePerGas ?? BigInt.zero);
+  BigInt get _cap => _preset == FeePreset.custom
+      ? (_customCapWei ?? BigInt.zero)
+      : _preset.capFor(
+          _quote?.baseFee ?? BigInt.zero,
+          _quote?.maxPriorityFeePerGas ?? BigInt.zero,
+        );
 
   @override
   void initState() {
     super.initState();
+    final String? recipient = widget.initialRecipient;
+    if (recipient != null && recipient.isNotEmpty) {
+      _addressController.text = _extractAddress(recipient);
+    }
+    final String? amount = widget.initialAmount;
+    if (amount != null && amount.isNotEmpty) {
+      _amountController.text = amount;
+    }
     _loadFee();
   }
 
@@ -114,6 +142,39 @@ class _SendScreenState extends State<SendScreen> {
 
   AddressValidation get _addressValidation =>
       AddressValidator.validate(_network, _addressController.text);
+
+  /// A saved or already-seen address the entered recipient imitates.
+  ///
+  /// Address poisoning works by sending a worthless token from an address that
+  /// copies the visible ends of a contract the user trusts; the victim then
+  /// sends real funds to the attacker. The comparison runs on every keystroke,
+  /// so it is done against the small set of addresses this wallet already
+  /// deals with rather than any on-chain index.
+  String? get _impersonatedAddress {
+    final NetworkConfig network = _network;
+    if (network.chain != ChainKind.evm) {
+      return null;
+    }
+    final String recipient = _extractAddress(_addressController.text.trim());
+    if (recipient.isEmpty) {
+      return null;
+    }
+    return AddressGuard.impersonates(recipient, _knownAddresses(network));
+  }
+
+  /// Every address the user has deliberately saved or sent to on [network].
+  ///
+  /// Excludes incoming counterparties: those are exactly the addresses an
+  /// attacker chooses, so trusting them would flag the real counterparty.
+  List<String> _knownAddresses(NetworkConfig network) => <String>[
+        for (final Contact contact
+            in context.read<ContactsController>().contacts)
+          if (contact.networkId == network.id) contact.address,
+        for (final ChainTransaction tx
+            in context.read<WalletController>().snapshot?.transactions ??
+                const <ChainTransaction>[])
+          if (!tx.isIncoming) tx.counterparty,
+      ];
 
   bool get _isValid =>
       _enteredAmount > BigInt.zero &&
@@ -254,6 +315,9 @@ class _SendScreenState extends State<SendScreen> {
                   const SizedBox(height: 16),
                   TextField(
                     controller: _addressController,
+                    // A valid checksum is not the same as a trustworthy
+                    // address, so the whole field is re-validated on every
+                    // keystroke to drive the poisoning warning below.
                     onChanged: (_) => setState(() {}),
                     decoration: InputDecoration(
                       labelText: 'Recipient address',
@@ -289,13 +353,30 @@ class _SendScreenState extends State<SendScreen> {
                       ),
                     ),
                   ),
+                  if (_impersonatedAddress case final String known) ...[
+                    const SizedBox(height: 12),
+                    _PoisonWarning(knownAddress: known),
+                  ],
                   if (_quote != null) ...<Widget>[
                     const SizedBox(height: 18),
                     _FeePresetSelector(
                       value: _preset,
-                      onChanged: (FeePreset value) =>
-                          setState(() => _preset = value),
+                      onChanged: _onPresetChanged,
                     ),
+                    if (_preset == FeePreset.custom) ...<Widget>[
+                      const SizedBox(height: 6),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton.icon(
+                          onPressed: () => _onPresetChanged(FeePreset.custom),
+                          icon: const Icon(Icons.edit_rounded, size: 18),
+                          label: Text(
+                            '${Units.format(_priority, 9, group: false)} gwei tip · '
+                            '${Units.format(_cap, 9, group: false)} gwei cap',
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                   const SizedBox(height: 20),
                   _SummaryCard(
@@ -403,6 +484,35 @@ class _SendScreenState extends State<SendScreen> {
             gasLimit: _quote!.gasLimit,
           );
 
+  /// Applies a preset. Picking [FeePreset.custom] opens the entry dialog and
+  /// keeps the previous preset if the user cancels.
+  Future<void> _onPresetChanged(FeePreset value) async {
+    if (value != FeePreset.custom) {
+      setState(() => _preset = value);
+      return;
+    }
+
+    final BigInt baseFee = _quote?.baseFee ?? BigInt.zero;
+    final BigInt tip = _quote?.maxPriorityFeePerGas ?? BigInt.zero;
+    final ({BigInt tipWei, BigInt capWei})? result =
+        await showDialog<({BigInt tipWei, BigInt capWei})>(
+      context: context,
+      builder: (_) => _CustomFeeDialog(
+        initialTipWei: _customTipWei ?? FeePreset.normal.tipFor(tip),
+        initialCapWei: _customCapWei ?? FeePreset.fast.capFor(baseFee, tip),
+        baseFeeWei: baseFee,
+      ),
+    );
+    if (result == null || !mounted) {
+      return;
+    }
+    setState(() {
+      _customTipWei = result.tipWei;
+      _customCapWei = result.capWei;
+      _preset = FeePreset.custom;
+    });
+  }
+
   Future<void> _prepare() async {
     final NetworkConfig network = _network;
 
@@ -451,7 +561,7 @@ class _SendScreenState extends State<SendScreen> {
     );
   }
 
-  /// Confirms with the PIN, signs on-device and broadcasts.
+  /// Confirms with a fingerprint (or the PIN), signs on-device and broadcasts.
   ///
   /// The sheet is popped first so the progress dialog owns the screen, then the
   /// balance is refreshed so the UI reflects what actually left the account.
@@ -467,25 +577,14 @@ class _SendScreenState extends State<SendScreen> {
       return;
     }
 
-    final String? pin = await PinConfirmDialog.show(
+    final bool authorized = await authorizeSensitiveAction(
       context,
+      reason: 'Confirm transfer',
       title: 'Confirm transfer',
       confirmLabel: 'Send',
       icon: Icons.key_rounded,
     );
-    if (pin == null || !mounted) {
-      return;
-    }
-
-    try {
-      await identity.verifyPin(pin);
-    } on SeedVaultException catch (error) {
-      if (mounted) {
-        showAppSnackBar(context, error.message, icon: Icons.lock_outline_rounded);
-      }
-      return;
-    }
-    if (!mounted) {
+    if (!authorized || !mounted) {
       return;
     }
 
@@ -506,6 +605,7 @@ class _SendScreenState extends State<SendScreen> {
         to: _signTo(recipient),
         value: _nativeOut,
         data: _calldata(recipient),
+        tokenContract: _isToken ? widget.token!.contractAddress : null,
         amount: _enteredAmount,
         amountDecimals: _decimals,
         amountSymbol: _symbol,
@@ -526,6 +626,7 @@ class _SendScreenState extends State<SendScreen> {
     required String to,
     required BigInt value,
     required Uint8List? data,
+    required String? tokenContract,
     required BigInt amount,
     required int amountDecimals,
     required String amountSymbol,
@@ -542,6 +643,8 @@ class _SendScreenState extends State<SendScreen> {
           to: to,
           value: value,
           data: data,
+          tokenContract: tokenContract,
+          tokenAmount: amount,
           maxPriorityFeePerGas: maxPriorityFeePerGas,
           maxFeePerGas: maxFeePerGas,
           gasLimit: gasLimit,
@@ -1090,7 +1193,65 @@ class _PreparedSheet extends StatelessWidget {
   }
 }
 
-/// Low / Normal / High fee preset selector for an EIP-1559 transfer.
+/// Blocking warning shown when the entered recipient imitates an address the
+/// wallet already deals with.
+///
+/// Deliberately louder than the inline field errors: the entered address is
+/// perfectly valid, which is the point — the danger is in *which* address it is,
+/// and only a comparison against known ones reveals that.
+class _PoisonWarning extends StatelessWidget {
+  const _PoisonWarning({required this.knownAddress});
+
+  /// The trusted address this recipient appears to copy.
+  final String knownAddress;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: scheme.errorContainer,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Icon(Icons.warning_amber_rounded, color: scheme.onErrorContainer),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  'This address looks like another one you use',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: scheme.onErrorContainer,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'It starts and ends like '
+                  '${AppFormat.shortAddress(knownAddress)}, which you have '
+                  'already sent to. Scammers copy the visible ends of a real '
+                  'address and wait for you to send funds to it. Check the '
+                  'middle of the address before continuing.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: scheme.onErrorContainer,
+                        height: 1.4,
+                      ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Low / Normal / High / Custom fee preset selector for an EIP-1559 transfer.
 class _FeePresetSelector extends StatelessWidget {
   const _FeePresetSelector({required this.value, required this.onChanged});
 
@@ -1099,21 +1260,26 @@ class _FeePresetSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        Icon(
-          Icons.speed_rounded,
-          size: 18,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        Row(
+          children: <Widget>[
+            Icon(
+              Icons.speed_rounded,
+              size: 18,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(width: 10),
+            Text(
+              'Network fee',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+            ),
+          ],
         ),
-        const SizedBox(width: 10),
-        Text(
-          'Network fee',
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-        ),
-        const Spacer(),
+        const SizedBox(height: 8),
         SegmentedButton<FeePreset>(
           showSelectedIcon: false,
           segments: <ButtonSegment<FeePreset>>[
@@ -1126,6 +1292,116 @@ class _FeePresetSelector extends StatelessWidget {
           selected: <FeePreset>{value},
           onSelectionChanged: (Set<FeePreset> selection) =>
               onChanged(selection.first),
+          expandedInsets: EdgeInsets.zero,
+        ),
+      ],
+    );
+  }
+}
+
+/// Entry dialog for a user-defined EIP-1559 tip and fee cap, in gwei.
+class _CustomFeeDialog extends StatefulWidget {
+  const _CustomFeeDialog({
+    required this.initialTipWei,
+    required this.initialCapWei,
+    required this.baseFeeWei,
+  });
+
+  final BigInt initialTipWei;
+  final BigInt initialCapWei;
+  final BigInt baseFeeWei;
+
+  @override
+  State<_CustomFeeDialog> createState() => _CustomFeeDialogState();
+}
+
+class _CustomFeeDialogState extends State<_CustomFeeDialog> {
+  late final TextEditingController _tip = TextEditingController(
+    text: Units.format(widget.initialTipWei, 9, group: false),
+  );
+  late final TextEditingController _cap = TextEditingController(
+    text: Units.format(widget.initialCapWei, 9, group: false),
+  );
+  String? _error;
+
+  @override
+  void dispose() {
+    _tip.dispose();
+    _cap.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final BigInt? tip = Units.parse(_tip.text, 9);
+    final BigInt? cap = Units.parse(_cap.text, 9);
+    if (tip == null || tip <= BigInt.zero) {
+      setState(() => _error = 'Enter a priority fee above 0.');
+      return;
+    }
+    if (cap == null || cap < tip) {
+      setState(() => _error = 'The fee cap must be at least the priority fee.');
+      return;
+    }
+    Navigator.of(context).pop((tipWei: tip, capWei: cap));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final TextTheme text = Theme.of(context).textTheme;
+
+    InputDecoration field(String label) => InputDecoration(
+          labelText: label,
+          suffixText: 'gwei',
+        );
+
+    return AlertDialog(
+      icon: const Icon(Icons.tune_rounded),
+      title: const Text('Custom network fee'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            'Current base fee: '
+            '${Units.format(widget.baseFeeWei, 9, group: false)} gwei.',
+            style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: _tip,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: <TextInputFormatter>[
+              FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
+            ],
+            decoration: field('Priority fee (tip)'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _cap,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: <TextInputFormatter>[
+              FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
+            ],
+            decoration: field('Max fee (cap)'),
+          ),
+          if (_error != null) ...<Widget>[
+            const SizedBox(height: 12),
+            Text(
+              _error!,
+              style: text.bodySmall?.copyWith(color: scheme.error),
+            ),
+          ],
+        ],
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('Apply'),
         ),
       ],
     );

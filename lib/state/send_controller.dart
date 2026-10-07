@@ -10,11 +10,13 @@ import 'wallet_identity_controller.dart';
 /// Speed presets offered for an EIP-1559 transfer.
 ///
 /// The node's suggested priority tip is treated as "normal"; the others scale
-/// it, which is the practical lever now that the base fee is burned.
+/// it, which is the practical lever now that the base fee is burned. [custom]
+/// carries no built-in fee — the UI supplies the entered values.
 enum FeePreset {
   slow('Slow'),
   normal('Normal'),
-  fast('Fast');
+  fast('Fast'),
+  custom('Custom');
 
   const FeePreset(this.label);
 
@@ -28,10 +30,13 @@ enum FeePreset {
             : tip ~/ BigInt.two,
         FeePreset.normal => tip,
         FeePreset.fast => tip * BigInt.two,
+        // Unused: the UI builds the custom fee from the user's own input.
+        FeePreset.custom => tip,
       };
 
   /// The fee cap for this preset: base fee headroom plus the scaled tip.
-  BigInt capFor(BigInt baseFee, BigInt tip) => baseFee * BigInt.two + tipFor(tip);
+  BigInt capFor(BigInt baseFee, BigInt tip) =>
+      baseFee * BigInt.two + tipFor(tip);
 }
 
 /// Where a transfer is in its lifecycle.
@@ -97,6 +102,9 @@ class SendController extends ChangeNotifier {
 
   /// Prepares a transfer of [value] wei to [to] for the current wallet account.
   ///
+  /// When [tokenContract] is set the value is that token's holding rather than
+  /// the chain's native currency, and the same live re-read covers both.
+  ///
   /// Returns `true` when the transfer went out. A false return means [error] is
   /// set and nothing was broadcast — the UI must not claim otherwise.
   Future<bool> send({
@@ -107,6 +115,8 @@ class SendController extends ChangeNotifier {
     required BigInt gasLimit,
     Uint8List? data,
     int? nonceOverride,
+    String? tokenContract,
+    BigInt? tokenAmount,
   }) async {
     if (network.chain != ChainKind.evm || !network.canSign) {
       return _fail('${network.name} does not support sending yet.');
@@ -124,6 +134,26 @@ class SendController extends ChangeNotifier {
         return _fail(
           'Your balance dropped since the last refresh. Nothing was sent.',
         );
+      }
+
+      // …and a token holding can be spent just as silently, so it gets the same
+      // treatment. Checking it here rather than in the send screen means every
+      // token transfer is covered, including the ones the UI never rendered.
+      // [value] is zero for a token transfer (it moves no native currency), so
+      // the amount being moved is [tokenAmount].
+      final String? token = tokenContract;
+      if (token != null) {
+        final BigInt liveTokens = await _chainApi.fetchTokenBalance(
+          network: network,
+          token: token,
+          owner: address,
+        );
+        if ((tokenAmount ?? BigInt.zero) > liveTokens) {
+          return _fail(
+            'Your token balance dropped since the last refresh. '
+            'Nothing was sent.',
+          );
+        }
       }
 
       // A replacement (cancel) must reuse the stuck transaction's nonce; a

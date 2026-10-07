@@ -33,6 +33,7 @@ class SettingsController extends ChangeNotifier {
   AppCurrency _currency = AppCurrency.usd;
   NetworkConfig _network = NetworkCatalog.bitcoin;
   int? _autoLockSeconds = AutoLockDelay.minute1.seconds;
+  bool _notificationsEnabled = false;
 
   ThemeMode get themeMode => _themeMode;
   AppCurrency get currency => _currency;
@@ -46,6 +47,9 @@ class SettingsController extends ChangeNotifier {
   /// Whether the app should lock itself after being backgrounded.
   bool get autoLockEnabled => _autoLockSeconds != null;
 
+  /// Whether confirmation notifications are turned on.
+  bool get notificationsEnabled => _notificationsEnabled;
+
   /// Restores the persisted network and currency choices at app start.
   Future<void> load() async {
     try {
@@ -53,6 +57,7 @@ class SettingsController extends ChangeNotifier {
       final String? code = await _storage.readCurrencyCode();
       final int? autoLock = await _storage.readAutoLockSeconds();
       final String? themeName = await _storage.readThemeMode();
+      final bool? notifications = await _storage.readNotificationsEnabled();
       bool changed = false;
 
       if (id != null) {
@@ -91,6 +96,11 @@ class SettingsController extends ChangeNotifier {
           _autoLockSeconds = seconds;
           changed = true;
         }
+      }
+
+      if (notifications != null && notifications != _notificationsEnabled) {
+        _notificationsEnabled = notifications;
+        changed = true;
       }
 
       if (changed) {
@@ -140,5 +150,15 @@ class SettingsController extends ChangeNotifier {
     _autoLockSeconds = delay.seconds;
     notifyListeners();
     unawaited(_storage.writeAutoLockSeconds(delay.seconds));
+  }
+
+  /// Turns confirmation notifications on or off and persists the choice.
+  void setNotificationsEnabled(bool enabled) {
+    if (_notificationsEnabled == enabled) {
+      return;
+    }
+    _notificationsEnabled = enabled;
+    notifyListeners();
+    unawaited(_storage.writeNotificationsEnabled(enabled));
   }
 }

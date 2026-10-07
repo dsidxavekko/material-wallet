@@ -17,7 +17,8 @@ generated locally, encrypted, and stored only on this device.
 
 - 🔑 **Create wallet** — generates a BIP-39 recovery phrase (12 or 24 words) with
   an on-screen verification step.
-- 📥 **Import wallet** — restore from an existing BIP-39 phrase.
+- 📥 **Import wallet** — restore from an existing BIP-39 phrase. A passphrase
+  (25th word) is not supported and the screen says so before you type.
 - 🔒 **Security first**
   - Recovery phrase encrypted with **AES-256-GCM**, key derived via
     **PBKDF2-HMAC-SHA256** (600,000 rounds, OWASP 2023 guidance).
@@ -25,23 +26,40 @@ generated locally, encrypted, and stored only on this device.
   - **Biometric unlock** (fingerprint / face) via `local_auth`.
   - **Auto-lock** after a configurable time in the background, and
     **attempt throttling** with escalating backoff after wrong PINs.
-  - Revealing the recovery phrase requires re-entering the PIN, and a copied
+  - Sending, replacing a transaction and revoking an approval all require
+    re-authentication: a **fingerprint when biometric unlock is enabled**,
+    otherwise the PIN.
+  - The live balance — and a token holding, read on-chain — is re-checked right
+    before signing, so a transfer is never signed against a stale number.
+  - Revealing the recovery phrase requires re-authentication, and a copied
     phrase is wiped from the clipboard automatically.
   - Screenshots and the app-switcher preview are blocked (`FLAG_SECURE`).
 - 🌐 **Multi-chain** — Bitcoin, EVM networks, Solana and Aptos (see table below).
 - 💸 **Send** — validates the recipient address per chain (bech32, Base58Check,
   EIP-55, Aptos hex) against the live balance, with **native and ERC-20**
-  transfers and Low/Normal/High fee presets. On **EVM networks** the transfer
-  is signed on-device as an **EIP-1559** (type-2) transaction with a fee cap
-  (EIP-2, RFC-6979), re-checks the live balance right before signing, and is
-  broadcast for real after a PIN confirmation, ending on a full-screen success
-  screen; other chains stop at a copyable summary.
+  transfers and Low/Normal/High/**custom** fee presets. On **EVM networks** the
+  transfer is signed on-device as an **EIP-1559** (type-2) transaction with a
+  fee cap (EIP-2, RFC-6979), re-checks the live balance right before signing,
+  and is broadcast for real after a PIN confirmation, ending on a full-screen
+  success screen; other chains stop at a copyable summary.
 - 📒 **Address book** — save recipients with local labels; labels show up in the
   send flow and the activity list.
 - 🪙 **Token balances** — ERC-20 holdings with USD values on the Blockscout-backed
   EVM networks; tap a token to send it.
-- ↩️ **Cancel a pending transfer** — replaces a stuck outgoing EVM transaction
-  with a zero-value self-transfer that reuses its nonce.
+- ↩️ **Fix a stuck transfer** — replaces a pending outgoing EVM transaction with
+  one that reuses its nonce, either as a **speed-up** (same transfer, higher
+  fee) or a **cancel** (zero-value self-transfer that can never confirm).
+- 🔓 **Token approvals** — lists what contracts are allowed to spend your
+  tokens and can revoke each one (`approve(spender, 0)`), the only in-wallet way
+  to undo a malicious approval.
+- 🕵️ **Address poisoning warning** — before sending, a recipient whose first and
+  last characters copy an address this wallet already deals with is flagged: the
+  scam pattern where a worthless token arrives from an address built to look
+  like a contract you trust.
+- 🔔 **Confirmation notifications** — a local notification when an outgoing
+  transfer confirms, even after a restart.
+- 🔗 **Payment links** — `bitcoin:`, `ethereum:` (EIP-681), `solana:` and
+  `aptos:` URIs open the app and prefill the send flow.
 - 🧮 **Portfolio total** — the account's value summed across every network it has
   synced, shown on the home screen.
 - 📷 **Receive** — real address as text and a scannable QR code.
@@ -135,6 +153,10 @@ flutter build web --release     # Web
 an Android SDK and a JDK 17 toolchain (`android/local.properties` is generated
 by the Flutter tool and is intentionally git-ignored).
 
+The EIP-1559 signing path can be checked against a live Sepolia node without
+spending anything: `dart run tool/verify_eip1559.dart` signs a type-2 transfer
+with a throwaway key and confirms the node decodes it and recovers the sender.
+
 ---
 
 ## Project structure
@@ -167,6 +189,16 @@ lib/
 - [x] Reject a transfer whose live balance dropped since the last refresh.
 - [ ] SPL token balances.
 - [x] Biometric (not only PIN) re-auth for revealing the recovery phrase.
+- [x] Biometric (not only PIN) re-auth before sending, replacing a transaction
+      and revoking an approval.
+- [x] Revoke ERC-20 approvals.
+- [x] Speed up a stuck EVM transaction (replace-by-fee, same nonce).
+- [x] Re-check the live token holding before signing a token transfer.
+- [x] Address poisoning warning in the send flow.
+- [ ] BIP-39 passphrase (25th word) support — importing such a phrase today
+      derives different addresses; the import screen warns about it.
+- [ ] Known-answer test vectors for the address derivations beyond the ones
+      already pinned (BIP-32 test vectors per coin type).
 
 ---
 

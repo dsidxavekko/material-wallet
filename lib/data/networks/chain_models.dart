@@ -146,6 +146,42 @@ class TokenBalance {
       );
 }
 
+/// An ERC-20 approval this account has granted to a spender contract.
+///
+/// An approval lets [spender] move tokens out of the account at any time,
+/// without asking again. It is the mechanism behind most "I approved a scam
+/// contract and my balance is gone" losses, and the only in-wallet remedy is to
+/// overwrite the allowance with zero.
+class TokenApproval {
+  const TokenApproval({
+    required this.symbol,
+    required this.tokenAddress,
+    required this.spender,
+    required this.amount,
+    required this.decimals,
+  });
+
+  final String symbol;
+  final String tokenAddress;
+  final String spender;
+
+  /// Approved amount in the token's smallest unit.
+  final BigInt amount;
+
+  final int decimals;
+
+  /// `2^256 - 1`: the "infinite approval" that wallets still request, and the
+  /// one that turns a single compromised contract into a full drain.
+  static final BigInt unlimited = (BigInt.one << 256) - BigInt.one;
+
+  bool get isUnlimited => amount >= unlimited;
+
+  /// Human readable allowance, capped the same way token balances are.
+  String get amountLabel => isUnlimited
+      ? 'Unlimited'
+      : Units.format(amount, decimals, maxDecimals: 4);
+}
+
 /// Everything the UI needs to render the account for the selected network.
 class AccountSnapshot {
   const AccountSnapshot({

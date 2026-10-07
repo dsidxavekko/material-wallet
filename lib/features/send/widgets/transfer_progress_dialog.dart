@@ -20,6 +20,8 @@ class TransferProgressDialog extends StatefulWidget {
     required this.gasLimit,
     this.data,
     this.nonceOverride,
+    this.tokenContract,
+    this.tokenAmount,
   });
 
   final String to;
@@ -33,6 +35,13 @@ class TransferProgressDialog extends StatefulWidget {
 
   /// Reuses a stuck transaction's nonce when replacing it (a cancel).
   final int? nonceOverride;
+
+  /// Token contract whose holding is re-read before signing; `null` for a
+  /// native transfer.
+  final String? tokenContract;
+
+  /// How much of that token is being moved, checked against the live holding.
+  final BigInt? tokenAmount;
 
   @override
   State<TransferProgressDialog> createState() => _TransferProgressDialogState();
@@ -56,6 +65,8 @@ class _TransferProgressDialogState extends State<TransferProgressDialog> {
             gasLimit: widget.gasLimit,
             data: widget.data,
             nonceOverride: widget.nonceOverride,
+            tokenContract: widget.tokenContract,
+            tokenAmount: widget.tokenAmount,
           );
     });
   }

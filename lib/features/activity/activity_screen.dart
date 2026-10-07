@@ -10,7 +10,7 @@ import '../../state/contacts_controller.dart';
 import '../../state/settings_controller.dart';
 import '../../state/wallet_controller.dart';
 import '../home/widgets/state_cards.dart';
-import '../send/cancel_transfer.dart';
+import '../send/replace_transfer.dart';
 import 'widgets/transaction_tile.dart';
 
 /// Filters available in the activity feed.
@@ -122,7 +122,14 @@ class _ActivityScreenState extends State<ActivityScreen> {
                         context,
                         snapshot.network.explorerTx(item.hash),
                       ),
-                      onCancel: _cancelFor(item, snapshot),
+                      replacements: _replacementsFor(item, snapshot),
+                      onReplace: (ReplacementKind kind) => showReplaceTransfer(
+                        context,
+                        network: snapshot.network,
+                        nonce: item.nonce!,
+                        kind: kind,
+                        original: item,
+                      ),
                     )
                   else if (item is String)
                     _DayHeader(label: item),
@@ -133,22 +140,16 @@ class _ActivityScreenState extends State<ActivityScreen> {
     );
   }
 
-  /// A cancel action for a still-pending outgoing transfer the wallet signed.
-  VoidCallback? _cancelFor(ChainTransaction tx, AccountSnapshot snapshot) {
-    if (tx.isIncoming || tx.confirmed || tx.failed) {
-      return null;
-    }
-    final int? nonce = tx.nonce;
-    if (nonce == null || !snapshot.network.canSign) {
-      return null;
-    }
-    return () => showCancelTransfer(
-          context,
-          network: snapshot.network,
-          address: snapshot.address,
-          nonce: nonce,
-        );
-  }
+  /// The replace actions offered for a still-pending outgoing transfer.
+  List<ReplacementKind> _replacementsFor(
+    ChainTransaction tx,
+    AccountSnapshot snapshot,
+  ) =>
+      replacementKindsFor(
+        original: tx,
+        network: snapshot.network,
+        tokens: snapshot.tokens,
+      );
 
   /// Flattens the feed into day headers and transactions.
   List<Object> _groupedByDay(List<ChainTransaction> entries) {    final List<Object> items = <Object>[];

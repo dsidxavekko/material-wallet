@@ -58,7 +58,9 @@ class _ImportWalletScreenState extends State<ImportWalletScreen> {
                       height: 1.45,
                     ),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 14),
+                  _PassphraseNotice(),
+                  const SizedBox(height: 18),
                   TextField(
                     controller: _phraseController,
                     minLines: 3,
@@ -120,6 +122,50 @@ class _ImportWalletScreenState extends State<ImportWalletScreen> {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => SetPinScreen(mnemonic: _normalized),
+      ),
+    );
+  }
+}
+
+/// Warns that this wallet cannot restore a phrase protected by a passphrase.
+///
+/// BIP-39 lets a phrase carry a 25th "passphrase" word that never appears in the
+/// phrase itself. This wallet derives its seed with an empty passphrase, so
+/// such a phrase is restored into a *different* set of addresses — every
+/// balance reads as zero and the user has no way to tell why. Saying so up
+/// front is the difference between "this app is broken" and "I typed my phrase
+/// into the wrong wallet".
+///
+/// ponytail: no passphrase field, because adding one means storing a second
+/// secret next to the seed and re-deriving every address under it. Add it when
+/// restoring from a hardware wallet actually needs to work.
+class _PassphraseNotice extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: scheme.tertiaryContainer,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Icon(Icons.info_outline_rounded, color: scheme.onTertiaryContainer),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'If your phrase was created with a passphrase (a 25th word), it '
+              'will not restore here — this wallet derives an empty '
+              'passphrase, so every balance will show as zero.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: scheme.onTertiaryContainer,
+                    height: 1.4,
+                  ),
+            ),
+          ),
+        ],
       ),
     );
   }

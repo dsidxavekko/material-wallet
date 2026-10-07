@@ -1,17 +1,25 @@
 import 'dart:async';
 
+import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'core/theme/app_theme.dart';
+import 'data/deep_links/payment_link.dart';
+import 'data/notifications/notification_service.dart';
 import 'data/wallet/wallet_storage.dart';
 import 'features/lock/lock_screen.dart';
 import 'features/onboarding/onboarding_screen.dart';
+import 'features/send/send_screen.dart';
 import 'features/shell/app_shell.dart';
+import 'state/confirmation_watcher.dart';
 import 'state/contacts_controller.dart';
 import 'state/settings_controller.dart';
 import 'state/wallet_controller.dart';
 import 'state/wallet_identity_controller.dart';
+
+/// Lets the deep-link handler navigate without a `BuildContext`.
+final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 
 /// Root widget of the application.
 ///
@@ -45,6 +53,7 @@ class MaterialWalletApp extends StatelessWidget {
             settings: context.read<SettingsController>(),
           ),
         ),
+        Provider<NotificationService>(create: (_) => NotificationService()),
       ],
       child: const _AppView(),
     );
@@ -61,17 +70,94 @@ class _AppView extends StatefulWidget {
 class _AppViewState extends State<_AppView> with WidgetsBindingObserver {
   Timer? _autoLockTimer;
 
+  final AppLinks _appLinks = AppLinks();
+  StreamSubscription<Uri>? _linkSubscription;
+  ConfirmationWatcher? _watcher;
+  late final WalletIdentityController _identity;
+
+  /// A link that arrived before the wallet was unlocked, deferred until it is.
+  Uri? _pendingLink;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+
+    final SettingsController settings = context.read<SettingsController>();
+    final WalletController wallet = context.read<WalletController>();
+    final NotificationService notifications = context.read<NotificationService>();
+
+    _watcher = ConfirmationWatcher(
+      wallet: wallet,
+      settings: settings,
+      notifications: notifications,
+    );
+    if (settings.notificationsEnabled) {
+      // Re-confirm the permission granted on a previous run.
+      unawaited(notifications.initialize(request: true));
+    }
+
+    _identity = context.read<WalletIdentityController>();
+    _identity.addListener(_flushPendingLink);
+    unawaited(_initDeepLinks());
   }
 
   @override
   void dispose() {
     _autoLockTimer?.cancel();
+    _linkSubscription?.cancel();
+    _watcher?.dispose();
+    _identity.removeListener(_flushPendingLink);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  /// Reads the launch link and subscribes to links that arrive while running.
+  Future<void> _initDeepLinks() async {
+    try {
+      final Uri? initial = await _appLinks.getInitialLink();
+      if (initial != null) {
+        unawaited(_handleLink(initial));
+      }
+      _linkSubscription = _appLinks.uriLinkStream.listen(
+        (Uri uri) => unawaited(_handleLink(uri)),
+        onError: (_) {},
+      );
+    } catch (_) {
+      // No deep-link support on this platform — ignore.
+    }
+  }
+
+  Future<void> _handleLink(Uri uri) async {
+    final PaymentLink? link = parsePaymentLink(uri);
+    if (link == null) {
+      return;
+    }
+    if (context.read<WalletIdentityController>().status !=
+        WalletStatus.unlocked) {
+      _pendingLink = uri; // deliver once the wallet is open
+      return;
+    }
+    _pendingLink = null;
+
+    context.read<SettingsController>().setNetwork(link.network);
+    appNavigatorKey.currentState?.push(
+      MaterialPageRoute<void>(
+        builder: (_) => SendScreen(
+          initialRecipient: link.recipient,
+          initialAmount: link.amount,
+        ),
+      ),
+    );
+  }
+
+  void _flushPendingLink() {
+    final Uri? pending = _pendingLink;
+    if (pending != null &&
+        context.read<WalletIdentityController>().status ==
+            WalletStatus.unlocked) {
+      unawaited(_handleLink(pending));
+    }
   }
 
   /// Locks the wallet once the app has been in the background for the delay
@@ -121,6 +207,7 @@ class _AppViewState extends State<_AppView> with WidgetsBindingObserver {
     return MaterialApp(
       title: 'Material Wallet',
       debugShowCheckedModeBanner: false,
+      navigatorKey: appNavigatorKey,
       themeMode: themeMode,
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,

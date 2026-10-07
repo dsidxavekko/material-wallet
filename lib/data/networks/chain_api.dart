@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 
 import '../../core/utils/app_log.dart';
 import '../models/chain_kind.dart';
+import '../wallet/evm_signer.dart';
 import 'chain_models.dart';
 import 'network_config.dart';
 
@@ -338,6 +339,131 @@ class ChainApi {
       AppLog.warning('Token balances unavailable for ${network.name}', error);
       return const <TokenBalance>[];
     }
+  }
+
+  /// Approvals this account has granted, largest allowance first.
+  ///
+  /// Returns an empty list on chains without a token index (Bitcoin, Solana,
+  /// Aptos, and the JSON-RPC-only BNB Chain) and whenever the request fails:
+  /// approvals are a safety net and must never break a screen.
+  Future<List<TokenApproval>> fetchTokenApprovals(
+    NetworkConfig network,
+    String address,
+  ) async {
+    if (network.chain != ChainKind.evm || network.rpcUrl != null) {
+      return const <TokenApproval>[];
+    }
+    try {
+      final Object? json = await _get(
+        '${network.apiBase}/addresses/$address/token-approvals',
+      );
+      return _parseTokenApprovals(json);
+    } catch (error) {
+      AppLog.warning('Token approvals unavailable for ${network.name}', error);
+      return const <TokenApproval>[];
+    }
+  }
+
+  static List<TokenApproval> _parseTokenApprovals(Object? json) {
+    if (json is! Map<String, Object?>) {
+      return const <TokenApproval>[];
+    }
+    final Object? items = json['items'];
+    if (items is! List) {
+      return const <TokenApproval>[];
+    }
+
+    final List<TokenApproval> approvals = <TokenApproval>[];
+    for (final Object? item in items) {
+      if (item is! Map) {
+        continue;
+      }
+      final Object? token = item['token'];
+      final Object? spender = item['spender'];
+      if (token is! Map || spender is! Map) {
+        continue;
+      }
+
+      // Blockscout v2 exposes the spender as `{hash}`; some deployments answer
+      // with a bare hash string instead, so accept both.
+      final String? spenderAddress =
+          spender['hash'] as String? ?? spender['address'] as String?;
+      final String? tokenAddress = token['address_hash'] as String?;
+      if (spenderAddress == null || tokenAddress == null) {
+        continue;
+      }
+
+      final BigInt amount =
+          BigInt.tryParse('${item['value']}') ?? BigInt.zero;
+      if (amount <= BigInt.zero) {
+        continue;
+      }
+
+      final Object? decimals = token['decimals'];
+      final String symbol = (token['symbol'] as String? ?? '').trim();
+
+      approvals.add(
+        TokenApproval(
+          symbol: symbol.isEmpty ? '?' : symbol,
+          tokenAddress: tokenAddress,
+          spender: spenderAddress,
+          amount: amount,
+          decimals: decimals is num
+              ? decimals.toInt()
+              : int.tryParse('$decimals') ?? 0,
+        ),
+      );
+    }
+
+    // An unlimited allowance first: revoking those is what actually protects
+    // the balance, so it must not hide below a row of dust allowances.
+    approvals.sort((TokenApproval a, TokenApproval b) {
+      if (a.isUnlimited != b.isUnlimited) {
+        return a.isUnlimited ? -1 : 1;
+      }
+      return b.amount.compareTo(a.amount);
+    });
+    return approvals;
+  }
+
+  /// Live ERC-20 balance of [owner] for the [token] contract.
+  ///
+  /// A read-only `eth_call` of `balanceOf(address)` — the same call a token
+  /// explorer makes. Used right before signing so a transfer is never signed
+  /// against a holding that has already been spent elsewhere.
+  ///
+  /// Throws [ChainApiException] on a chain the wallet cannot sign for, or when
+  /// the node is unreachable: a token send must refuse rather than sign blind.
+  Future<BigInt> fetchTokenBalance({
+    required NetworkConfig network,
+    required String token,
+    required String owner,
+  }) async {
+    final Object? result = await _rpc(
+      _signingRpc(network),
+      'eth_call',
+      <Object?>[
+        <String, Object?>{
+          'to': token,
+          'data': '0x${hex.encode(EvmSigner.erc20BalanceOfData(owner))}',
+        },
+        'latest',
+      ],
+    );
+    if (result is! String) {
+      throw const ChainApiException(
+        'The node returned no token balance.',
+        retryable: false,
+      );
+    }
+    final String body = result.startsWith('0x') ? result.substring(2) : result;
+    if (body.length < 64) {
+      throw const ChainApiException(
+        'The node returned a malformed token balance.',
+        retryable: false,
+      );
+    }
+    return _hexToBigInt('0x${body.substring(0, 64)}');
   }
 
   static List<TokenBalance> _parseTokenBalances(Object? json) {

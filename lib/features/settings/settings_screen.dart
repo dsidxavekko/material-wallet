@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../core/utils/feedback.dart';
 import '../../core/utils/formatters.dart';
 import '../../data/networks/network_config.dart';
+import '../../data/notifications/notification_service.dart';
 import '../../data/wallet/seed_vault.dart';
 import '../../shared/widgets/mnemonic_grid.dart';
 import '../../shared/widgets/pin_confirm_dialog.dart';
@@ -12,10 +13,12 @@ import '../../shared/widgets/pin_field.dart';
 import '../../state/settings_controller.dart';
 import '../../state/wallet_controller.dart';
 import '../../state/wallet_identity_controller.dart';
+import '../lock/sensitive_auth.dart';
 import '../network/network_picker.dart';
 import 'address_book_screen.dart';
 import 'addresses_screen.dart';
 import 'currency_picker.dart';
+import 'token_approvals_screen.dart';
 
 /// Application preferences, wallet management and network switching.
 class SettingsScreen extends StatelessWidget {
@@ -295,6 +298,17 @@ class _SecuritySectionState extends State<_SecuritySection> {
 
     return _SettingsGroup(
       children: <Widget>[
+        ListTile(
+          leading: const Icon(Icons.verified_user_outlined),
+          title: const Text('Token approvals'),
+          subtitle: const Text(
+            'Review and revoke what contracts may spend your tokens',
+          ),
+          trailing: const Icon(Icons.chevron_right_rounded),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const TokenApprovalsScreen()),
+          ),
+        ),
         SwitchListTile(
           secondary: const Icon(Icons.fingerprint_rounded),
           value: identity.biometricsEnabled,
@@ -317,8 +331,41 @@ class _SecuritySectionState extends State<_SecuritySection> {
           trailing: const Icon(Icons.chevron_right_rounded),
           onTap: () => _pickAutoLock(settings),
         ),
+        SwitchListTile(
+          secondary: const Icon(Icons.notifications_active_outlined),
+          value: settings.notificationsEnabled,
+          onChanged: _toggleNotifications,
+          title: const Text('Transfer notifications'),
+          subtitle: const Text(
+            'Tells you when an outgoing transfer confirms',
+          ),
+        ),
       ],
     );
+  }
+
+  Future<void> _toggleNotifications(bool enable) async {
+    final SettingsController settings = context.read<SettingsController>();
+    if (!enable) {
+      settings.setNotificationsEnabled(false);
+      return;
+    }
+
+    final bool granted =
+        await context.read<NotificationService>().initialize(request: true);
+    if (!mounted) {
+      return;
+    }
+    if (granted) {
+      settings.setNotificationsEnabled(true);
+    } else {
+      showAppSnackBar(
+        context,
+        'Notifications were not allowed. You can enable them in system '
+        'settings.',
+        icon: Icons.notifications_off_rounded,
+      );
+    }
   }
 
   String _autoLockLabel(int? seconds) {
@@ -535,36 +582,18 @@ class _WalletSection extends StatelessWidget {
 
     // The recovery phrase is the keys to the wallet: require re-auth even
     // though the app is already unlocked, so an unattended phone cannot be used
-    // to walk off with it. A fingerprint is enough when it is enabled;
-    // otherwise fall back to the PIN.
-    bool authorized = false;
-    if (identity.biometricsEnabled) {
-      authorized = await identity.confirmWithBiometrics(
-        reason: 'Reveal recovery phrase',
-      );
-    }
-    if (!authorized) {
-      if (!context.mounted) {
-        return;
-      }
-      final String? pin = await PinConfirmDialog.show(
-        context,
-        title: 'Confirm your PIN',
-        confirmLabel: 'Reveal',
-        icon: Icons.key_rounded,
-      );
-      if (pin == null || !context.mounted) {
-        return;
-      }
-      try {
-        await identity.verifyPin(pin);
-      } on SeedVaultException catch (error) {
-        if (context.mounted) {
-          showAppSnackBar(context, error.message,
-              icon: Icons.error_outline_rounded);
-        }
-        return;
-      }
+    // to walk off with it. This is the one place the PIN is still allowed as a
+    // fallback — a user who enabled biometrics and can no longer read their
+    // fingerprint must not be locked out of their own funds.
+    if (!await authorizeSensitiveAction(
+      context,
+      reason: 'Reveal recovery phrase',
+      title: 'Confirm your PIN',
+      confirmLabel: 'Reveal',
+      icon: Icons.key_rounded,
+      allowPinFallback: true,
+    )) {
+      return;
     }
     if (!context.mounted) {
       return;

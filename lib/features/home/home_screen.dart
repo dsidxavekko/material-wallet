@@ -15,9 +15,10 @@ import '../activity/activity_screen.dart';
 import '../activity/widgets/transaction_tile.dart';
 import '../network/network_chip.dart';
 import '../receive/receive_screen.dart';
-import '../send/cancel_transfer.dart';
+import '../send/replace_transfer.dart';
 import '../send/send_screen.dart';
 import '../settings/currency_picker.dart';
+import '../settings/token_approvals_screen.dart';
 import 'widgets/account_balance_card.dart';
 import 'widgets/address_card.dart';
 import 'widgets/state_cards.dart';
@@ -124,7 +125,13 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         if (snapshot.tokens.isNotEmpty) ...<Widget>[
           const SizedBox(height: 26),
-          const SectionHeader(title: 'Tokens'),
+          SectionHeader(
+            title: 'Tokens',
+            // Approvals are the safety net for a token balance the user has
+            // already lost the right to: put it where the tokens are.
+            actionLabel: 'Approvals',
+            onAction: () => _push(context, const TokenApprovalsScreen()),
+          ),
           TokenList(
             tokens: snapshot.tokens,
             currency: currency,
@@ -173,7 +180,18 @@ class _HomeScreenState extends State<HomeScreen> {
                       context,
                       snapshot.network.explorerTx(recent[i].hash),
                     ),
-                    onCancel: _cancelFor(recent[i], snapshot),
+                    replacements: replacementKindsFor(
+                      original: recent[i],
+                      network: snapshot.network,
+                      tokens: snapshot.tokens,
+                    ),
+                    onReplace: (ReplacementKind kind) => showReplaceTransfer(
+                      context,
+                      network: snapshot.network,
+                      nonce: recent[i].nonce!,
+                      kind: kind,
+                      original: recent[i],
+                    ),
                   ),
                 ],
               ],
@@ -187,23 +205,6 @@ class _HomeScreenState extends State<HomeScreen> {
     Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => screen),
     );
-  }
-
-  /// A cancel action for a still-pending outgoing transfer the wallet signed.
-  VoidCallback? _cancelFor(ChainTransaction tx, AccountSnapshot snapshot) {
-    if (tx.isIncoming || tx.confirmed || tx.failed) {
-      return null;
-    }
-    final int? nonce = tx.nonce;
-    if (nonce == null || !snapshot.network.canSign) {
-      return null;
-    }
-    return () => showCancelTransfer(
-          context,
-          network: snapshot.network,
-          address: snapshot.address,
-          nonce: nonce,
-        );
   }
 
   Future<void> _pickCurrency(BuildContext context) async {

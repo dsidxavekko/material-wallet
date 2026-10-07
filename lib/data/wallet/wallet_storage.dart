@@ -30,6 +30,8 @@ class WalletStorage {
   static const String _themeKey = 'nova.wallet.themeMode';
   static const String _contactsKey = 'nova.wallet.contacts';
   static const String _cachePrefix = 'nova.wallet.cache.';
+  static const String _notificationsKey = 'nova.wallet.notificationsEnabled';
+  static const String _watchedTxsKey = 'nova.wallet.watchedTxs';
 
   /// The encrypted recovery phrase, or `null` when no wallet exists.
   Future<String?> readVault() async {
@@ -129,6 +131,30 @@ class WalletStorage {
     await prefs.setString(_themeKey, name);
   }
 
+  /// Whether the user turned transfer-confirmation notifications on, or `null`
+  /// when they have never chosen (defaults to off).
+  Future<bool?> readNotificationsEnabled() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_notificationsKey);
+  }
+
+  Future<void> writeNotificationsEnabled(bool enabled) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_notificationsKey, enabled);
+  }
+
+  /// Hashes of outgoing transfers the app is still waiting to see confirm, so a
+  /// confirmation that arrives after a restart still fires once.
+  Future<List<String>> readWatchedTxs() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    return prefs.getStringList(_watchedTxsKey) ?? const <String>[];
+  }
+
+  Future<void> writeWatchedTxs(List<String> hashes) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_watchedTxsKey, hashes);
+  }
+
   /// Reads the cached snapshot JSON for [id] (a network id), if any.
   Future<String?> readCache(String id) async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -157,6 +183,7 @@ class WalletStorage {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.remove(_createdAtKey);
     await prefs.remove(_throttleKey);
+    await prefs.remove(_watchedTxsKey);
     for (final String key in prefs.getKeys().toList()) {
       if (key.startsWith(_cachePrefix)) {
         await prefs.remove(key);

@@ -5,6 +5,7 @@ import '../../../core/utils/formatters.dart';
 import '../../../core/utils/units.dart';
 import '../../../data/networks/chain_models.dart';
 import '../../../data/networks/network_config.dart';
+import '../../send/replace_transfer.dart';
 
 /// Activity feed row for a single on-chain transaction.
 ///
@@ -19,7 +20,8 @@ class TransactionTile extends StatelessWidget {
     this.price,
     this.onExplorer,
     this.counterpartyLabel,
-    this.onCancel,
+    this.replacements = const <ReplacementKind>[],
+    this.onReplace,
   });
 
   final ChainTransaction transaction;
@@ -31,8 +33,12 @@ class TransactionTile extends StatelessWidget {
   /// Address-book label for the counterparty, when one is saved.
   final String? counterpartyLabel;
 
-  /// Replaces a stuck pending transfer with the same nonce, when provided.
-  final VoidCallback? onCancel;
+  /// Replacements offered for a stuck pending transfer. Empty for a settled or
+  /// incoming one.
+  final List<ReplacementKind> replacements;
+
+  /// Starts one of [replacements]; only called with a value from it.
+  final void Function(ReplacementKind kind)? onReplace;
 
   @override
   Widget build(BuildContext context) {
@@ -138,7 +144,7 @@ class TransactionTile extends StatelessWidget {
               ],
             ),
             const SizedBox(width: 2),
-            if (onCancel == null)
+            if (replacements.isEmpty)
               IconButton(
                 tooltip: 'View on explorer',
                 visualDensity: VisualDensity.compact,
@@ -150,22 +156,28 @@ class TransactionTile extends StatelessWidget {
               PopupMenuButton<String>(
                 tooltip: 'More actions',
                 icon: Icon(Icons.more_vert_rounded, color: scheme.onSurfaceVariant),
-                onSelected: (String value) {
-                  if (value == 'explorer') {
+                onSelected: (String action) {
+                  if (action == 'explorer') {
                     onExplorer?.call();
-                  } else {
-                    onCancel?.call();
+                    return;
                   }
+                  onReplace?.call(ReplacementKind.values.byName(action));
                 },
                 itemBuilder: (_) => <PopupMenuEntry<String>>[
                   const PopupMenuItem<String>(
                     value: 'explorer',
                     child: Text('View on explorer'),
                   ),
-                  const PopupMenuItem<String>(
-                    value: 'cancel',
-                    child: Text('Cancel transaction'),
-                  ),
+                  for (final ReplacementKind kind in replacements)
+                    PopupMenuItem<String>(
+                      value: kind.name,
+                      child: Text(
+                        switch (kind) {
+                          ReplacementKind.cancel => 'Cancel transaction',
+                          ReplacementKind.speedUp => 'Speed up',
+                        },
+                      ),
+                    ),
                 ],
               ),
           ],
