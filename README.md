@@ -30,14 +30,23 @@ generated locally, encrypted, and stored only on this device.
   - Screenshots and the app-switcher preview are blocked (`FLAG_SECURE`).
 - 🌐 **Multi-chain** — Bitcoin, EVM networks, Solana and Aptos (see table below).
 - 💸 **Send** — validates the recipient address per chain (bech32, Base58Check,
-  EIP-55, Aptos hex) against the live balance. On **EVM networks** the
-  transaction is signed on-device (EIP-155 + EIP-2, RFC-6979) and broadcast for
-  real after a PIN confirmation; other chains stop at a copyable summary.
+  EIP-55, Aptos hex) against the live balance, with **native and ERC-20**
+  transfers and Low/Normal/High fee presets. On **EVM networks** the transfer
+  is signed on-device as an **EIP-1559** (type-2) transaction with a fee cap
+  (EIP-2, RFC-6979), re-checks the live balance right before signing, and is
+  broadcast for real after a PIN confirmation, ending on a full-screen success
+  screen; other chains stop at a copyable summary.
 - 📒 **Address book** — save recipients with local labels; labels show up in the
   send flow and the activity list.
 - 🪙 **Token balances** — ERC-20 holdings with USD values on the Blockscout-backed
-  EVM networks.
+  EVM networks; tap a token to send it.
+- ↩️ **Cancel a pending transfer** — replaces a stuck outgoing EVM transaction
+  with a zero-value self-transfer that reuses its nonce.
+- 🧮 **Portfolio total** — the account's value summed across every network it has
+  synced, shown on the home screen.
 - 📷 **Receive** — real address as text and a scannable QR code.
+- 🗂️ **Your addresses** — every chain's receive address in one place, each with
+  a QR code and a verify-against-a-second-device warning.
 - 🔍 **QR scanner** — scan a recipient address with the camera.
 - 📊 **Live balance, activity & prices** — balances/history from public key-less
   APIs, prices from CoinGecko (cached to respect rate limits). The last snapshot
@@ -154,10 +163,10 @@ lib/
 
 - [x] Sign and broadcast transactions (EVM) — verified end-to-end on Sepolia.
 - [ ] Sign and broadcast transactions (Bitcoin, Solana, Aptos).
-- [ ] EIP-1559 typed transactions with a fee cap.
-- [ ] Reject a transfer whose live balance dropped since the last refresh.
+- [x] EIP-1559 typed transactions with a fee cap.
+- [x] Reject a transfer whose live balance dropped since the last refresh.
 - [ ] SPL token balances.
-- [ ] Biometric (not only PIN) re-auth for revealing the recovery phrase.
+- [x] Biometric (not only PIN) re-auth for revealing the recovery phrase.
 
 ---
 

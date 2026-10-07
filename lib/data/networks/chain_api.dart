@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
+import 'package:convert/convert.dart';
 import 'package:http/http.dart' as http;
 
 import '../../core/utils/app_log.dart';
@@ -176,14 +178,53 @@ class ChainApi {
     return _hexToBigInt(result).toInt();
   }
 
-  /// Current gas price in wei, from the signing RPC.
-  Future<BigInt> fetchGasPrice(NetworkConfig network) async {
-    final Object? result =
-        await _rpc(_signingRpc(network), 'eth_gasPrice', const <Object?>[]);
-    return _hexToBigInt(result);
+  /// EIP-1559 fee parameters in wei per gas: the current base fee and the tip
+  /// the node suggests.
+  ///
+  /// The tip is returned separately from the base fee so the UI can offer
+  /// Low/Normal/High presets by scaling only the tip; the fee cap is built on
+  /// top as `baseFee * 2 + tip`. On a node that does not report a base fee (or
+  /// rejects the tip query) this falls back to the legacy gas price, so a
+  /// type-2 transfer is never blocked by a missing fee.
+  Future<({BigInt baseFee, BigInt maxPriorityFeePerGas})> fetchFeeData(
+    NetworkConfig network,
+  ) async {
+    final String rpc = _signingRpc(network);
+
+    BigInt priority = BigInt.zero;
+    try {
+      priority = _hexToBigInt(
+        await _rpc(rpc, 'eth_maxPriorityFeePerGas', const <Object?>[]),
+      );
+    } catch (_) {
+      // Older nodes and some non-Ethereum chains lack the method.
+    }
+
+    BigInt baseFee = BigInt.zero;
+    try {
+      final Object? block = await _rpc(
+        rpc,
+        'eth_getBlockByNumber',
+        <Object?>['latest', false],
+      );
+      if (block is Map<String, Object?>) {
+        baseFee = _hexToBigInt(block['baseFeePerGas']);
+      }
+    } catch (_) {
+      // Pre-London chain, or a node that will not serve the block.
+    }
+
+    if (priority == BigInt.zero && baseFee == BigInt.zero) {
+      // No 1559 data at all: use the legacy gas price as the whole fee.
+      priority =
+          _hexToBigInt(await _rpc(rpc, 'eth_gasPrice', const <Object?>[]));
+    }
+
+    return (baseFee: baseFee, maxPriorityFeePerGas: priority);
   }
 
-  /// Gas units a native transfer to [to] of [value] wei would use.
+  /// Gas units a transfer to [to] of [value] wei (optionally carrying [data])
+  /// would use.
   ///
   /// Falls back to 21,000 (the exact cost of a plain value transfer) when the
   /// node cannot estimate, so a transfer is never blocked by an estimator that
@@ -193,6 +234,7 @@ class ChainApi {
     required String from,
     required String to,
     required BigInt value,
+    Uint8List? data,
   }) async {
     try {
       final Object? result = await _rpc(
@@ -203,6 +245,7 @@ class ChainApi {
             'from': from,
             'to': to,
             'value': _quantity(value),
+            if (data != null && data.isNotEmpty) 'data': '0x${hex.encode(data)}',
           },
         ],
       );
@@ -599,6 +642,20 @@ class ChainApi {
           ) ??
           BigInt.zero;
 
+      // Blockscout reports the nonce as an integer in v2 and hex in some
+      // deployments, so accept either.
+      final Object? nonceRaw = raw['nonce'];
+      final int? nonce = nonceRaw is num
+          ? nonceRaw.toInt()
+          : nonceRaw is String
+              ? int.tryParse(
+                  nonceRaw.startsWith('0x')
+                      ? nonceRaw.substring(2)
+                      : nonceRaw,
+                  radix: 16,
+                )
+              : null;
+
       // The sender pays the fee, so outgoing transfers cost value + fee while
       // incoming ones only add value.
       final BigInt signed = incoming ? value + fee : -(value + fee);
@@ -615,6 +672,7 @@ class ChainApi {
           isIncoming: incoming,
           confirmed: raw['block'] != null,
           failed: raw['status'] == 'error',
+          nonce: nonce,
         ),
       );
     }

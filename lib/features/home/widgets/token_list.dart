@@ -6,10 +6,18 @@ import '../../../shared/widgets/coin_avatar.dart';
 
 /// ERC-20 holdings for the active account.
 class TokenList extends StatelessWidget {
-  const TokenList({super.key, required this.tokens, required this.currency});
+  const TokenList({
+    super.key,
+    required this.tokens,
+    required this.currency,
+    this.onTokenTap,
+  });
 
   final List<TokenBalance> tokens;
   final AppCurrency currency;
+
+  /// Opens the send flow for the tapped token, when provided.
+  final ValueChanged<TokenBalance>? onTokenTap;
 
   @override
   Widget build(BuildContext context) {
@@ -22,7 +30,15 @@ class TokenList extends StatelessWidget {
           for (int i = 0; i < tokens.length; i++) ...<Widget>[
             if (i > 0)
               Divider(height: 1, indent: 16, endIndent: 16, color: scheme.outlineVariant),
-            _TokenTile(token: tokens[i], currency: currency, text: text, scheme: scheme),
+            _TokenTile(
+              token: tokens[i],
+              currency: currency,
+              text: text,
+              scheme: scheme,
+              onTap: onTokenTap == null
+                  ? null
+                  : () => onTokenTap!(tokens[i]),
+            ),
           ],
         ],
       ),
@@ -36,18 +52,20 @@ class _TokenTile extends StatelessWidget {
     required this.currency,
     required this.text,
     required this.scheme,
+    this.onTap,
   });
 
   final TokenBalance token;
   final AppCurrency currency;
   final TextTheme text;
   final ColorScheme scheme;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final double? value = token.usdValue;
 
-    return Padding(
+    final Widget row = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
         children: <Widget>[
@@ -94,9 +112,18 @@ class _TokenTile extends StatelessWidget {
                 ),
             ],
           ),
+          if (onTap != null) ...<Widget>[
+            const SizedBox(width: 6),
+            Icon(Icons.chevron_right_rounded, color: scheme.onSurfaceVariant),
+          ],
         ],
       ),
     );
+
+    if (onTap == null) {
+      return row;
+    }
+    return InkWell(onTap: onTap, child: row);
   }
 }
 

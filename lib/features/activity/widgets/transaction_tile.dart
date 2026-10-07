@@ -19,6 +19,7 @@ class TransactionTile extends StatelessWidget {
     this.price,
     this.onExplorer,
     this.counterpartyLabel,
+    this.onCancel,
   });
 
   final ChainTransaction transaction;
@@ -29,6 +30,9 @@ class TransactionTile extends StatelessWidget {
 
   /// Address-book label for the counterparty, when one is saved.
   final String? counterpartyLabel;
+
+  /// Replaces a stuck pending transfer with the same nonce, when provided.
+  final VoidCallback? onCancel;
 
   @override
   Widget build(BuildContext context) {
@@ -134,13 +138,36 @@ class TransactionTile extends StatelessWidget {
               ],
             ),
             const SizedBox(width: 2),
-            IconButton(
-              tooltip: 'View on explorer',
-              visualDensity: VisualDensity.compact,
-              icon: const Icon(Icons.open_in_new_rounded, size: 17),
-              color: scheme.onSurfaceVariant,
-              onPressed: onExplorer,
-            ),
+            if (onCancel == null)
+              IconButton(
+                tooltip: 'View on explorer',
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.open_in_new_rounded, size: 17),
+                color: scheme.onSurfaceVariant,
+                onPressed: onExplorer,
+              )
+            else
+              PopupMenuButton<String>(
+                tooltip: 'More actions',
+                icon: Icon(Icons.more_vert_rounded, color: scheme.onSurfaceVariant),
+                onSelected: (String value) {
+                  if (value == 'explorer') {
+                    onExplorer?.call();
+                  } else {
+                    onCancel?.call();
+                  }
+                },
+                itemBuilder: (_) => <PopupMenuEntry<String>>[
+                  const PopupMenuItem<String>(
+                    value: 'explorer',
+                    child: Text('View on explorer'),
+                  ),
+                  const PopupMenuItem<String>(
+                    value: 'cancel',
+                    child: Text('Cancel transaction'),
+                  ),
+                ],
+              ),
           ],
         ),
       ),

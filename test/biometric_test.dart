@@ -202,5 +202,43 @@ void main() {
       await expectLater(identity.verifyPin(pin), completes);
       await expectLater(identity.verifyPin('000000'), throwsA(anything));
     });
+
+    test('confirmWithBiometrics passes when enabled and the prompt succeeds',
+        () async {
+      final _FakeBiometrics biometrics = _FakeBiometrics();
+      final WalletIdentityController identity = await newWallet(
+        biometrics: biometrics,
+        store: _FakePinStore(),
+      );
+      await identity.createWallet(
+        mnemonic: mnemonic,
+        pin: pin,
+        useBiometrics: true,
+      );
+
+      expect(
+        await identity.confirmWithBiometrics(reason: 'Reveal phrase'),
+        isTrue,
+      );
+
+      biometrics.result = false;
+      expect(
+        await identity.confirmWithBiometrics(reason: 'Reveal phrase'),
+        isFalse,
+      );
+    });
+
+    test('confirmWithBiometrics never authorises when disabled', () async {
+      final WalletIdentityController identity = await newWallet(
+        biometrics: _FakeBiometrics(),
+        store: _FakePinStore(),
+      );
+      await identity.createWallet(mnemonic: mnemonic, pin: pin);
+
+      expect(
+        await identity.confirmWithBiometrics(reason: 'Reveal phrase'),
+        isFalse,
+      );
+    });
   });
 }

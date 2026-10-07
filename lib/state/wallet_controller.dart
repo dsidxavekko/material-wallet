@@ -46,11 +46,21 @@ class WalletController extends ChangeNotifier {
   int _requestToken = 0;
   bool _disposed = false;
 
+  /// Total USD value of the last cached snapshot of every network, when known.
+  double? _portfolioFiat;
+
   NetworkConfig get network => settings.network;
 
   AccountSnapshot? get snapshot => _snapshot;
 
   bool get loading => _loading;
+
+  /// Sum of the account's value across every network with cached data.
+  ///
+  /// `null` until at least one network has a known price; it is a best-effort
+  /// figure built from the last snapshot of each chain, refreshed whenever the
+  /// active network reloads.
+  double? get portfolioFiat => _portfolioFiat;
 
   String? get error => _error;
 
@@ -88,6 +98,30 @@ class WalletController extends ChangeNotifier {
   void _safeNotify() {
     if (!_disposed) {
       notifyListeners();
+    }
+  }
+
+  /// Recomputes the cross-network total from each chain's cached snapshot,
+  /// using the freshest in-memory value for the active network.
+  Future<void> _refreshPortfolio() async {
+    double total = 0;
+    bool any = false;
+    for (final NetworkConfig n in NetworkCatalog.all) {
+      final AccountSnapshot? cached =
+          n.id == network.id ? _snapshot : await _cache.read(n.id);
+      final double? fiat = cached?.fiatBalance;
+      if (fiat != null) {
+        total += fiat;
+        any = true;
+      }
+    }
+    if (_disposed) {
+      return;
+    }
+    final double? next = any ? total : null;
+    if (next != _portfolioFiat) {
+      _portfolioFiat = next;
+      _safeNotify();
     }
   }
 
@@ -201,6 +235,7 @@ class WalletController extends ChangeNotifier {
         fetchedAt: DateTime.now(),
       );
       unawaited(_cache.write(_snapshot!));
+      unawaited(_refreshPortfolio());
     } on ChainApiException catch (error) {
       if (token != _requestToken) {
         return;

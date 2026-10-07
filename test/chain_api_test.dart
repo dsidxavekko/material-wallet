@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:crypto_wallet/data/networks/chain_api.dart';
 import 'package:crypto_wallet/data/networks/network_config.dart';
+import 'package:crypto_wallet/state/send_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -152,6 +153,7 @@ void main() {
               'fee': <String, Object>{'value': '21000000000000'},
               'status': 'ok',
               'block': 123,
+              'nonce': 7,
             },
           ],
         }),
@@ -165,6 +167,7 @@ void main() {
       expect(txs.first.counterparty, otherEvm);
       expect(txs.first.amount, BigInt.parse('-1000021000000000000'));
       expect(txs.first.failed, isFalse);
+      expect(txs.first.nonce, 7);
     });
 
     test('flags reverted transactions as failed', () async {
@@ -191,6 +194,58 @@ void main() {
       expect(txs.first.isIncoming, isTrue);
       expect(txs.first.failed, isTrue);
       expect(txs.first.isPending, isFalse);
+    });
+  });
+
+  group('EIP-1559 fee data', () {
+    ChainApi rpcApi(Object? Function(String method) result) =>
+        ChainApi(
+          client: MockClient((http.Request request) async {
+            final Map<String, Object?> body =
+                jsonDecode(request.body) as Map<String, Object?>;
+            final String method = body['method'] as String? ?? '';
+            return json(<String, Object?>{
+              'jsonrpc': '2.0',
+              'id': 1,
+              'result': result(method),
+            });
+          }),
+        );
+
+    test('adds twice the base fee to the priority tip', () async {
+      final ChainApi client = rpcApi((String method) => switch (method) {
+            'eth_maxPriorityFeePerGas' => '0x3b9aca00', // 1 gwei
+            'eth_getBlockByNumber' => <String, Object?>{
+                'baseFeePerGas': '0x3b9aca00', // 1 gwei
+              },
+            _ => null,
+          });
+
+      final ({BigInt baseFee, BigInt maxPriorityFeePerGas}) fees =
+          await client.fetchFeeData(NetworkCatalog.ethereum);
+
+      expect(fees.maxPriorityFeePerGas, BigInt.from(1000000000));
+      expect(fees.baseFee, BigInt.from(1000000000));
+      expect(
+        FeePreset.normal.capFor(fees.baseFee, fees.maxPriorityFeePerGas),
+        BigInt.from(3000000000),
+      );
+    });
+
+    test('falls back to the legacy gas price when no 1559 data exists',
+        () async {
+      final ChainApi client = rpcApi((String method) => switch (method) {
+            'eth_maxPriorityFeePerGas' => '0x0',
+            'eth_getBlockByNumber' => <String, Object?>{},
+            'eth_gasPrice' => '0x4a817c800', // 20 gwei
+            _ => null,
+          });
+
+      final ({BigInt baseFee, BigInt maxPriorityFeePerGas}) fees =
+          await client.fetchFeeData(NetworkCatalog.ethereum);
+
+      expect(fees.maxPriorityFeePerGas, BigInt.parse('20000000000'));
+      expect(fees.baseFee, BigInt.zero);
     });
   });
 

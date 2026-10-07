@@ -10,6 +10,7 @@ import '../../state/contacts_controller.dart';
 import '../../state/settings_controller.dart';
 import '../../state/wallet_controller.dart';
 import '../home/widgets/state_cards.dart';
+import '../send/cancel_transfer.dart';
 import 'widgets/transaction_tile.dart';
 
 /// Filters available in the activity feed.
@@ -121,6 +122,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
                         context,
                         snapshot.network.explorerTx(item.hash),
                       ),
+                      onCancel: _cancelFor(item, snapshot),
                     )
                   else if (item is String)
                     _DayHeader(label: item),
@@ -131,9 +133,25 @@ class _ActivityScreenState extends State<ActivityScreen> {
     );
   }
 
+  /// A cancel action for a still-pending outgoing transfer the wallet signed.
+  VoidCallback? _cancelFor(ChainTransaction tx, AccountSnapshot snapshot) {
+    if (tx.isIncoming || tx.confirmed || tx.failed) {
+      return null;
+    }
+    final int? nonce = tx.nonce;
+    if (nonce == null || !snapshot.network.canSign) {
+      return null;
+    }
+    return () => showCancelTransfer(
+          context,
+          network: snapshot.network,
+          address: snapshot.address,
+          nonce: nonce,
+        );
+  }
+
   /// Flattens the feed into day headers and transactions.
-  List<Object> _groupedByDay(List<ChainTransaction> entries) {
-    final List<Object> items = <Object>[];
+  List<Object> _groupedByDay(List<ChainTransaction> entries) {    final List<Object> items = <Object>[];
     String? currentLabel;
     for (final ChainTransaction entry in entries) {
       final String label = AppFormat.dayLabel(entry.timestamp);

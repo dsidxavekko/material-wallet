@@ -15,6 +15,7 @@ class ChainTransaction {
     required this.isIncoming,
     required this.confirmed,
     this.failed = false,
+    this.nonce,
   });
 
   final String hash;
@@ -30,6 +31,11 @@ class ChainTransaction {
 
   /// `true` for reverted EVM transactions.
   final bool failed;
+
+  /// Sender's transaction count for EVM transactions, when the API reports it.
+  ///
+  /// Needed to replace a stuck transaction with the same nonce (a cancel).
+  final int? nonce;
 
   bool get isPending => !confirmed && !failed;
 
@@ -48,6 +54,7 @@ class ChainTransaction {
         'isIncoming': isIncoming,
         'confirmed': confirmed,
         'failed': failed,
+        'nonce': nonce,
       };
 
   factory ChainTransaction.fromJson(Map<String, Object?> json) =>
@@ -60,6 +67,7 @@ class ChainTransaction {
         isIncoming: json['isIncoming'] as bool? ?? false,
         confirmed: json['confirmed'] as bool? ?? false,
         failed: json['failed'] as bool? ?? false,
+        nonce: (json['nonce'] as num?)?.toInt(),
       );
 }
 

@@ -15,6 +15,7 @@ import '../activity/activity_screen.dart';
 import '../activity/widgets/transaction_tile.dart';
 import '../network/network_chip.dart';
 import '../receive/receive_screen.dart';
+import '../send/cancel_transfer.dart';
 import '../send/send_screen.dart';
 import '../settings/currency_picker.dart';
 import 'widgets/account_balance_card.dart';
@@ -109,6 +110,14 @@ class _HomeScreenState extends State<HomeScreen> {
           onRetryPrice: wallet.refresh,
         ),
         const SizedBox(height: 20),
+        if (wallet.portfolioFiat != null) ...<Widget>[
+          _PortfolioCard(
+            totalUsd: wallet.portfolioFiat!,
+            currency: currency,
+            hidden: _hideBalance,
+          ),
+          const SizedBox(height: 16),
+        ],
         QuickActions(
           onSend: () => _push(context, const SendScreen()),
           onReceive: () => _push(context, const ReceiveScreen()),
@@ -116,7 +125,12 @@ class _HomeScreenState extends State<HomeScreen> {
         if (snapshot.tokens.isNotEmpty) ...<Widget>[
           const SizedBox(height: 26),
           const SectionHeader(title: 'Tokens'),
-          TokenList(tokens: snapshot.tokens, currency: currency),
+          TokenList(
+            tokens: snapshot.tokens,
+            currency: currency,
+            onTokenTap: (TokenBalance token) =>
+                _push(context, SendScreen(token: token)),
+          ),
         ],
         const SizedBox(height: 26),
         const SectionHeader(title: 'Your address'),
@@ -159,6 +173,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       context,
                       snapshot.network.explorerTx(recent[i].hash),
                     ),
+                    onCancel: _cancelFor(recent[i], snapshot),
                   ),
                 ],
               ],
@@ -172,6 +187,23 @@ class _HomeScreenState extends State<HomeScreen> {
     Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => screen),
     );
+  }
+
+  /// A cancel action for a still-pending outgoing transfer the wallet signed.
+  VoidCallback? _cancelFor(ChainTransaction tx, AccountSnapshot snapshot) {
+    if (tx.isIncoming || tx.confirmed || tx.failed) {
+      return null;
+    }
+    final int? nonce = tx.nonce;
+    if (nonce == null || !snapshot.network.canSign) {
+      return null;
+    }
+    return () => showCancelTransfer(
+          context,
+          network: snapshot.network,
+          address: snapshot.address,
+          nonce: nonce,
+        );
   }
 
   Future<void> _pickCurrency(BuildContext context) async {
@@ -195,9 +227,39 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+/// Best-effort total value across every network the account has synced.
+class _PortfolioCard extends StatelessWidget {
+  const _PortfolioCard({
+    required this.totalUsd,
+    required this.currency,
+    required this.hidden,
+  });
+
+  final double totalUsd;
+  final AppCurrency currency;
+  final bool hidden;
+
+  @override
+  Widget build(BuildContext context) {
+    final TextTheme text = Theme.of(context).textTheme;
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+
+    return Card(
+      child: ListTile(
+        leading: Icon(Icons.pie_chart_outline_rounded, color: scheme.primary),
+        title: const Text('Total across networks'),
+        subtitle: const Text('From the last synced balance of each chain'),
+        trailing: Text(
+          hidden ? '••••' : AppFormat.fiat(totalUsd, currency),
+          style: text.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+        ),
+      ),
+    );
+  }
+}
+
 class _NoActivity extends StatelessWidget {
   const _NoActivity();
-
   @override
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;

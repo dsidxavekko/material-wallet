@@ -7,6 +7,33 @@ import '../data/networks/network_config.dart';
 import '../data/wallet/evm_signer.dart';
 import 'wallet_identity_controller.dart';
 
+/// Speed presets offered for an EIP-1559 transfer.
+///
+/// The node's suggested priority tip is treated as "normal"; the others scale
+/// it, which is the practical lever now that the base fee is burned.
+enum FeePreset {
+  slow('Slow'),
+  normal('Normal'),
+  fast('Fast');
+
+  const FeePreset(this.label);
+
+  final String label;
+
+  /// The priority tip for this preset given a network-suggested [tip].
+  BigInt tipFor(BigInt tip) => switch (this) {
+        // Half the tip, but never zero — a zero tip is ignored by miners.
+        FeePreset.slow => tip ~/ BigInt.two < BigInt.one
+            ? BigInt.one
+            : tip ~/ BigInt.two,
+        FeePreset.normal => tip,
+        FeePreset.fast => tip * BigInt.two,
+      };
+
+  /// The fee cap for this preset: base fee headroom plus the scaled tip.
+  BigInt capFor(BigInt baseFee, BigInt tip) => baseFee * BigInt.two + tipFor(tip);
+}
+
 /// Where a transfer is in its lifecycle.
 enum SendStage {
   /// Nothing has happened yet.
@@ -75,8 +102,11 @@ class SendController extends ChangeNotifier {
   Future<bool> send({
     required String to,
     required BigInt value,
-    required BigInt gasPrice,
+    required BigInt maxPriorityFeePerGas,
+    required BigInt maxFeePerGas,
     required BigInt gasLimit,
+    Uint8List? data,
+    int? nonceOverride,
   }) async {
     if (network.chain != ChainKind.evm || !network.canSign) {
       return _fail('${network.name} does not support sending yet.');
@@ -84,7 +114,22 @@ class SendController extends ChangeNotifier {
 
     try {
       _notify(() => _stage = SendStage.preparing);
-      final int nonce = await _chainApi.getTransactionCount(network, address);
+
+      // The balance shown on screen may be stale: a send is only safe if the
+      // account still covers amount + fee at the moment of signing. One fetch
+      // here protects every caller, not just the send screen. For a token
+      // transfer [value] is zero, so this only covers the native gas.
+      final BigInt liveBalance = await _chainApi.fetchBalance(network, address);
+      if (value + maxFeePerGas * gasLimit > liveBalance) {
+        return _fail(
+          'Your balance dropped since the last refresh. Nothing was sent.',
+        );
+      }
+
+      // A replacement (cancel) must reuse the stuck transaction's nonce; a
+      // fresh transfer asks the node for the next one.
+      final int nonce =
+          nonceOverride ?? await _chainApi.getTransactionCount(network, address);
 
       _notify(() => _stage = SendStage.signing);
 
@@ -92,14 +137,16 @@ class SendController extends ChangeNotifier {
       final Uint8List privateKey = EvmSigner.privateKeyFromSeed(seed);
       final String raw;
       try {
-        raw = EvmSigner.signTransfer(
+        raw = EvmSigner.signEip1559Transfer(
           privateKey: privateKey,
           nonce: nonce,
-          gasPrice: gasPrice,
+          maxPriorityFeePerGas: maxPriorityFeePerGas,
+          maxFeePerGas: maxFeePerGas,
           gasLimit: gasLimit,
           to: to,
           value: value,
           chainId: network.chainId!,
+          data: data,
         );
       } finally {
         // The signing key is never needed past this point.
@@ -135,26 +182,35 @@ class SendController extends ChangeNotifier {
     }
   }
 
-  /// Fetches a live gas price and estimate for the given transfer.
+  /// Fetches live EIP-1559 fee parameters (base fee and suggested tip) plus a
+  /// gas estimate for the transfer.
   ///
   /// Returns `null` on failure, so the UI can refuse to send rather than sign
   /// with a made-up fee.
-  Future<({BigInt gasPrice, BigInt gasLimit})?> prepare({
+  Future<({BigInt baseFee, BigInt maxPriorityFeePerGas, BigInt gasLimit})?>
+      prepare({
     required String to,
     required BigInt value,
+    Uint8List? data,
   }) async {
     if (!network.canSign) {
       return null;
     }
     try {
-      final BigInt gasPrice = await _chainApi.fetchGasPrice(network);
+      final ({BigInt baseFee, BigInt maxPriorityFeePerGas}) fees =
+          await _chainApi.fetchFeeData(network);
       final BigInt gasLimit = await _chainApi.estimateTransferGas(
         network: network,
         from: address,
         to: to,
         value: value,
+        data: data,
       );
-      return (gasPrice: gasPrice, gasLimit: gasLimit);
+      return (
+        baseFee: fees.baseFee,
+        maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
+        gasLimit: gasLimit,
+      );
     } catch (_) {
       return null;
     }

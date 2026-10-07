@@ -334,6 +334,18 @@ class WalletIdentityController extends ChangeNotifier {
     }
   }
 
+  /// Re-authenticates for a sensitive action (e.g. revealing the recovery
+  /// phrase) while the wallet is already unlocked.
+  ///
+  /// Returns `false` when biometrics is off or the prompt is cancelled, so the
+  /// caller can fall back to asking for the PIN.
+  Future<bool> confirmWithBiometrics({required String reason}) async {
+    if (!_biometricsEnabled) {
+      return false;
+    }
+    return _biometrics.authenticate(reason: reason);
+  }
+
   /// Unlocks using the fingerprint prompt plus the PIN from the keystore.
   ///
   /// Biometric success is its own authorisation factor, so it is not subject to

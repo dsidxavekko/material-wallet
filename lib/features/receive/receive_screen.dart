@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../core/utils/explorer.dart';
 import '../../core/utils/feedback.dart';
 import '../../data/networks/network_config.dart';
 import '../../shared/widgets/empty_state.dart';
+import '../../shared/widgets/qr_card.dart';
 import '../../state/settings_controller.dart';
 import '../../state/wallet_controller.dart';
 
@@ -72,7 +72,7 @@ class ReceiveScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 24),
-          Center(child: _QrCard(data: address)),
+          Center(child: QrCard(data: address)),
           const SizedBox(height: 20),
           Center(
             child: Text(
@@ -139,45 +139,5 @@ class ReceiveScreen extends StatelessWidget {
         icon: Icons.check_circle_outline_rounded,
       );
     }
-  }
-}
-
-/// White card hosting the QR code so it stays scannable in dark mode.
-class _QrCard extends StatelessWidget {
-  const _QrCard({required this.data});
-
-  final String data;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(28),
-        boxShadow: <BoxShadow>[
-          BoxShadow(
-            color: Theme.of(context).colorScheme.shadow.withValues(alpha: 0.14),
-            blurRadius: 24,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: QrImageView(
-        data: data,
-        version: QrVersions.auto,
-        size: 208,
-        gapless: true,
-        backgroundColor: Colors.white,
-        eyeStyle: const QrEyeStyle(
-          eyeShape: QrEyeShape.square,
-          color: Colors.black,
-        ),
-        dataModuleStyle: const QrDataModuleStyle(
-          dataModuleShape: QrDataModuleShape.square,
-          color: Colors.black,
-        ),
-      ),
-    );
   }
 }

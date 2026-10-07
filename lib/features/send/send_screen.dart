@@ -13,6 +13,7 @@ import '../../data/networks/chain_models.dart';
 import '../../data/networks/network_config.dart';
 import '../../data/wallet/address_validator.dart';
 import '../../data/wallet/contact_store.dart';
+import '../../data/wallet/evm_signer.dart';
 import '../../data/wallet/seed_vault.dart';
 import '../../shared/widgets/empty_state.dart';
 import '../../shared/widgets/pin_confirm_dialog.dart';
@@ -22,13 +23,19 @@ import '../../state/settings_controller.dart';
 import '../../state/wallet_controller.dart';
 import '../../state/wallet_identity_controller.dart';
 import '../scan/scan_screen.dart';
+import 'transfer_success_screen.dart';
+import 'widgets/transfer_progress_dialog.dart';
 
-/// Sends the native currency of the active network.
+/// Sends the native currency of the active network, or an ERC-20 [token].
 ///
 /// EVM networks are signed on-device and broadcast for real; every other chain
 /// still stops at a validated, copyable summary.
 class SendScreen extends StatefulWidget {
-  const SendScreen({super.key});
+  const SendScreen({super.key, this.token});
+
+  /// When set, the transfer is an ERC-20 `transfer` of this token instead of
+  /// the chain's native currency.
+  final TokenBalance? token;
 
   @override
   State<SendScreen> createState() => _SendScreenState();
@@ -38,14 +45,34 @@ class _SendScreenState extends State<SendScreen> {
   final TextEditingController _amountController = TextEditingController();
   final TextEditingController _addressController = TextEditingController();
 
-  /// The gas price and limit that will actually be signed.
-  ///
-  /// Captured once, right before the confirmation sheet opens, and reused for
-  /// the signature — so the total the user approves is exactly the total that
-  /// leaves the account.
-  ({BigInt gasPrice, BigInt gasLimit})? _quote;
+  /// The base fee, suggested tip and gas limit captured right before the
+  /// confirmation sheet opens, reused for the signature — so the total the user
+  /// approves is exactly the total that leaves the account.
+  ({BigInt baseFee, BigInt maxPriorityFeePerGas, BigInt gasLimit})? _quote;
+  FeePreset _preset = FeePreset.normal;
   BigInt? _estimate;
   bool _loadingFee = true;
+
+  bool get _isToken => widget.token != null;
+
+  int get _decimals => widget.token?.decimals ?? _network.decimals;
+
+  String get _symbol => widget.token?.symbol ?? _network.symbol;
+
+  /// The native balance, used for the network fee (and the whole transfer on a
+  /// native send).
+  BigInt get _nativeBalance =>
+      context.read<WalletController>().snapshot?.balance ?? BigInt.zero;
+
+  /// The balance the entered amount is checked against: the token holding for a
+  /// token transfer, otherwise the native balance.
+  BigInt get _balance => widget.token?.balance ?? _nativeBalance;
+
+  /// The tip for the selected [FeePreset].
+  BigInt get _priority => _preset.tipFor(_quote?.maxPriorityFeePerGas ?? BigInt.zero);
+
+  /// The fee cap for the selected [FeePreset].
+  BigInt get _cap => _preset.capFor(_quote?.baseFee ?? BigInt.zero, _quote?.maxPriorityFeePerGas ?? BigInt.zero);
 
   @override
   void initState() {
@@ -62,24 +89,28 @@ class _SendScreenState extends State<SendScreen> {
 
   NetworkConfig get _network => context.read<SettingsController>().network;
 
-  BigInt get _balance =>
-      context.read<WalletController>().snapshot?.balance ?? BigInt.zero;
-
   BigInt get _enteredAmount =>
-      Units.parse(_amountController.text, _network.decimals) ?? BigInt.zero;
+      Units.parse(_amountController.text, _decimals) ?? BigInt.zero;
 
   BigInt get _effectiveFee {
-    final ({BigInt gasPrice, BigInt gasLimit})? quote = _quote;
-    if (quote != null) {
-      return quote.gasPrice * quote.gasLimit;
+    if (_quote != null) {
+      // The cap is the most per gas the transfer can cost, times the limit.
+      return _cap * _quote!.gasLimit;
     }
     return _estimate ?? BigInt.zero;
   }
 
-  BigInt get _total =>
-      _enteredAmount + (_enteredAmount > BigInt.zero ? _effectiveFee : BigInt.zero);
+  /// The native amount that leaves the account (zero for a token transfer).
+  BigInt get _nativeOut => _isToken ? BigInt.zero : _enteredAmount;
 
-  bool get _hasEnoughFunds => _total <= _balance;
+  BigInt get _total =>
+      _nativeOut + (_enteredAmount > BigInt.zero ? _effectiveFee : BigInt.zero);
+
+  /// A token send must cover the token amount and, separately, the native fee;
+  /// a native send must cover amount + fee from one balance.
+  bool get _hasEnoughFunds => _isToken
+      ? _enteredAmount <= _balance && _effectiveFee <= _nativeBalance
+      : _total <= _nativeBalance;
 
   AddressValidation get _addressValidation =>
       AddressValidator.validate(_network, _addressController.text);
@@ -97,8 +128,8 @@ class _SendScreenState extends State<SendScreen> {
 
   String get _availableLabel => Units.formatWithSymbol(
         _balance,
-        _network.decimals,
-        _network.symbol,
+        _decimals,
+        _symbol,
         maxDecimals: 8,
       );
 
@@ -121,8 +152,12 @@ class _SendScreenState extends State<SendScreen> {
       network: network,
       address: context.read<WalletController>().address ?? '',
     );
-    final ({BigInt gasPrice, BigInt gasLimit})? quote =
-        await controller.prepare(to: recipient, value: _enteredAmount);
+    final ({BigInt baseFee, BigInt maxPriorityFeePerGas, BigInt gasLimit})?
+        quote = await controller.prepare(
+      to: _signTo(recipient),
+      value: _nativeOut,
+      data: _calldata(recipient),
+    );
     controller.dispose();
     if (!mounted) {
       return;
@@ -168,7 +203,7 @@ class _SendScreenState extends State<SendScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: Text('Send ${network.symbol}')),
+      appBar: AppBar(title: Text('Send $_symbol')),
       body: SafeArea(
         child: Column(
           children: <Widget>[
@@ -203,9 +238,12 @@ class _SendScreenState extends State<SendScreen> {
                     decoration: InputDecoration(
                       labelText: 'Amount',
                       hintText: '0.00',
-                      suffixText: network.symbol,
+                      suffixText: _symbol,
                       errorText: _enteredAmount > BigInt.zero && !_hasEnoughFunds
-                          ? 'Not enough funds for amount + fee'
+                          ? _isToken
+                              ? 'Not enough $_symbol, or too little '
+                                  '${network.symbol} for the fee'
+                              : 'Not enough funds for amount + fee'
                           : null,
                       suffixIcon: TextButton(
                         onPressed: _setMax,
@@ -251,11 +289,22 @@ class _SendScreenState extends State<SendScreen> {
                       ),
                     ),
                   ),
+                  if (_quote != null) ...<Widget>[
+                    const SizedBox(height: 18),
+                    _FeePresetSelector(
+                      value: _preset,
+                      onChanged: (FeePreset value) =>
+                          setState(() => _preset = value),
+                    ),
+                  ],
                   const SizedBox(height: 20),
                   _SummaryCard(
                     network: network,
                     currency: currency,
                     amount: _enteredAmount,
+                    amountDecimals: _decimals,
+                    amountSymbol: _symbol,
+                    showTotal: !_isToken,
                     fee: _feeKnown ? _effectiveFee : null,
                     loadingFee: _loadingFee,
                   ),
@@ -277,12 +326,15 @@ class _SendScreenState extends State<SendScreen> {
   }
 
   void _setMax() {
-    final BigInt fee = _effectiveFee;
-    final BigInt max = _balance > fee ? _balance - fee : BigInt.zero;
+    // A token send leaves the native balance untouched, so MAX is the whole
+    // token holding; a native send keeps the fee back.
+    final BigInt max = _isToken
+        ? _balance
+        : (_balance > _effectiveFee ? _balance - _effectiveFee : BigInt.zero);
     _amountController.text = Units.format(
       max,
-      _network.decimals,
-      maxDecimals: _network.decimals,
+      _decimals,
+      maxDecimals: _decimals,
       group: false,
     );
     setState(() {});
@@ -326,11 +378,36 @@ class _SendScreenState extends State<SendScreen> {
     return value;
   }
 
+  /// The `to` field of the signed transaction: the token contract for an
+  /// ERC-20 send, or the recipient for a native one.
+  String _signTo(String recipient) =>
+      _isToken ? widget.token!.contractAddress : recipient;
+
+  /// ERC-20 calldata for the entered recipient and amount, or `null` for a
+  /// native transfer.
+  Uint8List? _calldata(String recipient) {
+    if (!_isToken) {
+      return null;
+    }
+    return EvmSigner.erc20TransferData(
+      to: recipient,
+      amount: _enteredAmount,
+    );
+  }
+
+  /// The concrete EIP-1559 fee the current preset selects, captured for signing.
+  ({BigInt maxFeePerGas, BigInt maxPriorityFeePerGas, BigInt gasLimit})
+      _signingFees() => (
+            maxFeePerGas: _cap,
+            maxPriorityFeePerGas: _priority,
+            gasLimit: _quote!.gasLimit,
+          );
+
   Future<void> _prepare() async {
     final NetworkConfig network = _network;
 
-    // Re-quote immediately before review: the gas price moves, and the number
-    // shown here is the one that gets signed.
+    // Re-quote immediately before review: the fee moves, and the number shown
+    // here is the one that gets signed.
     if (network.canSign) {
       setState(() => _loadingFee = true);
       await _refreshQuote();
@@ -351,7 +428,7 @@ class _SendScreenState extends State<SendScreen> {
     final ContactsController contacts = context.read<ContactsController>();
     final String recipient = _extractAddress(_addressController.text.trim());
     final bool alreadySaved = contacts.contains(recipient, network.id);
-    final ({BigInt gasPrice, BigInt gasLimit})? quote = _quote;
+    final bool canSend = network.canSign && _quote != null;
 
     await showModalBottomSheet<void>(
       context: context,
@@ -361,14 +438,15 @@ class _SendScreenState extends State<SendScreen> {
         network: network,
         recipient: recipient,
         amount: _enteredAmount,
+        amountDecimals: _decimals,
+        amountSymbol: _symbol,
+        showTotal: !_isToken,
         fee: _effectiveFee,
         explorerUrl: network.explorerAddress(recipient),
         alreadySaved: alreadySaved,
         onSave: () => _saveRecipient(recipient, network),
         // Signing is only offered with a quote that will actually be used.
-        onSend: network.canSign && quote != null
-            ? () => _signAndSend(recipient, quote)
-            : null,
+        onSend: canSend ? () => _signAndSend(recipient, _signingFees()) : null,
       ),
     );
   }
@@ -379,7 +457,7 @@ class _SendScreenState extends State<SendScreen> {
   /// balance is refreshed so the UI reflects what actually left the account.
   Future<void> _signAndSend(
     String recipient,
-    ({BigInt gasPrice, BigInt gasLimit}) quote,
+    ({BigInt maxFeePerGas, BigInt maxPriorityFeePerGas, BigInt gasLimit}) fees,
   ) async {
     final NetworkConfig network = _network;
     final WalletIdentityController identity =
@@ -421,31 +499,52 @@ class _SendScreenState extends State<SendScreen> {
     );
 
     unawaited(
-      _runTransfer(controller, recipient, network, quote),
+      _runTransfer(
+        controller,
+        network: network,
+        recipient: recipient,
+        to: _signTo(recipient),
+        value: _nativeOut,
+        data: _calldata(recipient),
+        amount: _enteredAmount,
+        amountDecimals: _decimals,
+        amountSymbol: _symbol,
+        maxFeePerGas: fees.maxFeePerGas,
+        maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
+        gasLimit: fees.gasLimit,
+      ),
     );
   }
 
-  /// Signs and broadcasts the already-reviewed quote behind a progress dialog,
-  /// then shows the outcome. The balance is refreshed so the UI matches the
-  /// chain.
+  /// Signs and broadcasts the already-reviewed transfer behind a progress
+  /// dialog, then shows the outcome. The balance is refreshed so the UI matches
+  /// the chain.
   Future<void> _runTransfer(
-    SendController controller,
-    String recipient,
-    NetworkConfig network,
-    ({BigInt gasPrice, BigInt gasLimit}) quote,
-  ) async {
-    final BigInt amount = _enteredAmount;
-
+    SendController controller, {
+    required NetworkConfig network,
+    required String recipient,
+    required String to,
+    required BigInt value,
+    required Uint8List? data,
+    required BigInt amount,
+    required int amountDecimals,
+    required String amountSymbol,
+    required BigInt maxFeePerGas,
+    required BigInt maxPriorityFeePerGas,
+    required BigInt gasLimit,
+  }) async {
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (_) => ChangeNotifierProvider<SendController>.value(
         value: controller,
-        child: _TransferProgressDialog(
-          recipient: recipient,
-          amount: amount,
-          gasPrice: quote.gasPrice,
-          gasLimit: quote.gasLimit,
+        child: TransferProgressDialog(
+          to: to,
+          value: value,
+          data: data,
+          maxPriorityFeePerGas: maxPriorityFeePerGas,
+          maxFeePerGas: maxFeePerGas,
+          gasLimit: gasLimit,
         ),
       ),
     );
@@ -472,13 +571,19 @@ class _SendScreenState extends State<SendScreen> {
       return;
     }
 
-    await showDialog<void>(
-      context: context,
-      builder: (_) => _TransferResultDialog(
-        network: network,
-        hash: hash,
-        confirmed: confirmed,
-        explorerUrl: network.explorerTx(hash),
+    // Replace the send form with the confirmation so "Done" lands on the
+    // wallet, not back on a filled-in form.
+    await Navigator.of(context).pushReplacement(
+      MaterialPageRoute<void>(
+        builder: (_) => TransferSuccessScreen(
+          network: network,
+          hash: hash,
+          confirmed: confirmed,
+          recipient: recipient,
+          amount: amount,
+          amountDecimals: amountDecimals,
+          amountSymbol: amountSymbol,
+        ),
       ),
     );
   }
@@ -627,12 +732,15 @@ class _LabelDialogState extends State<_LabelDialog> {
   }
 }
 
-/// Breakdown of the transfer: amount, real network fee and total.
+/// Breakdown of the transfer: amount, network fee and (for native sends) total.
 class _SummaryCard extends StatelessWidget {
   const _SummaryCard({
     required this.network,
     required this.currency,
     required this.amount,
+    required this.amountDecimals,
+    required this.amountSymbol,
+    required this.showTotal,
     required this.fee,
     required this.loadingFee,
   });
@@ -640,6 +748,14 @@ class _SummaryCard extends StatelessWidget {
   final NetworkConfig network;
   final AppCurrency currency;
   final BigInt amount;
+
+  /// Decimals and ticker of the amount, which differ from the network's native
+  /// coin on a token transfer.
+  final int amountDecimals;
+  final String amountSymbol;
+
+  /// The total row only makes sense when amount and fee share a unit.
+  final bool showTotal;
   final BigInt? fee;
   final bool loadingFee;
 
@@ -651,8 +767,7 @@ class _SummaryCard extends StatelessWidget {
         context.select<WalletController, CoinPrice?>((s) => s.snapshot?.price);
 
     final BigInt effectiveFee = fee ?? BigInt.zero;
-    final BigInt total =
-        amount + (amount > BigInt.zero ? effectiveFee : BigInt.zero);
+    final BigInt total = amount + (amount > BigInt.zero ? effectiveFee : BigInt.zero);
 
     final String feeText;
     if (loadingFee) {
@@ -689,47 +804,50 @@ class _SummaryCard extends StatelessWidget {
               'Amount',
               Units.formatWithSymbol(
                 amount,
-                network.decimals,
-                network.symbol,
+                amountDecimals,
+                amountSymbol,
                 maxDecimals: 8,
               ),
-              fiatOf(amount),
+              showTotal ? fiatOf(amount) : '',
             ),
             const SizedBox(height: 12),
-            _row(context, 'Network fee', feeText, fiatOf(effectiveFee)),
-            const SizedBox(height: 14),
-            Divider(color: scheme.outlineVariant, height: 1),
-            const SizedBox(height: 14),
-            Row(
-              children: <Widget>[
-                Text(
-                  'Total',
-                  style: text.titleSmall?.copyWith(fontWeight: FontWeight.w700),
-                ),
-                const Spacer(),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: <Widget>[
-                    Text(
-                      Units.formatWithSymbol(
-                        total,
-                        network.decimals,
-                        network.symbol,
-                        maxDecimals: 8,
-                      ),
-                      style: text.titleSmall
-                          ?.copyWith(fontWeight: FontWeight.w800),
-                    ),
-                    if (price != null)
+            _row(context, 'Max network fee', feeText, fiatOf(effectiveFee)),
+            if (showTotal) ...<Widget>[
+              const SizedBox(height: 14),
+              Divider(color: scheme.outlineVariant, height: 1),
+              const SizedBox(height: 14),
+              Row(
+                children: <Widget>[
+                  Text(
+                    'Total',
+                    style:
+                        text.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                  ),
+                  const Spacer(),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: <Widget>[
                       Text(
-                        fiatOf(total),
-                        style: text.bodySmall
-                            ?.copyWith(color: scheme.onSurfaceVariant),
+                        Units.formatWithSymbol(
+                          total,
+                          network.decimals,
+                          network.symbol,
+                          maxDecimals: 8,
+                        ),
+                        style: text.titleSmall
+                            ?.copyWith(fontWeight: FontWeight.w800),
                       ),
-                  ],
-                ),
-              ],
-            ),
+                      if (price != null)
+                        Text(
+                          fiatOf(total),
+                          style: text.bodySmall
+                              ?.copyWith(color: scheme.onSurfaceVariant),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),
@@ -780,6 +898,9 @@ class _PreparedSheet extends StatelessWidget {
     required this.network,
     required this.recipient,
     required this.amount,
+    required this.amountDecimals,
+    required this.amountSymbol,
+    required this.showTotal,
     required this.fee,
     required this.explorerUrl,
     required this.alreadySaved,
@@ -790,6 +911,9 @@ class _PreparedSheet extends StatelessWidget {
   final NetworkConfig network;
   final String recipient;
   final BigInt amount;
+  final int amountDecimals;
+  final String amountSymbol;
+  final bool showTotal;
   final BigInt? fee;
   final String explorerUrl;
   final bool alreadySaved;
@@ -827,14 +951,14 @@ class _PreparedSheet extends StatelessWidget {
               'Amount',
               Units.formatWithSymbol(
                 amount,
-                network.decimals,
-                network.symbol,
+                amountDecimals,
+                amountSymbol,
                 maxDecimals: 8,
               ),
             ),
             _line(
               context,
-              'Network fee',
+              'Max network fee',
               fee == null
                   ? 'Unavailable'
                   : Units.formatWithSymbol(
@@ -844,16 +968,17 @@ class _PreparedSheet extends StatelessWidget {
                       maxDecimals: 8,
                     ),
             ),
-            _line(
-              context,
-              'Total',
-              Units.formatWithSymbol(
-                total,
-                network.decimals,
-                network.symbol,
-                maxDecimals: 8,
+            if (showTotal)
+              _line(
+                context,
+                'Total',
+                Units.formatWithSymbol(
+                  total,
+                  network.decimals,
+                  network.symbol,
+                  maxDecimals: 8,
+                ),
               ),
-            ),
             const SizedBox(height: 18),
             Container(
               padding: const EdgeInsets.all(16),
@@ -890,7 +1015,7 @@ class _PreparedSheet extends StatelessWidget {
               FilledButton.icon(
                 onPressed: onSend,
                 icon: const Icon(Icons.lock_rounded),
-                label: Text('Send ${network.symbol}'),
+                label: Text('Send $amountSymbol'),
               ),
               const SizedBox(height: 10),
             ],
@@ -949,7 +1074,7 @@ class _PreparedSheet extends StatelessWidget {
     final String details = <String>[
       'Network: ${network.name}',
       'To: $recipient',
-      'Amount: ${Units.formatWithSymbol(amount, network.decimals, network.symbol)}',
+      'Amount: ${Units.formatWithSymbol(amount, amountDecimals, amountSymbol)}',
       if (fee != null)
         'Fee: ${Units.formatWithSymbol(fee!, network.decimals, network.symbol)}',
     ].join('\n');
@@ -965,145 +1090,42 @@ class _PreparedSheet extends StatelessWidget {
   }
 }
 
-/// Blocking dialog that drives a transfer from signing to confirmation.
-///
-/// The controller is injected by the caller, which owns its lifecycle, so the
-/// dialog only reacts to [SendStage] changes.
-class _TransferProgressDialog extends StatefulWidget {
-  const _TransferProgressDialog({
-    required this.recipient,
-    required this.amount,
-    required this.gasPrice,
-    required this.gasLimit,
-  });
+/// Low / Normal / High fee preset selector for an EIP-1559 transfer.
+class _FeePresetSelector extends StatelessWidget {
+  const _FeePresetSelector({required this.value, required this.onChanged});
 
-  final String recipient;
-  final BigInt amount;
-  final BigInt gasPrice;
-  final BigInt gasLimit;
-
-  @override
-  State<_TransferProgressDialog> createState() => _TransferProgressDialogState();
-}
-
-class _TransferProgressDialogState extends State<_TransferProgressDialog> {
-  @override
-  void initState() {
-    super.initState();
-    // Kick off after the first frame so the dialog is visible while the
-    // signing work happens.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) {
-        return;
-      }
-      context.read<SendController>().send(
-            to: widget.recipient,
-            value: widget.amount,
-            gasPrice: widget.gasPrice,
-            gasLimit: widget.gasLimit,
-          );
-    });
-  }
+  final FeePreset value;
+  final ValueChanged<FeePreset> onChanged;
 
   @override
   Widget build(BuildContext context) {
-    final SendController controller = context.watch<SendController>();
-    final TextTheme text = Theme.of(context).textTheme;
-    final ColorScheme scheme = Theme.of(context).colorScheme;
-    final bool done = controller.stage == SendStage.confirmed ||
-        controller.stage == SendStage.failed ||
-        controller.stage == SendStage.broadcast;
-
-    return PopScope(
-      canPop: done,
-      child: AlertDialog(
-        title: Text(done ? 'Transfer submitted' : 'Sending…'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            if (!done) ...<Widget>[
-              const LinearProgressIndicator(),
-              const SizedBox(height: 18),
-            ],
-            Text(
-              controller.stage == SendStage.broadcasting ||
-                      controller.stage == SendStage.signing
-                  ? 'Signing on this device…'
-                  : controller.stage == SendStage.broadcast
-                      ? 'Waiting for ${widget.recipient.length > 12 ? '${widget.recipient.substring(0, 8)}…' : widget.recipient} to confirm…'
-                      : controller.stage == SendStage.confirmed
-                          ? 'Confirmed on-chain.'
-                          : controller.error ?? 'Broadcasting…',
-              style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
-            ),
-            if (controller.txHash != null) ...<Widget>[
-              const SizedBox(height: 12),
-              Text(
-                'Tx ${controller.txHash!.length > 18 ? '${controller.txHash!.substring(0, 18)}…' : controller.txHash}',
-                style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+    return Row(
+      children: <Widget>[
+        Icon(
+          Icons.speed_rounded,
+          size: 18,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+        const SizedBox(width: 10),
+        Text(
+          'Network fee',
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
-            ],
+        ),
+        const Spacer(),
+        SegmentedButton<FeePreset>(
+          showSelectedIcon: false,
+          segments: <ButtonSegment<FeePreset>>[
+            for (final FeePreset preset in FeePreset.values)
+              ButtonSegment<FeePreset>(
+                value: preset,
+                label: Text(preset.label),
+              ),
           ],
-        ),
-        actions: <Widget>[
-          if (done)
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Close'),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Shows the transaction hash once the node accepted the transfer.
-class _TransferResultDialog extends StatelessWidget {
-  const _TransferResultDialog({
-    required this.network,
-    required this.hash,
-    required this.confirmed,
-    required this.explorerUrl,
-  });
-
-  final NetworkConfig network;
-  final String hash;
-  final bool confirmed;
-  final String explorerUrl;
-
-  @override
-  Widget build(BuildContext context) {
-    final TextTheme text = Theme.of(context).textTheme;
-    return AlertDialog(
-      icon: Icon(
-        confirmed ? Icons.check_circle_rounded : Icons.schedule_rounded,
-      ),
-      title: Text(confirmed ? 'Transfer confirmed' : 'Transfer pending'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(
-            confirmed
-                ? 'The funds left your wallet and the transaction is mined.'
-                : 'The transaction was accepted and will confirm shortly. You '
-                    'can follow it on the explorer.',
-            style: text.bodyMedium,
-          ),
-          const SizedBox(height: 12),
-          SelectableText(hash, style: text.bodySmall),
-        ],
-      ),
-      actions: <Widget>[
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Done'),
-        ),
-        FilledButton.icon(
-          onPressed: () => openExplorer(context, explorerUrl),
-          icon: const Icon(Icons.open_in_new_rounded),
-          label: const Text('Explorer'),
+          selected: <FeePreset>{value},
+          onSelectionChanged: (Set<FeePreset> selection) =>
+              onChanged(selection.first),
         ),
       ],
     );

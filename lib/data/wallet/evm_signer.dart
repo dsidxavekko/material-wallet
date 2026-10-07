@@ -45,13 +45,15 @@ class EvmSigner {
   static Uint8List privateKeyFromSeed(Uint8List seed) =>
       BIP32.fromSeed(seed).derivePath(evmPath).privateKey!;
 
-  /// Builds, signs and serialises a native-currency transfer.
+  /// Builds, signs and serialises a legacy (type-0) native-currency transfer.
   ///
   /// * [nonce] — the sender's transaction count, from `eth_getTransactionCount`
   /// * [chainId] — protects against cross-chain replay (EIP-155)
   /// * [to] — recipient, `0x` + 40 hex characters
   ///
-  /// Returns the RLP-encoded, signed transaction as hex, ready to broadcast.
+  /// Retained alongside the EIP-1559 path as the reference for the shared
+  /// signing core — its canonical EIP-155 vector is the only external known
+  /// answer the test suite can pin. New transfers use [signEip1559Transfer].
   static String signTransfer({
     required Uint8List privateKey,
     required int nonce,
@@ -64,7 +66,7 @@ class EvmSigner {
     final Uint8List toBytes = _addressToBytes(to);
 
     // The fields the sender commits to, replay-protected.
-    final Uint8List fields = Rlp.encodeList(<Uint8List>[
+    final Uint8List payload = Rlp.encodeList(<Uint8List>[
       Rlp.encodeInt(BigInt.from(nonce)),
       Rlp.encodeInt(gasPrice),
       Rlp.encodeInt(gasLimit),
@@ -76,41 +78,13 @@ class EvmSigner {
       Rlp.encodeBytes(Uint8List(0)), // empty s
     ]);
 
-    final Uint8List hash = Hashing.keccak256(fields);
-
-    final ECDomainParameters params = ECCurve_secp256k1();
-
-    // No digest: [hash] is already the keccak-256 of the payload and Ethereum
-    // signs that digest directly. Passing one would hash it a second time.
-    final ECDSASigner signer = ECDSASigner(null, HMac(SHA256Digest(), 64));
-    signer.init(
-      true,
-      PrivateKeyParameter(
-        ECPrivateKey(BigInt.parse(hex.encode(privateKey), radix: 16), params),
-      ),
-    );
-
-    // EIP-2: nodes only accept the lower of the two equivalent signatures.
-    final ECSignature raw = signer.generateSignature(hash) as ECSignature;
-    final ECSignature signature = raw.isNormalized(params)
-        ? raw
-        : raw.normalize(params);
-
-    final BigInt e = BigInt.parse(hex.encode(hash), radix: 16);
-    final BigInt expected =
-        BigInt.parse(hex.encode(_uncompressedPublicKey(privateKey)), radix: 16);
-
-    // The recovery id's low bit is the parity of the signing point R. Only one
-    // of the two parities recovers our own key, so try both and keep the match.
-    final BigInt? yBit = _recoverParity(signature.r, signature.s, e, expected);
-    if (yBit == null) {
-      throw const EvmSigningException(
-        'Signing failed: the recovered key does not match this wallet.',
-      );
-    }
+    final ({BigInt r, BigInt s, int yParity}) signature =
+        _sign(payload, privateKey);
 
     // EIP-155: v = recoveryId + chainId * 2 + 35.
-    final BigInt v = BigInt.from(chainId) * BigInt.two + BigInt.from(35) + yBit;
+    final BigInt v = BigInt.from(chainId) * BigInt.two +
+        BigInt.from(35) +
+        BigInt.from(signature.yParity);
 
     final Uint8List signed = Rlp.encodeList(<Uint8List>[
       Rlp.encodeInt(BigInt.from(nonce)),
@@ -128,6 +102,136 @@ class EvmSigner {
     ]);
 
     return hex.encode(signed);
+  }
+
+  /// Builds, signs and serialises an EIP-1559 (type-2) transfer.
+  ///
+  /// Unlike the legacy path the sender offers a priority tip and a *fee cap*
+  /// ([maxFeePerGas]) instead of a single gas price, and the payload is
+  /// prefixed with the transaction type byte `0x02`.
+  ///
+  /// [data] is the calldata: empty for a native transfer, or the ABI-encoded
+  /// call produced by [erc20TransferData] for a token transfer.
+  ///
+  /// Returns the signed type-2 transaction as hex, ready to broadcast.
+  static String signEip1559Transfer({
+    required Uint8List privateKey,
+    required int nonce,
+    required BigInt maxPriorityFeePerGas,
+    required BigInt maxFeePerGas,
+    required BigInt gasLimit,
+    required String to,
+    required BigInt value,
+    required int chainId,
+    Uint8List? data,
+  }) {
+    final Uint8List toBytes = _addressToBytes(to);
+    final Uint8List calldata = data ?? Uint8List(0);
+
+    // EIP-1559 pre-image: no v/r/s placeholders, and the access list is empty.
+    final Uint8List payload = Rlp.encodeList(<Uint8List>[
+      Rlp.encodeInt(BigInt.from(chainId)),
+      Rlp.encodeInt(BigInt.from(nonce)),
+      Rlp.encodeInt(maxPriorityFeePerGas),
+      Rlp.encodeInt(maxFeePerGas),
+      Rlp.encodeInt(gasLimit),
+      Rlp.encodeBytes(toBytes),
+      Rlp.encodeInt(value),
+      Rlp.encodeBytes(calldata),
+      Rlp.encodeList(const <Uint8List>[]), // empty access list
+    ]);
+
+    final ({BigInt r, BigInt s, int yParity}) signature =
+        _sign(payload, privateKey);
+
+    final Uint8List signed = Rlp.encodeList(<Uint8List>[
+      Rlp.encodeInt(BigInt.from(chainId)),
+      Rlp.encodeInt(BigInt.from(nonce)),
+      Rlp.encodeInt(maxPriorityFeePerGas),
+      Rlp.encodeInt(maxFeePerGas),
+      Rlp.encodeInt(gasLimit),
+      Rlp.encodeBytes(toBytes),
+      Rlp.encodeInt(value),
+      Rlp.encodeBytes(calldata),
+      Rlp.encodeList(const <Uint8List>[]),
+      // Type-2 carries the bare recovery parity, not the EIP-155 `v`.
+      Rlp.encodeInt(BigInt.from(signature.yParity)),
+      Rlp.encodeInt(signature.r),
+      Rlp.encodeInt(signature.s),
+    ]);
+
+    return '02${hex.encode(signed)}';
+  }
+
+  /// ABI-encoded calldata for an ERC-20 `transfer(address,uint256)`.
+  ///
+  /// 4-byte selector `0xa9059cbb`, then [to] left-padded to 32 bytes and
+  /// [amount] as a 32-byte big-endian word.
+  static Uint8List erc20TransferData({
+    required String to,
+    required BigInt amount,
+  }) {
+    final BytesBuilder builder = BytesBuilder();
+    builder.add(const <int>[0xa9, 0x05, 0x9c, 0xbb]);
+    builder.add(Uint8List(12)); // left-pad the address to a 32-byte word
+    builder.add(_addressToBytes(to));
+    builder.add(_word(amount));
+    return builder.toBytes();
+  }
+
+  /// 32-byte big-endian encoding of [value], truncated to the low 256 bits.
+  static Uint8List _word(BigInt value) {
+    final Uint8List out = Uint8List(32);
+    BigInt remaining = value;
+    for (int i = 31; i >= 0; i--) {
+      out[i] = (remaining & BigInt.from(0xff)).toInt();
+      remaining = remaining >> 8;
+    }
+    return out;
+  }
+
+  /// Signs [payload] and returns the EIP-2-normalised signature plus its
+  /// recovery parity.
+  ///
+  /// Shared by both transaction types: only the pre-image they hash differs.
+  /// Throws [EvmSigningException] when the recovered key is not our own, which
+  /// would mean the signature would send funds from a stranger's account.
+  static ({BigInt r, BigInt s, int yParity}) _sign(
+    Uint8List payload,
+    Uint8List privateKey,
+  ) {
+    final Uint8List hash = Hashing.keccak256(payload);
+    final ECDomainParameters params = ECCurve_secp256k1();
+
+    // No digest: [hash] is already the keccak-256 of the payload and Ethereum
+    // signs that digest directly. Passing one would hash it a second time.
+    final ECDSASigner signer = ECDSASigner(null, HMac(SHA256Digest(), 64));
+    signer.init(
+      true,
+      PrivateKeyParameter(
+        ECPrivateKey(BigInt.parse(hex.encode(privateKey), radix: 16), params),
+      ),
+    );
+
+    // EIP-2: nodes only accept the lower of the two equivalent signatures.
+    final ECSignature raw = signer.generateSignature(hash) as ECSignature;
+    final ECSignature signature =
+        raw.isNormalized(params) ? raw : raw.normalize(params);
+
+    final BigInt e = BigInt.parse(hex.encode(hash), radix: 16);
+    final BigInt expected =
+        BigInt.parse(hex.encode(_uncompressedPublicKey(privateKey)), radix: 16);
+
+    // The recovery id's low bit is the parity of the signing point R. Only one
+    // of the two parities recovers our own key, so try both and keep the match.
+    final BigInt? yBit = _recoverParity(signature.r, signature.s, e, expected);
+    if (yBit == null) {
+      throw const EvmSigningException(
+        'Signing failed: the recovered key does not match this wallet.',
+      );
+    }
+
+    return (r: signature.r, s: signature.s, yParity: yBit.toInt());
   }
 
   /// Returns the y-parity (`0` or `1`) whose recovered public key matches

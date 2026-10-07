@@ -14,6 +14,7 @@ import '../../state/wallet_controller.dart';
 import '../../state/wallet_identity_controller.dart';
 import '../network/network_picker.dart';
 import 'address_book_screen.dart';
+import 'addresses_screen.dart';
 import 'currency_picker.dart';
 
 /// Application preferences, wallet management and network switching.
@@ -415,6 +416,17 @@ class _WalletSection extends StatelessWidget {
                     : () => _copy(context, address),
               ),
             ),
+            ListTile(
+              leading: const Icon(Icons.qr_code_scanner_rounded),
+              title: const Text('Your addresses'),
+              subtitle: const Text('All chains, with QR codes'),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const AddressesScreen(),
+                ),
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 12),
@@ -521,26 +533,38 @@ class _WalletSection extends StatelessWidget {
       return;
     }
 
-    // The recovery phrase is the keys to the wallet: require the PIN again
-    // even though the app is already unlocked, so an unattended phone cannot
-    // be used to walk off with it.
-    final String? pin = await PinConfirmDialog.show(
-      context,
-      title: 'Confirm your PIN',
-      confirmLabel: 'Reveal',
-      icon: Icons.key_rounded,
-    );
-    if (pin == null || !context.mounted) {
-      return;
+    // The recovery phrase is the keys to the wallet: require re-auth even
+    // though the app is already unlocked, so an unattended phone cannot be used
+    // to walk off with it. A fingerprint is enough when it is enabled;
+    // otherwise fall back to the PIN.
+    bool authorized = false;
+    if (identity.biometricsEnabled) {
+      authorized = await identity.confirmWithBiometrics(
+        reason: 'Reveal recovery phrase',
+      );
     }
-    try {
-      await identity.verifyPin(pin);
-    } on SeedVaultException catch (error) {
-      if (context.mounted) {
-        showAppSnackBar(context, error.message,
-            icon: Icons.error_outline_rounded);
+    if (!authorized) {
+      if (!context.mounted) {
+        return;
       }
-      return;
+      final String? pin = await PinConfirmDialog.show(
+        context,
+        title: 'Confirm your PIN',
+        confirmLabel: 'Reveal',
+        icon: Icons.key_rounded,
+      );
+      if (pin == null || !context.mounted) {
+        return;
+      }
+      try {
+        await identity.verifyPin(pin);
+      } on SeedVaultException catch (error) {
+        if (context.mounted) {
+          showAppSnackBar(context, error.message,
+              icon: Icons.error_outline_rounded);
+        }
+        return;
+      }
     }
     if (!context.mounted) {
       return;
