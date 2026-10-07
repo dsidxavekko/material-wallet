@@ -917,10 +917,10 @@ class _AboutCard extends StatelessWidget {
               leading: const Icon(Icons.info_outline_rounded),
               title: const Text('Version'),
               subtitle: const Text('Self-custodial · BIP-39 / BIP-84 / BIP-44'),
-              trailing: const Text('1.0.0 (1)'),
+              trailing: const Text('0.2.0 (3)'),
               onTap: () => showAppSnackBar(
                 context,
-                'Material Wallet 0.1.0 — built with Flutter & Material 3.',
+                'Material Wallet 0.2.0 — built with Flutter & Material 3.',
                 icon: Icons.info_outline_rounded,
               ),
             ),
