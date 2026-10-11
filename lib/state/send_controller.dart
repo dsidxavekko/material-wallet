@@ -1,9 +1,13 @@
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 
 import '../core/utils/app_log.dart';
 import '../data/models/chain_kind.dart';
 import '../data/networks/chain_api.dart';
 import '../data/networks/network_config.dart';
+import '../data/wallet/address_deriver.dart';
+import '../data/wallet/bitcoin_signer.dart';
 import '../data/wallet/evm_signer.dart';
 import 'wallet_identity_controller.dart';
 
@@ -37,6 +41,20 @@ enum FeePreset {
   /// The fee cap for this preset: base fee headroom plus the scaled tip.
   BigInt capFor(BigInt baseFee, BigInt tip) =>
       baseFee * BigInt.two + tipFor(tip);
+
+  /// Bitcoin satoshis per virtual byte for this preset given a network
+  /// [recommended] rate.
+  ///
+  /// The tip/handling of EIP-1559 does not apply here; only the multiplier does.
+  /// The slow preset never drops below 1 sat/vB, which is the lowest rate a
+  /// node will relay.
+  int satPerVbFor(int recommended) => switch (this) {
+        FeePreset.slow => math.max(1, recommended ~/ 2),
+        FeePreset.normal => recommended,
+        FeePreset.fast => recommended * 2,
+        // Unused: the UI builds the custom rate from the user's own input.
+        FeePreset.custom => recommended,
+      };
 }
 
 /// Where a transfer is in its lifecycle.
@@ -251,6 +269,143 @@ class SendController extends ChangeNotifier {
     _disposed = true;
     _chainApi.dispose();
     super.dispose();
+  }
+
+  // --- Bitcoin transfer -----------------------------------------------------
+
+  /// The network's recommended sat/vB rate, or `null` when it is unavailable.
+  Future<int?> recommendedBitcoinFeeRate() async {
+    if (network.chain != ChainKind.bitcoin) {
+      return null;
+    }
+    try {
+      return await _chainApi.fetchBitcoinFeeRate(network);
+    } catch (error) {
+      AppLog.warning('Bitcoin fee rate unavailable', error);
+      return null;
+    }
+  }
+
+  /// Plans a Bitcoin transfer of [amount] satoshis to [to]: the fee rate, the
+  /// utxos to spend and the change output.
+  ///
+  /// [feeRate] defaults to the network recommendation. Returns `null` on any
+  /// failure or when the funds are short, so the UI can refuse rather than sign
+  /// an underfunded transaction.
+  Future<BitcoinPlan?> prepareBitcoin({
+    required String to,
+    required BigInt amount,
+    int? feeRate,
+  }) async {
+    if (network.chain != ChainKind.bitcoin || !network.canSign) {
+      return null;
+    }
+    try {
+      final int rate = feeRate ?? await _chainApi.fetchBitcoinFeeRate(network);
+      final List<BitcoinUtxo> utxos =
+          await _chainApi.fetchBitcoinUtxos(network, address);
+      return BitcoinSigner.plan(
+        utxos: utxos,
+        amount: amount,
+        recipientScript: BitcoinSigner.scriptPubKeyForAddress(to, hrp: network.hrp),
+        changeScript:
+            BitcoinSigner.scriptPubKeyForAddress(address, hrp: network.hrp),
+        feeRate: rate,
+      );
+    } catch (error, stackTrace) {
+      AppLog.warning('Could not prepare a Bitcoin transfer', error, stackTrace);
+      return null;
+    }
+  }
+
+  /// The most that can be sent in one transaction at [feeRate], or `null`.
+  Future<BigInt?> maxBitcoinAmount({required int feeRate}) async {
+    try {
+      final List<BitcoinUtxo> utxos =
+          await _chainApi.fetchBitcoinUtxos(network, address);
+      return BitcoinSigner.maxSpendable(utxos: utxos, feeRate: feeRate);
+    } catch (error, stackTrace) {
+      AppLog.warning('Could not read the Bitcoin balance', error, stackTrace);
+      return null;
+    }
+  }
+
+  /// Signs [plan] on-device and broadcasts it.
+  ///
+  /// Re-reads the utxo set first: a coin spent since the transfer was reviewed
+  /// would invalidate the signature, so its disappearance is checked and the
+  /// send refused rather than broadcast and rejected.
+  Future<bool> sendBitcoin({required BitcoinPlan plan}) async {
+    if (network.chain != ChainKind.bitcoin || !network.canSign) {
+      return _fail('${network.name} does not support sending yet.');
+    }
+
+    try {
+      _notify(() => _stage = SendStage.preparing);
+
+      final Set<String> live = <String>{
+        for (final BitcoinUtxo utxo
+            in await _chainApi.fetchBitcoinUtxos(network, address))
+          utxo.outpoint,
+      };
+      for (final BitcoinUtxo input in plan.inputs) {
+        if (!live.contains(input.outpoint)) {
+          return _fail(
+            'Your balance changed since the last refresh. Nothing was sent.',
+          );
+        }
+      }
+
+      _notify(() => _stage = SendStage.signing);
+
+      final Uint8List seed = await _requireSeed();
+      final ({Uint8List privateKey, Uint8List publicKey}) keys =
+          AddressDeriver.bitcoinKeyPairFromSeed(seed);
+      final String raw;
+      try {
+        raw = BitcoinSigner.signP2wpkh(
+          privateKey: keys.privateKey,
+          publicKey: keys.publicKey,
+          utxos: plan.inputs,
+          outputs: plan.outputs,
+        );
+      } finally {
+        // The signing key is never needed past this point.
+        keys.privateKey.fillRange(0, keys.privateKey.length, 0);
+      }
+
+      _notify(() => _stage = SendStage.broadcasting);
+      final String hash =
+          await _chainApi.broadcastBitcoinTransaction(network, raw);
+
+      _notify(() {
+        _txHash = hash;
+        _stage = SendStage.broadcast;
+      });
+
+      final bool? ok =
+          await _chainApi.waitForBitcoinConfirmation(network, hash);
+      _notify(() {
+        _stage = ok == null
+            ? SendStage.broadcast
+            : ok
+                ? SendStage.confirmed
+                : SendStage.failed;
+      });
+      return ok != false;
+    } on ChainApiException catch (error, stackTrace) {
+      AppLog.warning('Bitcoin transfer failed on ${network.name}', error, stackTrace);
+      return _fail(error.message);
+    } on BitcoinSigningException catch (error, stackTrace) {
+      AppLog.warning('Bitcoin signing failed', error, stackTrace);
+      return _fail(error.message);
+    } on EvmSigningException catch (error) {
+      // `_requireSeed` reuses this type to flag a locked wallet.
+      return _fail(error.message);
+    } catch (error, stackTrace) {
+      AppLog.error('Unexpected Bitcoin transfer failure', error, stackTrace);
+      return _fail('Something went wrong while sending. Nothing was sent.');
+    }
   }
 
   Future<Uint8List> _requireSeed() async {

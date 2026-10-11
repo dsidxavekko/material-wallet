@@ -81,7 +81,16 @@ class NetworkConfig {
   final String? sendRpcUrl;
 
   /// `true` when the wallet can build and broadcast a transaction here.
-  bool get canSign => chainId != null && sendRpcUrl != null;
+  ///
+  /// Bitcoin always can (mempool.space accepts and serves both mainnet and
+  /// testnet); an EVM chain needs a bound [chainId] and a [sendRpcUrl] — which
+  /// is why the JSON-RPC-only BNB Chain is read-only. Solana and Aptos can not
+  /// sign yet.
+  bool get canSign => switch (chain) {
+        ChainKind.bitcoin => true,
+        ChainKind.evm => chainId != null && sendRpcUrl != null,
+        ChainKind.solana || ChainKind.aptos => false,
+      };
 
   String get group => switch (chain) {
         ChainKind.bitcoin => 'Bitcoin',

@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 
 import '../../core/utils/app_log.dart';
 import '../models/chain_kind.dart';
+import '../wallet/bitcoin_signer.dart';
 import '../wallet/evm_signer.dart';
 import 'chain_models.dart';
 import 'network_config.dart';
@@ -141,18 +142,34 @@ class ChainApi {
       if (network.chain == ChainKind.bitcoin) {
         final Object? json =
             await _get('${network.apiBase}/v1/fees/recommended');
-        final int? satPerVb =
-            (json as Map<String, Object?>?)?['halfHourFee'] as int?;
-        if (satPerVb == null) {
+        // The API returns whole sat/vB today, but Bitcoin Core's minimum relay
+        // fee is fractional, so a `num` cast keeps a future 0.1 sat/vB answer
+        // from turning the whole estimate into "unknown".
+        final num? satPerVb =
+            (json as Map<String, Object?>?)?['halfHourFee'] as num?;
+        if (satPerVb == null || satPerVb <= 0) {
           return null;
         }
         // ~140 vB is a typical native SegWit (P2WPKH) transfer.
-        return BigInt.from(satPerVb) * BigInt.from(140);
+        return BigInt.from(satPerVb.ceil()) * BigInt.from(140);
       }
 
       final Object? json = await _get('${network.apiBase}/stats');
-      final String? gasPriceWei =
-          (json as Map<String, Object?>?)?['gas_price'] as String?;
+      if (json is! Map<String, Object?>) {
+        return null;
+      }
+      // Blockscout v2 reports floating-point gwei under `gas_prices`; the old
+      // `gas_price` wei string is kept as a fallback for other deployments.
+      final Object? prices = json['gas_prices'];
+      if (prices is Map<String, Object?>) {
+        final num? gwei =
+            (prices['average'] ?? prices['fast'] ?? prices['slow']) as num?;
+        if (gwei != null && gwei > 0) {
+          // 21,000 gas is the cost of a plain value transfer.
+          return BigInt.from((gwei * 1e9).round()) * BigInt.from(21000);
+        }
+      }
+      final String? gasPriceWei = json['gas_price'] as String?;
       if (gasPriceWei == null) {
         return null;
       }
@@ -296,6 +313,132 @@ class ChainApi {
         continue; // still in the mempool
       }
       return result['status'] == '0x1';
+    }
+    return null;
+  }
+
+  // --- Bitcoin transaction submission --------------------------------------
+
+  /// Unspent outputs paying [address], newest chain tip first.
+  ///
+  /// Used to build a spend; the caller decides which to select.
+  Future<List<BitcoinUtxo>> fetchBitcoinUtxos(
+    NetworkConfig network,
+    String address,
+  ) async {
+    if (network.chain != ChainKind.bitcoin) {
+      return const <BitcoinUtxo>[];
+    }
+    final Object? json = await _get('${network.apiBase}/address/$address/utxo');
+    return _parseBitcoinUtxos(json);
+  }
+
+  static List<BitcoinUtxo> _parseBitcoinUtxos(Object? json) {
+    if (json is! List) {
+      return const <BitcoinUtxo>[];
+    }
+    final List<BitcoinUtxo> utxos = <BitcoinUtxo>[];
+    for (final Object? raw in json) {
+      if (raw is! Map<String, Object?>) {
+        continue;
+      }
+      final String? txid = raw['txid'] as String?;
+      final int? vout = (raw['vout'] as num?)?.toInt();
+      final num? value = raw['value'] as num?;
+      if (txid == null || vout == null || value == null || value <= 0) {
+        continue;
+      }
+      final Object? status = raw['status'];
+      final bool confirmed =
+          status is Map<String, Object?> && status['confirmed'] == true;
+      utxos.add(
+        BitcoinUtxo(
+          txid: txid,
+          vout: vout,
+          value: BigInt.from(value.toInt()),
+          confirmed: confirmed,
+        ),
+      );
+    }
+    return utxos;
+  }
+
+  /// Recommended satoshis-per-vbyte for a ~30 minute confirmation target.
+  ///
+  /// Throws rather than guessing, so a transfer is never signed with a fee the
+  /// user did not see.
+  Future<int> fetchBitcoinFeeRate(NetworkConfig network) async {
+    final Object? json = await _get('${network.apiBase}/v1/fees/recommended');
+    final num? rate = (json as Map<String, Object?>?)?['halfHourFee'] as num?;
+    if (rate == null || rate <= 0) {
+      throw const ChainApiException(
+        'The node returned no fee estimate.',
+      );
+    }
+    return rate.ceil();
+  }
+
+  /// Broadcasts a raw Bitcoin transaction and returns its txid.
+  Future<String> broadcastBitcoinTransaction(
+    NetworkConfig network,
+    String rawTransaction,
+  ) async {
+    final http.Response response;
+    try {
+      response = await _client
+          .post(
+            Uri.parse('${network.apiBase}/tx'),
+            headers: const <String, String>{'Content-Type': 'text/plain'},
+            body: rawTransaction,
+          )
+          .timeout(timeout);
+    } on TimeoutException {
+      throw const ChainApiException('The network request timed out.');
+    } catch (_) {
+      throw const ChainApiException(
+        'Could not reach the blockchain API. Check your connection.',
+      );
+    }
+
+    final String body = utf8.decode(response.bodyBytes).trim();
+    if (response.statusCode >= 400) {
+      // mempool.space answers a rejected transaction with the reason in the
+      // body — surface it, the user needs to know *why* it was refused.
+      throw ChainApiException(
+        body.isEmpty
+            ? 'The node rejected the transaction (HTTP ${response.statusCode}).'
+            : body,
+        retryable: false,
+      );
+    }
+    if (body.isEmpty) {
+      throw const ChainApiException(
+        'The node accepted the transaction but returned no txid.',
+        retryable: false,
+      );
+    }
+    return body;
+  }
+
+  /// Waits until [txid] is mined, returning whether it confirmed.
+  ///
+  /// Gives up with `null` rather than claiming failure, since a slow block may
+  /// still include it.
+  Future<bool?> waitForBitcoinConfirmation(
+    NetworkConfig network,
+    String txid, {
+    int attempts = 12,
+  }) async {
+    for (int i = 0; i < attempts; i++) {
+      await Future<void>.delayed(Duration(seconds: 5 + i * 2));
+      try {
+        final Object? json = await _get('${network.apiBase}/tx/$txid/status');
+        if (json is Map<String, Object?> && json['confirmed'] == true) {
+          return true;
+        }
+      } catch (_) {
+        // A transient error is not a verdict; keep waiting.
+      }
     }
     return null;
   }
@@ -782,9 +925,10 @@ class ChainApi {
                 )
               : null;
 
-      // The sender pays the fee, so outgoing transfers cost value + fee while
-      // incoming ones only add value.
-      final BigInt signed = incoming ? value + fee : -(value + fee);
+      // The sender pays the fee, so an outgoing transfer costs value + fee
+      // while an incoming one only adds the value it actually delivered — the
+      // fee was paid by the other side.
+      final BigInt signed = incoming ? value : -(value + fee);
 
       result.add(
         ChainTransaction(

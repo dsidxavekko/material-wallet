@@ -13,6 +13,7 @@ import '../../data/networks/chain_models.dart';
 import '../../data/networks/network_config.dart';
 import '../../data/wallet/address_guard.dart';
 import '../../data/wallet/address_validator.dart';
+import '../../data/wallet/bitcoin_signer.dart';
 import '../../data/wallet/contact_store.dart';
 import '../../data/wallet/evm_signer.dart';
 import '../../shared/widgets/empty_state.dart';
@@ -60,6 +61,14 @@ class _SendScreenState extends State<SendScreen> {
   ({BigInt baseFee, BigInt maxPriorityFeePerGas, BigInt gasLimit})? _quote;
   FeePreset _preset = FeePreset.normal;
 
+  /// Bitcoin: the prepared inputs/outputs/fee for the entered amount, and the
+  /// recommended sat/vB rate they were priced from.
+  BitcoinPlan? _btcPlan;
+  int? _btcFeeRate;
+
+  /// User-entered sat/vB, used when [_preset] is custom on Bitcoin.
+  int? _customBtcRate;
+
   /// User-entered fee, in wei per gas, used when [_preset] is custom.
   BigInt? _customTipWei;
   BigInt? _customCapWei;
@@ -67,6 +76,8 @@ class _SendScreenState extends State<SendScreen> {
   bool _loadingFee = true;
 
   bool get _isToken => widget.token != null;
+
+  bool get _isBitcoin => _network.chain == ChainKind.bitcoin;
 
   int get _decimals => widget.token?.decimals ?? _network.decimals;
 
@@ -93,6 +104,15 @@ class _SendScreenState extends State<SendScreen> {
           _quote?.baseFee ?? BigInt.zero,
           _quote?.maxPriorityFeePerGas ?? BigInt.zero,
         );
+
+  /// The sat/vB the current preset selects on Bitcoin.
+  int get _btcRate {
+    final int base = _btcFeeRate ?? 1;
+    if (_preset == FeePreset.custom) {
+      return _customBtcRate ?? base;
+    }
+    return _preset.satPerVbFor(base);
+  }
 
   @override
   void initState() {
@@ -121,6 +141,10 @@ class _SendScreenState extends State<SendScreen> {
       Units.parse(_amountController.text, _decimals) ?? BigInt.zero;
 
   BigInt get _effectiveFee {
+    if (_isBitcoin) {
+      // The plan's fee is exact (sat/vB × vsize), not a cap.
+      return _btcPlan?.fee ?? _estimate ?? BigInt.zero;
+    }
     if (_quote != null) {
       // The cap is the most per gas the transfer can cost, times the limit.
       return _cap * _quote!.gasLimit;
@@ -185,7 +209,10 @@ class _SendScreenState extends State<SendScreen> {
   ///
   /// On a chain the wallet can broadcast, an unavailable quote blocks sending:
   /// guessing a fee risks a transaction the user never approved.
-  bool get _feeKnown => _quote != null || (_estimate != null && !_network.canSign);
+  bool get _feeKnown {
+    final bool quoteReady = _isBitcoin ? _btcPlan != null : _quote != null;
+    return quoteReady || (_estimate != null && !_network.canSign);
+  }
 
   String get _availableLabel => Units.formatWithSymbol(
         _balance,
@@ -196,7 +223,7 @@ class _SendScreenState extends State<SendScreen> {
 
   /// Fetches a fresh quote for the amount and recipient currently entered.
   ///
-  /// Safe to call on every keystroke: it only reads `_quote` when complete.
+  /// Safe to call repeatedly: it only writes the quote when it completes.
   Future<void> _refreshQuote() async {
     if (!_network.canSign) {
       return;
@@ -213,6 +240,28 @@ class _SendScreenState extends State<SendScreen> {
       network: network,
       address: context.read<WalletController>().address ?? '',
     );
+
+    if (_isBitcoin) {
+      final int? recommended = _btcFeeRate ?? await controller.recommendedBitcoinFeeRate();
+      if (recommended != null && recommended > 0) {
+        _btcFeeRate ??= recommended;
+      }
+      final BitcoinPlan? plan = await controller.prepareBitcoin(
+        to: recipient,
+        amount: _nativeOut,
+        feeRate: _btcRate,
+      );
+      controller.dispose();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _btcPlan = plan;
+        _loadingFee = false;
+      });
+      return;
+    }
+
     final ({BigInt baseFee, BigInt maxPriorityFeePerGas, BigInt gasLimit})?
         quote = await controller.prepare(
       to: _signTo(recipient),
@@ -357,7 +406,7 @@ class _SendScreenState extends State<SendScreen> {
                     const SizedBox(height: 12),
                     _PoisonWarning(knownAddress: known),
                   ],
-                  if (_quote != null) ...<Widget>[
+                  if (_isBitcoin ? _btcPlan != null : _quote != null) ...<Widget>[
                     const SizedBox(height: 18),
                     _FeePresetSelector(
                       value: _preset,
@@ -371,8 +420,10 @@ class _SendScreenState extends State<SendScreen> {
                           onPressed: () => _onPresetChanged(FeePreset.custom),
                           icon: const Icon(Icons.edit_rounded, size: 18),
                           label: Text(
-                            '${Units.format(_priority, 9, group: false)} gwei tip · '
-                            '${Units.format(_cap, 9, group: false)} gwei cap',
+                            _isBitcoin
+                                ? '${_btcRate} sat/vB'
+                                : '${Units.format(_priority, 9, group: false)} gwei tip · '
+                                    '${Units.format(_cap, 9, group: false)} gwei cap',
                           ),
                         ),
                       ),
@@ -386,6 +437,7 @@ class _SendScreenState extends State<SendScreen> {
                     amountDecimals: _decimals,
                     amountSymbol: _symbol,
                     showTotal: !_isToken,
+                    feeLabel: _isBitcoin ? 'Network fee' : 'Max network fee',
                     fee: _feeKnown ? _effectiveFee : null,
                     loadingFee: _loadingFee,
                   ),
@@ -406,7 +458,31 @@ class _SendScreenState extends State<SendScreen> {
     );
   }
 
-  void _setMax() {
+  Future<void> _setMax() async {
+    if (_isBitcoin) {
+      // Bitcoin sweeps every utxo, so MAX depends on the input count (and thus
+      // the fee); ask the controller for the exact spendable figure.
+      final SendController controller = SendController(
+        identity: context.read<WalletIdentityController>(),
+        network: _network,
+        address: context.read<WalletController>().address ?? '',
+      );
+      final BigInt? max = await controller.maxBitcoinAmount(feeRate: _btcRate);
+      controller.dispose();
+      if (!mounted || max == null) {
+        return;
+      }
+      _amountController.text = Units.format(
+        max,
+        _decimals,
+        maxDecimals: _decimals,
+        group: false,
+      );
+      setState(() {});
+      await _refreshQuote();
+      return;
+    }
+
     // A token send leaves the native balance untouched, so MAX is the whole
     // token holding; a native send keeps the fee back.
     final BigInt max = _isToken
@@ -487,6 +563,26 @@ class _SendScreenState extends State<SendScreen> {
   /// Applies a preset. Picking [FeePreset.custom] opens the entry dialog and
   /// keeps the previous preset if the user cancels.
   Future<void> _onPresetChanged(FeePreset value) async {
+    if (_isBitcoin) {
+      // A different rate changes which utxos cover the transfer, so the plan
+      // has to be rebuilt, not just re-priced.
+      if (value == FeePreset.custom) {
+        final int? rate = await showDialog<int>(
+          context: context,
+          builder: (_) => _CustomBtcFeeDialog(
+            initialRate: _customBtcRate ?? _btcRate,
+          ),
+        );
+        if (rate == null || !mounted) {
+          return;
+        }
+        setState(() => _customBtcRate = rate);
+      }
+      setState(() => _preset = value);
+      await _refreshQuote();
+      return;
+    }
+
     if (value != FeePreset.custom) {
       setState(() => _preset = value);
       return;
@@ -524,7 +620,8 @@ class _SendScreenState extends State<SendScreen> {
       if (!mounted) {
         return;
       }
-      if (_quote == null) {
+      final bool ready = _isBitcoin ? _btcPlan != null : _quote != null;
+      if (!ready) {
         showAppSnackBar(
           context,
           'Could not reach ${network.name} to price this transfer. '
@@ -538,7 +635,13 @@ class _SendScreenState extends State<SendScreen> {
     final ContactsController contacts = context.read<ContactsController>();
     final String recipient = _extractAddress(_addressController.text.trim());
     final bool alreadySaved = contacts.contains(recipient, network.id);
-    final bool canSend = network.canSign && _quote != null;
+    final bool canSend = network.canSign && (_isBitcoin ? _btcPlan != null : _quote != null);
+
+    final VoidCallback? onSend = !canSend
+        ? null
+        : _isBitcoin
+            ? () => _signAndSendBitcoin(recipient)
+            : () => _signAndSend(recipient, _signingFees());
 
     await showModalBottomSheet<void>(
       context: context,
@@ -551,12 +654,13 @@ class _SendScreenState extends State<SendScreen> {
         amountDecimals: _decimals,
         amountSymbol: _symbol,
         showTotal: !_isToken,
+        feeLabel: _isBitcoin ? 'Network fee' : 'Max network fee',
         fee: _effectiveFee,
         explorerUrl: network.explorerAddress(recipient),
         alreadySaved: alreadySaved,
         onSave: () => _saveRecipient(recipient, network),
         // Signing is only offered with a quote that will actually be used.
-        onSend: canSend ? () => _signAndSend(recipient, _signingFees()) : null,
+        onSend: onSend,
       ),
     );
   }
@@ -656,6 +760,111 @@ class _SendScreenState extends State<SendScreen> {
     final String? error = controller.error;
     controller.dispose();
 
+    await _finishTransfer(
+      network: network,
+      recipient: recipient,
+      hash: hash,
+      confirmed: confirmed,
+      error: error,
+      amount: amount,
+      amountDecimals: amountDecimals,
+      amountSymbol: amountSymbol,
+    );
+  }
+
+  /// Confirms, signs and broadcasts a prepared Bitcoin transfer.
+  Future<void> _signAndSendBitcoin(String recipient) async {
+    final BitcoinPlan? plan = _btcPlan;
+    final NetworkConfig network = _network;
+    final WalletIdentityController identity =
+        context.read<WalletIdentityController>();
+    final String? address = identity.addressFor(network);
+    if (plan == null || address == null) {
+      return;
+    }
+
+    final bool authorized = await authorizeSensitiveAction(
+      context,
+      reason: 'Confirm transfer',
+      title: 'Confirm transfer',
+      confirmLabel: 'Send',
+      icon: Icons.key_rounded,
+    );
+    if (!authorized || !mounted) {
+      return;
+    }
+
+    Navigator.of(context).pop(); // close the summary sheet
+
+    final SendController controller = SendController(
+      identity: identity,
+      network: network,
+      address: address,
+    );
+
+    unawaited(
+      _runBitcoinTransfer(
+        controller,
+        network: network,
+        recipient: recipient,
+        plan: plan,
+        amountDecimals: _decimals,
+        amountSymbol: _symbol,
+      ),
+    );
+  }
+
+  /// Drives a Bitcoin transfer behind the progress dialog, then shows the
+  /// outcome.
+  Future<void> _runBitcoinTransfer(
+    SendController controller, {
+    required NetworkConfig network,
+    required String recipient,
+    required BitcoinPlan plan,
+    required int amountDecimals,
+    required String amountSymbol,
+  }) async {
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => ChangeNotifierProvider<SendController>.value(
+        value: controller,
+        child: TransferProgressDialog(
+          to: recipient,
+          value: plan.amount,
+          bitcoinPlan: plan,
+        ),
+      ),
+    );
+    final String? hash = controller.txHash;
+    final bool confirmed = controller.stage == SendStage.confirmed;
+    final String? error = controller.error;
+    controller.dispose();
+
+    await _finishTransfer(
+      network: network,
+      recipient: recipient,
+      hash: hash,
+      confirmed: confirmed,
+      error: error,
+      amount: plan.amount,
+      amountDecimals: amountDecimals,
+      amountSymbol: amountSymbol,
+    );
+  }
+
+  /// Shared outcome handling: report a failure, or refresh and show the
+  /// success screen. The send form is replaced so "Done" lands on the wallet.
+  Future<void> _finishTransfer({
+    required NetworkConfig network,
+    required String recipient,
+    required String? hash,
+    required bool confirmed,
+    required String? error,
+    required BigInt amount,
+    required int amountDecimals,
+    required String amountSymbol,
+  }) async {
     if (!mounted) {
       return;
     }
@@ -674,8 +883,6 @@ class _SendScreenState extends State<SendScreen> {
       return;
     }
 
-    // Replace the send form with the confirmation so "Done" lands on the
-    // wallet, not back on a filled-in form.
     await Navigator.of(context).pushReplacement(
       MaterialPageRoute<void>(
         builder: (_) => TransferSuccessScreen(
@@ -844,6 +1051,7 @@ class _SummaryCard extends StatelessWidget {
     required this.amountDecimals,
     required this.amountSymbol,
     required this.showTotal,
+    required this.feeLabel,
     required this.fee,
     required this.loadingFee,
   });
@@ -859,6 +1067,9 @@ class _SummaryCard extends StatelessWidget {
 
   /// The total row only makes sense when amount and fee share a unit.
   final bool showTotal;
+
+  /// Label above the fee: a fee *cap* on EVM, the exact fee on Bitcoin.
+  final String feeLabel;
   final BigInt? fee;
   final bool loadingFee;
 
@@ -914,7 +1125,7 @@ class _SummaryCard extends StatelessWidget {
               showTotal ? fiatOf(amount) : '',
             ),
             const SizedBox(height: 12),
-            _row(context, 'Max network fee', feeText, fiatOf(effectiveFee)),
+            _row(context, feeLabel, feeText, fiatOf(effectiveFee)),
             if (showTotal) ...<Widget>[
               const SizedBox(height: 14),
               Divider(color: scheme.outlineVariant, height: 1),
@@ -1004,6 +1215,7 @@ class _PreparedSheet extends StatelessWidget {
     required this.amountDecimals,
     required this.amountSymbol,
     required this.showTotal,
+    required this.feeLabel,
     required this.fee,
     required this.explorerUrl,
     required this.alreadySaved,
@@ -1017,6 +1229,7 @@ class _PreparedSheet extends StatelessWidget {
   final int amountDecimals;
   final String amountSymbol;
   final bool showTotal;
+  final String feeLabel;
   final BigInt? fee;
   final String explorerUrl;
   final bool alreadySaved;
@@ -1061,7 +1274,7 @@ class _PreparedSheet extends StatelessWidget {
             ),
             _line(
               context,
-              'Max network fee',
+              feeLabel,
               fee == null
                   ? 'Unavailable'
                   : Units.formatWithSymbol(
@@ -1403,6 +1616,87 @@ class _CustomFeeDialogState extends State<_CustomFeeDialog> {
           onPressed: _submit,
           child: const Text('Apply'),
         ),
+      ],
+    );
+  }
+}
+
+/// Entry dialog for a user-defined Bitcoin fee rate, in sat/vB.
+class _CustomBtcFeeDialog extends StatefulWidget {
+  const _CustomBtcFeeDialog({required this.initialRate});
+
+  final int initialRate;
+
+  @override
+  State<_CustomBtcFeeDialog> createState() => _CustomBtcFeeDialogState();
+}
+
+class _CustomBtcFeeDialogState extends State<_CustomBtcFeeDialog> {
+  late final TextEditingController _rate =
+      TextEditingController(text: '${widget.initialRate}');
+  String? _error;
+
+  @override
+  void dispose() {
+    _rate.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final int? rate = int.tryParse(_rate.text.trim());
+    if (rate == null || rate < 1) {
+      setState(() => _error = 'Enter a fee rate of at least 1 sat/vB.');
+      return;
+    }
+    if (rate > 10000) {
+      setState(() => _error = 'That fee rate is unreasonably high.');
+      return;
+    }
+    Navigator.of(context).pop(rate);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final TextTheme text = Theme.of(context).textTheme;
+
+    return AlertDialog(
+      icon: const Icon(Icons.tune_rounded),
+      title: const Text('Custom fee rate'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            'The transfer pays this many satoshis per virtual byte. A higher '
+            'rate confirms sooner.',
+            style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: _rate,
+            keyboardType: TextInputType.number,
+            inputFormatters: <TextInputFormatter>[
+              FilteringTextInputFormatter.digitsOnly,
+            ],
+            decoration: const InputDecoration(
+              labelText: 'Fee rate',
+              suffixText: 'sat/vB',
+            ),
+            onSubmitted: (_) => _submit(),
+          ),
+          if (_error != null) ...<Widget>[
+            const SizedBox(height: 12),
+            Text(_error!, style: text.bodySmall?.copyWith(color: scheme.error)),
+          ],
+        ],
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(onPressed: _submit, child: const Text('Apply')),
       ],
     );
   }

@@ -195,6 +195,33 @@ void main() {
       expect(txs.first.failed, isTrue);
       expect(txs.first.isPending, isFalse);
     });
+
+    test('does not charge the fee to an incoming transfer', () async {
+      // The sender pays the fee, so a received transfer must add only the value
+      // it delivered — otherwise every incoming amount is overstated.
+      final ChainApi client = api(
+        () => json(<String, Object>{
+          'items': <Object>[
+            <String, Object>{
+              'hash': '0xfeed',
+              'timestamp': '2026-01-02T10:00:00.000000Z',
+              'from': <String, Object>{'hash': otherEvm},
+              'to': <String, Object>{'hash': evmAddress},
+              'value': '1000000000000000000',
+              'fee': <String, Object>{'value': '21000000000000'},
+              'status': 'ok',
+              'block': 125,
+            },
+          ],
+        }),
+      );
+
+      final txs =
+          await client.fetchTransactions(NetworkCatalog.ethereum, evmAddress);
+
+      expect(txs.first.isIncoming, isTrue);
+      expect(txs.first.amount, BigInt.parse('1000000000000000000'));
+    });
   });
 
   group('EIP-1559 fee data', () {
@@ -246,6 +273,28 @@ void main() {
 
       expect(fees.maxPriorityFeePerGas, BigInt.parse('20000000000'));
       expect(fees.baseFee, BigInt.zero);
+    });
+  });
+
+  group('fee estimate', () {
+    test('reads the fractional gwei average from Blockscout /stats', () async {
+      // The v2 /stats endpoint answers with gwei floats under `gas_prices`,
+      // not the wei string the old code looked for — so this is the only thing
+      // that keeps the fee from reading as "unavailable".
+      final ChainApi client = api(
+        () => json(<String, Object>{
+          'gas_prices': <String, Object>{
+            'slow': 0.11,
+            'average': 0.32,
+            'fast': 1.83,
+          },
+        }),
+      );
+
+      expect(
+        await client.fetchFeeEstimate(NetworkCatalog.ethereum),
+        BigInt.from(320000000) * BigInt.from(21000),
+      );
     });
   });
 

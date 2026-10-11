@@ -6,8 +6,8 @@ generated locally, encrypted, and stored only on this device.
 
 > ⚠️ **Disclaimer**
 > This project is a **portfolio / educational app**. It derives real public
-> addresses, reads live on-chain data, and **signs and broadcasts real EVM
-> transactions** on-device. Bitcoin, Solana and Aptos send flows still only
+> addresses, reads live on-chain data, and **signs and broadcasts real EVM and
+> Bitcoin transactions** on-device. Solana and Aptos send flows still only
 > validate and estimate a fee.
 > **Do not use it to store meaningful funds.**
 
@@ -41,7 +41,11 @@ generated locally, encrypted, and stored only on this device.
   transfer is signed on-device as an **EIP-1559** (type-2) transaction with a
   fee cap (EIP-2, RFC-6979), re-checks the live balance right before signing,
   and is broadcast for real after a PIN confirmation, ending on a full-screen
-  success screen; other chains stop at a copyable summary.
+  success screen; other chains stop at a copyable summary. On **Bitcoin** the
+  transfer is a native SegWit (**BIP-143 P2WPKH**) transaction: utxos are
+  selected for the entered amount, change returns to your address, the fee is
+  priced in sat/vB with the same presets, and the signed transaction is
+  broadcast through mempool.space.
 - 📒 **Address book** — save recipients with local labels; labels show up in the
   send flow and the activity list.
 - 🪙 **Token balances** — ERC-20 holdings with USD values on the Blockscout-backed
@@ -121,8 +125,10 @@ generated locally, encrypted, and stored only on this device.
 
 - **Flutter 3.47** / **Dart 3.13**, Material 3.
 - **provider** for state management.
-- **pointycastle** (AES-GCM, PBKDF2), **bip39**, **bip32**, **ed25519_edwards**
-  for key material and derivation.
+- **pointycastle** (AES-GCM, PBKDF2, ECDSA), **bip39**, **bip32**,
+  **ed25519_edwards** for key material and derivation. Bitcoin transactions are
+  built and signed against the **BIP-143** sighash; EVM transactions use
+  **RLP** + **EIP-1559**.
 - **flutter_secure_storage** + **local_auth** for secure PIN storage / biometrics.
 - **qr_flutter** + **mobile_scanner** for QR codes.
 - **http** + **intl** for networking and formatting.
@@ -157,6 +163,10 @@ The EIP-1559 signing path can be checked against a live Sepolia node without
 spending anything: `dart run tool/verify_eip1559.dart` signs a type-2 transfer
 with a throwaway key and confirms the node decodes it and recovers the sender.
 
+The Bitcoin path is pinned to the published **BIP-143 P2WPKH vector** in
+`test/bitcoin_signer_test.dart`: the sighash must match byte-for-byte, and the
+DER signature must verify against the public key.
+
 ---
 
 ## Project structure
@@ -184,7 +194,8 @@ lib/
 ## Roadmap
 
 - [x] Sign and broadcast transactions (EVM) — verified end-to-end on Sepolia.
-- [ ] Sign and broadcast transactions (Bitcoin, Solana, Aptos).
+- [x] Sign and broadcast Bitcoin transfers (BIP-143 P2WPKH, BIP-84 keys).
+- [ ] Sign and broadcast transactions (Solana, Aptos).
 - [x] EIP-1559 typed transactions with a fee cap.
 - [x] Reject a transfer whose live balance dropped since the last refresh.
 - [ ] SPL token balances.

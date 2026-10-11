@@ -67,6 +67,18 @@ class AddressDeriver {
     );
   }
 
+  /// BIP-84 signing key pair for Bitcoin: the 32-byte private key and its
+  /// compressed (33-byte) public key.
+  ///
+  /// Derived once per transfer so the private key can be zeroed as soon as the
+  /// transaction is signed.
+  static ({Uint8List privateKey, Uint8List publicKey}) bitcoinKeyPairFromSeed(
+    Uint8List seed,
+  ) {
+    final BIP32 node = BIP32.fromSeed(seed).derivePath(bitcoinPath);
+    return (privateKey: node.privateKey!, publicKey: node.publicKey);
+  }
+
   /// EIP-55 checksummed `0x…` receive address derived from a precomputed [seed].
   ///
   /// The same address is valid on every EVM chain (Ethereum, BNB Chain,
