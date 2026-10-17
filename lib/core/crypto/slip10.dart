@@ -17,6 +17,12 @@ class Slip10 {
   /// Petra/Aptos-CLI-compatible path: `m/44'/637'/0'/0'/0'`.
   static const List<int> aptosPath = <int>[44, 637, 0, 0, 0];
 
+  /// `solanaPath` for [account]: `m/44'/501'/<account>'/0'`.
+  static List<int> solanaPathFor(int account) => <int>[44, 501, account, 0];
+
+  /// `aptosPath` for [account]: `m/44'/637'/<account>'/0'/0'`.
+  static List<int> aptosPathFor(int account) => <int>[44, 637, account, 0, 0];
+
   static final Uint8List _curveKey =
       Uint8List.fromList(utf8.encode('ed25519 seed'));
 

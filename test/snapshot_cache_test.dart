@@ -96,7 +96,7 @@ void main() {
     final _MemoryStorage storage = _MemoryStorage();
     final SnapshotCache cache = SnapshotCache(storage: storage);
 
-    expect(await cache.read(NetworkCatalog.bitcoin.id), isNull);
+    expect(await cache.read(NetworkCatalog.bitcoin.id, 'bc1qexample'), isNull);
 
     final AccountSnapshot snapshot = AccountSnapshot(
       network: NetworkCatalog.bitcoin,
@@ -109,10 +109,47 @@ void main() {
     await cache.write(snapshot);
 
     final AccountSnapshot? restored =
-        await cache.read(NetworkCatalog.bitcoin.id);
+        await cache.read(NetworkCatalog.bitcoin.id, 'bc1qexample');
     expect(restored, isNotNull);
     expect(restored!.balance, BigInt.from(5000));
     expect(storage.cache, isNotEmpty);
+  });
+
+  test('two accounts on one network keep separate cache entries', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final _MemoryStorage storage = _MemoryStorage();
+    final SnapshotCache cache = SnapshotCache(storage: storage);
+
+    await cache.write(
+      AccountSnapshot(
+        network: NetworkCatalog.bitcoin,
+        address: 'bc1qaccount0',
+        balance: BigInt.from(111),
+        transactions: const <ChainTransaction>[],
+        chart: const <double>[],
+        fetchedAt: DateTime(2026, 1, 1),
+      ),
+    );
+    await cache.write(
+      AccountSnapshot(
+        network: NetworkCatalog.bitcoin,
+        address: 'bc1qaccount1',
+        balance: BigInt.from(222),
+        transactions: const <ChainTransaction>[],
+        chart: const <double>[],
+        fetchedAt: DateTime(2026, 1, 1),
+      ),
+    );
+
+    // Writing the second account must not clobber the first.
+    expect(
+      (await cache.read(NetworkCatalog.bitcoin.id, 'bc1qaccount0'))!.balance,
+      BigInt.from(111),
+    );
+    expect(
+      (await cache.read(NetworkCatalog.bitcoin.id, 'bc1qaccount1'))!.balance,
+      BigInt.from(222),
+    );
   });
 
   test('WalletController hydrates from cache before a refresh fails',
@@ -168,7 +205,7 @@ void main() {
     final _MemoryStorage storage = _MemoryStorage();
     final SnapshotCache cache = SnapshotCache(storage: storage);
     await storage.writeCache(
-      NetworkCatalog.bitcoin.id,
+      '${NetworkCatalog.bitcoin.id}|bc1qsomeoneelse',
       jsonEncode(<String, Object?>{
         'networkId': 'bitcoin',
         'address': 'bc1qsomeoneelse',
@@ -179,11 +216,13 @@ void main() {
       }),
     );
 
-    expect(await cache.read(NetworkCatalog.bitcoin.id), isNotNull);
-    // The controller compares the address itself; here we just confirm the
-    // payload decodes so the comparison has something to reject.
+    // The other address's entry is not what this address reads back.
+    expect(
+      await cache.read(NetworkCatalog.bitcoin.id, 'bc1qmine'),
+      isNull,
+    );
     final AccountSnapshot? cached =
-        await cache.read(NetworkCatalog.bitcoin.id);
+        await cache.read(NetworkCatalog.bitcoin.id, 'bc1qsomeoneelse');
     expect(cached!.address, 'bc1qsomeoneelse');
   });
 }

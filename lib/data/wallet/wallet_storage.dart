@@ -32,6 +32,8 @@ class WalletStorage {
   static const String _cachePrefix = 'nova.wallet.cache.';
   static const String _notificationsKey = 'nova.wallet.notificationsEnabled';
   static const String _watchedTxsKey = 'nova.wallet.watchedTxs';
+  static const String _accountIndexKey = 'nova.wallet.accountIndex';
+  static const String _accountCountKey = 'nova.wallet.accountCount';
 
   /// The encrypted recovery phrase, or `null` when no wallet exists.
   Future<String?> readVault() async {
@@ -155,6 +157,32 @@ class WalletStorage {
     await prefs.setStringList(_watchedTxsKey, hashes);
   }
 
+  /// The BIP-44 account index the wallet is currently using. Non-secret: which
+  /// of the derived accounts is active carries no key material. Defaults to 0.
+  Future<int> readAccountIndex() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    final int raw = prefs.getInt(_accountIndexKey) ?? 0;
+    return raw < 0 ? 0 : raw;
+  }
+
+  Future<void> writeAccountIndex(int index) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_accountIndexKey, index);
+  }
+
+  /// How many accounts the user has created (at least 1). Only accounts below
+  /// this count are offered by the picker.
+  Future<int> readAccountCount() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    final int raw = prefs.getInt(_accountCountKey) ?? 1;
+    return raw < 1 ? 1 : raw;
+  }
+
+  Future<void> writeAccountCount(int count) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_accountCountKey, count);
+  }
+
   /// Reads the cached snapshot JSON for [id] (a network id), if any.
   Future<String?> readCache(String id) async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -184,6 +212,8 @@ class WalletStorage {
     await prefs.remove(_createdAtKey);
     await prefs.remove(_throttleKey);
     await prefs.remove(_watchedTxsKey);
+    await prefs.remove(_accountIndexKey);
+    await prefs.remove(_accountCountKey);
     for (final String key in prefs.getKeys().toList()) {
       if (key.startsWith(_cachePrefix)) {
         await prefs.remove(key);

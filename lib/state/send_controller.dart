@@ -182,7 +182,10 @@ class SendController extends ChangeNotifier {
       _notify(() => _stage = SendStage.signing);
 
       final Uint8List seed = await _requireSeed();
-      final Uint8List privateKey = EvmSigner.privateKeyFromSeed(seed);
+      final Uint8List privateKey = EvmSigner.privateKeyFromSeed(
+        seed,
+        account: identity.accountIndex,
+      );
       final String raw;
       try {
         raw = EvmSigner.signEip1559Transfer(
@@ -360,7 +363,10 @@ class SendController extends ChangeNotifier {
 
       final Uint8List seed = await _requireSeed();
       final ({Uint8List privateKey, Uint8List publicKey}) keys =
-          AddressDeriver.bitcoinKeyPairFromSeed(seed);
+          AddressDeriver.bitcoinKeyPairFromSeed(
+        seed,
+        account: identity.accountIndex,
+      );
       final String raw;
       try {
         raw = BitcoinSigner.signP2wpkh(

@@ -11,10 +11,13 @@ import '../../state/wallet_identity_controller.dart';
 /// Used when creating a new wallet and when importing an existing one, so the
 /// phrase is never written to disk in the clear.
 class SetPinScreen extends StatefulWidget {
-  const SetPinScreen({super.key, required this.mnemonic});
+  const SetPinScreen({super.key, required this.mnemonic, this.passphrase = ''});
 
   /// The phrase that will be encrypted under the chosen PIN.
   final String mnemonic;
+
+  /// The optional BIP-39 passphrase, encrypted alongside the phrase.
+  final String passphrase;
 
   @override
   State<SetPinScreen> createState() => _SetPinScreenState();
@@ -204,6 +207,7 @@ class _SetPinScreenState extends State<SetPinScreen> {
       await context.read<WalletIdentityController>().createWallet(
             mnemonic: widget.mnemonic,
             pin: pin,
+            passphrase: widget.passphrase,
             useBiometrics: _useBiometrics,
           );
     } on SeedVaultException catch (error) {

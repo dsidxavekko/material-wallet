@@ -17,8 +17,11 @@ generated locally, encrypted, and stored only on this device.
 
 - 🔑 **Create wallet** — generates a BIP-39 recovery phrase (12 or 24 words) with
   an on-screen verification step.
-- 📥 **Import wallet** — restore from an existing BIP-39 phrase. A passphrase
-  (25th word) is not supported and the screen says so before you type.
+- 📥 **Import wallet** — restore from an existing BIP-39 phrase, with optional
+  support for a **passphrase (25th word)**: the phrase and the passphrase are
+  both encrypted into the vault and both are needed to restore.
+- 👥 **Multiple accounts** — BIP-44 account indexes from the same seed, each with
+  its own address on every chain, switchable from Settings.
 - 🔒 **Security first**
   - Recovery phrase encrypted with **AES-256-GCM**, key derived via
     **PBKDF2-HMAC-SHA256** (600,000 rounds, OWASP 2023 guidance).
@@ -72,7 +75,10 @@ generated locally, encrypted, and stored only on this device.
 - 🔍 **QR scanner** — scan a recipient address with the camera.
 - 📊 **Live balance, activity & prices** — balances/history from public key-less
   APIs, prices from CoinGecko (cached to respect rate limits). The last snapshot
-  is cached locally, so the app opens with data and works offline.
+  is cached locally **per account**, so the app opens with data and works
+  offline.
+- 🧾 **CSV export** — share the loaded activity as a CSV file straight from the
+  share sheet.
 - 🎨 **Material 3 UI** — light / dark / system theme (persisted), multiple
   display currencies.
 - 🧪 **Tested** — unit and widget tests covering derivation, crypto, address
@@ -102,9 +108,9 @@ generated locally, encrypted, and stored only on this device.
 
 ## How the wallet stays safe
 
-- The recovery phrase is **never** written to disk in the clear. It is encrypted
-  with a key derived from the user's PIN and only decrypted into memory after a
-  successful unlock.
+- The recovery phrase — and the optional BIP-39 passphrase — are **never**
+  written to disk in the clear. They are encrypted together with a key derived
+  from the user's PIN and only decrypted into memory after a successful unlock.
 - The encrypted vault is a small self-describing JSON blob, so the KDF
   parameters can be raised later without breaking existing wallets.
 - Because AES-GCM is authenticated, a wrong PIN cannot silently "succeed": the
@@ -117,7 +123,8 @@ generated locally, encrypted, and stored only on this device.
 - The vault is re-locked after a configurable period in the background, and
   repeated wrong PINs are penalised with an escalating, persisted backoff.
 - The seed is overwritten in memory on lock. Non-secret data (settings, the
-  address book and the last account snapshot) lives in `shared_preferences`.
+  address book, the active account index and the last account snapshots) lives
+  in `shared_preferences`.
 
 ---
 
@@ -131,7 +138,8 @@ generated locally, encrypted, and stored only on this device.
   **RLP** + **EIP-1559**.
 - **flutter_secure_storage** + **local_auth** for secure PIN storage / biometrics.
 - **qr_flutter** + **mobile_scanner** for QR codes.
-- **http** + **intl** for networking and formatting.
+- **http** + **intl** for networking and formatting, **share_plus** for the CSV
+  export.
 
 ---
 
@@ -206,8 +214,8 @@ lib/
 - [x] Speed up a stuck EVM transaction (replace-by-fee, same nonce).
 - [x] Re-check the live token holding before signing a token transfer.
 - [x] Address poisoning warning in the send flow.
-- [ ] BIP-39 passphrase (25th word) support — importing such a phrase today
-      derives different addresses; the import screen warns about it.
+- [x] BIP-39 passphrase (25th word) support — encrypted alongside the phrase in
+      the vault, applied to every derivation (BIP-39 reference vector pinned).
 - [ ] Known-answer test vectors for the address derivations beyond the ones
       already pinned (BIP-32 test vectors per coin type).
 

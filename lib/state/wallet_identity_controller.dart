@@ -77,6 +77,16 @@ class WalletIdentityController extends ChangeNotifier {
   String? _aptosAddress;
   final Map<String, String> _bitcoinAddresses = <String, String>{};
 
+  int _accountIndex = 0;
+  int _accountCount = 1;
+
+  /// The BIP-44 account index currently active (0 = the default account).
+  /// Non-secret; persisted so the wallet reopens where the user left it.
+  int get accountIndex => _accountIndex;
+
+  /// How many accounts exist. Accounts `0 .. accountCount - 1` are selectable.
+  int get accountCount => _accountCount;
+
   UnlockThrottle _throttle = UnlockThrottle.none;
 
   /// Backoff applied to repeated wrong PIN entries. Persisted across restarts.
@@ -99,7 +109,8 @@ class WalletIdentityController extends ChangeNotifier {
 
   String? get evmAddress => _evmAddress;
 
-  /// Receive address for [network], or `null` while locked or empty.
+  /// Receive address for [network] on the active account, or `null` while
+  /// locked or empty.
   String? addressFor(NetworkConfig network) {
     final Uint8List? seed = _seed;
     if (seed == null) {
@@ -108,14 +119,24 @@ class WalletIdentityController extends ChangeNotifier {
     return switch (network.chain) {
       ChainKind.bitcoin => _bitcoinAddresses.putIfAbsent(
           network.hrp,
-          () => AddressDeriver.bitcoinAddressFromSeed(seed, hrp: network.hrp),
+          () => AddressDeriver.bitcoinAddressFromSeed(
+            seed,
+            hrp: network.hrp,
+            account: _accountIndex,
+          ),
         ),
-      ChainKind.evm =>
-        _evmAddress ??= AddressDeriver.ethereumAddressFromSeed(seed),
-      ChainKind.solana =>
-        _solanaAddress ??= AddressDeriver.solanaAddressFromSeed(seed),
-      ChainKind.aptos =>
-        _aptosAddress ??= AddressDeriver.aptosAddressFromSeed(seed),
+      ChainKind.evm => _evmAddress ??= AddressDeriver.ethereumAddressFromSeed(
+          seed,
+          account: _accountIndex,
+        ),
+      ChainKind.solana => _solanaAddress ??= AddressDeriver.solanaAddressFromSeed(
+          seed,
+          account: _accountIndex,
+        ),
+      ChainKind.aptos => _aptosAddress ??= AddressDeriver.aptosAddressFromSeed(
+          seed,
+          account: _accountIndex,
+        ),
     };
   }
 
@@ -149,6 +170,13 @@ class WalletIdentityController extends ChangeNotifier {
       _vault = await _storage.readVault();
       _createdAt = await _storage.readCreatedAt();
       _throttle = await _storage.readThrottle();
+      _accountIndex = await _storage.readAccountIndex();
+      _accountCount = await _storage.readAccountCount();
+      if (_accountIndex >= _accountCount) {
+        // The stored index can only go stale if storage was edited or partially
+        // cleared; an out-of-range index would derive a dead account.
+        _accountIndex = 0;
+      }
       _status = _vault == null ? WalletStatus.empty : WalletStatus.locked;
     } catch (error, stackTrace) {
       // Never fall through to `empty`: if the keystore merely hiccuped, showing
@@ -203,12 +231,9 @@ class WalletIdentityController extends ChangeNotifier {
     if (vault == null) {
       throw const SeedVaultException('No wallet on this device.');
     }
-    final String mnemonic = await SeedVault.decryptAsync(vault, pin);
+    final String payload = await SeedVault.decryptAsync(vault, pin);
     await _adopt(
-      WalletAccount(
-        mnemonic: mnemonic,
-        createdAt: _createdAt ?? DateTime.now(),
-      ),
+      WalletAccount.fromVaultPayload(payload, _createdAt ?? DateTime.now()),
     );
     notifyListeners();
   }
@@ -221,7 +246,10 @@ class WalletIdentityController extends ChangeNotifier {
     await _storage.writeThrottle(_throttle);
   }
 
-  /// Encrypts [mnemonic] with [pin] and stores it on the device.
+  /// Encrypts the account's secrets with [pin] and stores them on the device.
+  ///
+  /// [passphrase] is the optional BIP-39 25th word. It is part of the secret:
+  /// it is encrypted inside the same vault and changes every derived address.
   ///
   /// When [useBiometrics] is set (and the device supports it) the PIN is also
   /// kept in the platform keystore, so the wallet can be opened with a
@@ -229,6 +257,7 @@ class WalletIdentityController extends ChangeNotifier {
   Future<void> createWallet({
     required String mnemonic,
     required String pin,
+    String passphrase = '',
     bool useBiometrics = false,
   }) async {
     final String normalized = normalize(mnemonic);
@@ -238,19 +267,31 @@ class WalletIdentityController extends ChangeNotifier {
       );
     }
 
-    final String payload =
-        await SeedVault.encryptAsync(normalized, pin, rounds: _kdfRounds);
-    final DateTime now = DateTime.now();
+    final WalletAccount account = WalletAccount(
+      mnemonic: normalized,
+      passphrase: passphrase,
+      createdAt: DateTime.now(),
+    );
+    final String payload = await SeedVault.encryptAsync(
+      account.toVaultPayload(),
+      pin,
+      rounds: _kdfRounds,
+    );
+    final DateTime now = account.createdAt;
     await _storage.writeVault(payload, now);
 
     _vault = payload;
     _createdAt = now;
     _throttle = UnlockThrottle.none;
+    _accountIndex = 0;
+    _accountCount = 1;
     await _storage.writeThrottle(_throttle);
+    await _storage.writeAccountIndex(_accountIndex);
+    await _storage.writeAccountCount(_accountCount);
     if (useBiometrics) {
       await enableBiometrics(pin);
     }
-    await _adopt(WalletAccount(mnemonic: normalized, createdAt: now));
+    await _adopt(account);
     notifyListeners();
   }
 
@@ -266,8 +307,11 @@ class WalletIdentityController extends ChangeNotifier {
     }
     await SeedVault.decryptAsync(vault, currentPin); // throws on a wrong PIN
 
-    final String payload =
-        await SeedVault.encryptAsync(account.mnemonic, newPin, rounds: _kdfRounds);
+    final String payload = await SeedVault.encryptAsync(
+      account.toVaultPayload(),
+      newPin,
+      rounds: _kdfRounds,
+    );
     await _storage.writeVault(payload, _createdAt ?? DateTime.now());
     _vault = payload;
     if (_biometricsEnabled) {
@@ -288,6 +332,33 @@ class WalletIdentityController extends ChangeNotifier {
     notifyListeners();
   }
 
+  // --- accounts -------------------------------------------------------------
+
+  /// Switches to the account at [index].
+  ///
+  /// Every chain derives a fresh set of addresses from the same seed, so the
+  /// cached addresses are dropped and [WalletController] re-loads the balances
+  /// for the new set.
+  Future<void> selectAccount(int index) async {
+    if (index < 0 || index >= _accountCount || index == _accountIndex) {
+      return;
+    }
+    _accountIndex = index;
+    _evmAddress = null;
+    _solanaAddress = null;
+    _aptosAddress = null;
+    _bitcoinAddresses.clear();
+    await _storage.writeAccountIndex(index);
+    notifyListeners();
+  }
+
+  /// Reserves the next BIP-44 account index and switches to it.
+  Future<void> addAccount() async {
+    _accountCount += 1;
+    await _storage.writeAccountCount(_accountCount);
+    await selectAccount(_accountCount - 1);
+  }
+
   /// Deletes the encrypted wallet from the device.
   Future<void> removeWallet() async {
     await _storage.clear();
@@ -296,6 +367,8 @@ class WalletIdentityController extends ChangeNotifier {
     _createdAt = null;
     _biometricsEnabled = false;
     _throttle = UnlockThrottle.none;
+    _accountIndex = 0;
+    _accountCount = 1;
     _clearMemory();
     _status = WalletStatus.empty;
     notifyListeners();
@@ -383,7 +456,10 @@ class WalletIdentityController extends ChangeNotifier {
 
   Future<void> _adopt(WalletAccount account) async {
     _account = account;
-    _seed = await AddressDeriver.seedFromMnemonicAsync(account.mnemonic);
+    _seed = await AddressDeriver.seedFromMnemonicAsync(
+      account.mnemonic,
+      passphrase: account.passphrase,
+    );
     _evmAddress = null;
     _solanaAddress = null;
     _aptosAddress = null;

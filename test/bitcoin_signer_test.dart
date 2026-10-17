@@ -118,7 +118,7 @@ void main() {
       final ECPoint q = params.curve.decompressPoint(
         publicKey[0] == 0x03 ? 1 : 0,
         BigInt.parse(hex.encode(publicKey.sublist(1)), radix: 16),
-      )!;
+      );
       final ECDSASigner verifier = ECDSASigner(null, HMac(SHA256Digest(), 64))
         ..init(false, PublicKeyParameter<ECPublicKey>(ECPublicKey(q, params)));
 

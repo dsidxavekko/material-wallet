@@ -13,15 +13,22 @@ class ImportWalletScreen extends StatefulWidget {
 
 class _ImportWalletScreenState extends State<ImportWalletScreen> {
   final TextEditingController _phraseController = TextEditingController();
+  final TextEditingController _passphraseController = TextEditingController();
 
   @override
   void dispose() {
     _phraseController.dispose();
+    _passphraseController.dispose();
     super.dispose();
   }
 
   String get _normalized =>
       WalletIdentityController.normalize(_phraseController.text);
+
+  /// BIP-39 passphrases are case-sensitive and whitespace-significant, so only
+  /// the line breaks a paste can carry are stripped — never trimmed further.
+  String get _passphrase =>
+      _passphraseController.text.replaceAll(RegExp(r'[\r\n]+'), ' ');
 
   int get _wordCount =>
       _normalized.isEmpty ? 0 : _normalized.split(' ').length;
@@ -73,6 +80,18 @@ class _ImportWalletScreenState extends State<ImportWalletScreen> {
                       hintText: 'word one word two word three …',
                     ),
                   ),
+                  const SizedBox(height: 20),
+                  TextField(
+                    controller: _passphraseController,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    obscureText: true,
+                    onChanged: (_) => setState(() {}),
+                    decoration: const InputDecoration(
+                      labelText: 'Passphrase (25th word) — optional',
+                      hintText: 'leave empty if you never set one',
+                    ),
+                  ),
                   const SizedBox(height: 10),
                   Row(
                     children: <Widget>[
@@ -121,24 +140,22 @@ class _ImportWalletScreenState extends State<ImportWalletScreen> {
   void _continue() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => SetPinScreen(mnemonic: _normalized),
+        builder: (_) => SetPinScreen(
+          mnemonic: _normalized,
+          passphrase: _passphrase,
+        ),
       ),
     );
   }
 }
 
-/// Warns that this wallet cannot restore a phrase protected by a passphrase.
+/// Explains what the optional 25th word does.
 ///
-/// BIP-39 lets a phrase carry a 25th "passphrase" word that never appears in the
-/// phrase itself. This wallet derives its seed with an empty passphrase, so
-/// such a phrase is restored into a *different* set of addresses — every
-/// balance reads as zero and the user has no way to tell why. Saying so up
-/// front is the difference between "this app is broken" and "I typed my phrase
-/// into the wrong wallet".
-///
-/// ponytail: no passphrase field, because adding one means storing a second
-/// secret next to the seed and re-deriving every address under it. Add it when
-/// restoring from a hardware wallet actually needs to work.
+/// BIP-39 lets a phrase carry a passphrase that never appears in the phrase
+/// itself. Getting it wrong does not raise an error — it silently derives a
+/// *different* set of addresses, so every balance reads as zero and the user
+/// has no way to tell why. Saying so here is the difference between "this app
+/// is broken" and "I typed the wrong passphrase".
 class _PassphraseNotice extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -156,9 +173,9 @@ class _PassphraseNotice extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              'If your phrase was created with a passphrase (a 25th word), it '
-              'will not restore here — this wallet derives an empty '
-              'passphrase, so every balance will show as zero.',
+              'If your phrase was created with a passphrase (a 25th word), '
+              'enter it below — a missing or mistyped one derives different '
+              'addresses and every balance would show as zero.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: scheme.onTertiaryContainer,
                     height: 1.4,

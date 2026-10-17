@@ -31,7 +31,8 @@ class EvmSigningException implements Exception {
 class EvmSigner {
   const EvmSigner._();
 
-  static const String evmPath = "m/44'/60'/0'/0/0";
+  /// BIP-44 path for [account]: `m/44'/60'/<account>'/0/0`.
+  static String evmPathFor(int account) => "m/44'/60'/$account'/0/0";
 
   /// secp256k1 group order. Signatures must be normalised to the lower half
   /// (EIP-2) or every node rejects them.
@@ -41,9 +42,10 @@ class EvmSigner {
   static final BigInt _n = ECCurve_secp256k1().n;
 
   /// 32-byte signing key for [seed], taken from the standard EVM derivation
-  /// path. Zeroed by the caller when the transfer finishes.
-  static Uint8List privateKeyFromSeed(Uint8List seed) =>
-      BIP32.fromSeed(seed).derivePath(evmPath).privateKey!;
+  /// path. [account] is the BIP-44 account index (the wallet's active account).
+  /// Zeroed by the caller when the transfer finishes.
+  static Uint8List privateKeyFromSeed(Uint8List seed, {int account = 0}) =>
+      BIP32.fromSeed(seed).derivePath(evmPathFor(account)).privateKey!;
 
   /// Builds, signs and serialises a legacy (type-0) native-currency transfer.
   ///

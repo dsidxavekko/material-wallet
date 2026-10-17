@@ -421,7 +421,7 @@ class _SendScreenState extends State<SendScreen> {
                           icon: const Icon(Icons.edit_rounded, size: 18),
                           label: Text(
                             _isBitcoin
-                                ? '${_btcRate} sat/vB'
+                                ? '$_btcRate sat/vB'
                                 : '${Units.format(_priority, 9, group: false)} gwei tip · '
                                     '${Units.format(_cap, 9, group: false)} gwei cap',
                           ),

@@ -23,31 +23,44 @@ import 'pbkdf2.dart';
 class AddressDeriver {
   const AddressDeriver._();
 
-  static const String bitcoinPath = "m/84'/0'/0'/0/0";
-  static const String evmPath = "m/44'/60'/0'/0/0";
+  /// Derivation paths for account [account] (the third hardened level).
+  ///
+  /// Index 0 is what single-account wallets derive; higher indexes give the
+  /// same seed independent sets of addresses.
+  static String bitcoinPathFor(int account) => "m/84'/0'/$account'/0/0";
+  static String evmPathFor(int account) => "m/44'/60'/$account'/0/0";
 
   /// BIP-39 key-stretching parameters: PBKDF2-HMAC-SHA512, 2048 rounds, 64-byte
-  /// output with the fixed salt `"mnemonic"` (empty passphrase).
+  /// output with the salt `"mnemonic" + passphrase` (empty passphrase by
+  /// default, per the BIP-39 spec).
   static const int _seedRounds = 2048;
   static const int _seedLength = 64;
 
   /// 64-byte BIP-39 seed.
   ///
+  /// [passphrase] is the optional 25th word: it changes the salt, so the same
+  /// phrase with a different passphrase derives a completely different seed.
+  ///
   /// PBKDF2 with 2048 rounds is intentionally slow, so callers should compute
   /// this once and reuse it for every address instead of per-derivation.
-  static Uint8List seedFromMnemonic(String mnemonic) => pbkdf2Sync(
+  static Uint8List seedFromMnemonic(String mnemonic, {String passphrase = ''}) =>
+      pbkdf2Sync(
         Pbkdf2Hash.sha512,
         Uint8List.fromList(utf8.encode(normalize(mnemonic))),
-        Uint8List.fromList(utf8.encode('mnemonic')),
+        Uint8List.fromList(utf8.encode('mnemonic$passphrase')),
         _seedRounds,
         _seedLength,
       );
 
   /// Platform-optimised [seedFromMnemonic] (Web Crypto on the web).
-  static Future<Uint8List> seedFromMnemonicAsync(String mnemonic) => pbkdf2(
+  static Future<Uint8List> seedFromMnemonicAsync(
+    String mnemonic, {
+    String passphrase = '',
+  }) =>
+      pbkdf2(
         hash: Pbkdf2Hash.sha512,
         password: Uint8List.fromList(utf8.encode(normalize(mnemonic))),
-        salt: Uint8List.fromList(utf8.encode('mnemonic')),
+        salt: Uint8List.fromList(utf8.encode('mnemonic$passphrase')),
         iterations: _seedRounds,
         keyLength: _seedLength,
       );
@@ -55,10 +68,14 @@ class AddressDeriver {
   /// `bc1q…` (mainnet) or `tb1q…` (testnet) receive address.
   ///
   /// [hrp] is the bech32 human-readable part: `bc` for mainnet, `tb` for
-  /// testnet, `bcrt` for regtest.
-  static String bitcoinAddressFromSeed(Uint8List seed, {String hrp = 'bc'}) {
+  /// testnet, `bcrt` for regtest. [account] is the BIP-44 account index.
+  static String bitcoinAddressFromSeed(
+    Uint8List seed, {
+    String hrp = 'bc',
+    int account = 0,
+  }) {
     final Uint8List publicKey =
-        BIP32.fromSeed(seed).derivePath(bitcoinPath).publicKey;
+        BIP32.fromSeed(seed).derivePath(bitcoinPathFor(account)).publicKey;
     final Uint8List program = Hashing.hash160(publicKey);
     return Bech32.encodeSegwit(
       hrp: hrp,
@@ -71,21 +88,23 @@ class AddressDeriver {
   /// compressed (33-byte) public key.
   ///
   /// Derived once per transfer so the private key can be zeroed as soon as the
-  /// transaction is signed.
+  /// transaction is signed. [account] is the BIP-44 account index.
   static ({Uint8List privateKey, Uint8List publicKey}) bitcoinKeyPairFromSeed(
-    Uint8List seed,
-  ) {
-    final BIP32 node = BIP32.fromSeed(seed).derivePath(bitcoinPath);
+    Uint8List seed, {
+    int account = 0,
+  }) {
+    final BIP32 node =
+        BIP32.fromSeed(seed).derivePath(bitcoinPathFor(account));
     return (privateKey: node.privateKey!, publicKey: node.publicKey);
   }
 
   /// EIP-55 checksummed `0x…` receive address derived from a precomputed [seed].
   ///
   /// The same address is valid on every EVM chain (Ethereum, BNB Chain,
-  /// Polygon, Avalanche C-Chain, …).
-  static String ethereumAddressFromSeed(Uint8List seed) {
+  /// Polygon, Avalanche C-Chain, …). [account] is the BIP-44 account index.
+  static String ethereumAddressFromSeed(Uint8List seed, {int account = 0}) {
     final Uint8List privateKey =
-        BIP32.fromSeed(seed).derivePath(evmPath).privateKey!;
+        BIP32.fromSeed(seed).derivePath(evmPathFor(account)).privateKey!;
     final Uint8List uncompressed = _uncompressedPublicKey(privateKey);
     final Uint8List hash = Hashing.keccak256(uncompressed.sublist(1));
     final String address = hex.encode(hash.sublist(hash.length - 20));
@@ -94,11 +113,13 @@ class AddressDeriver {
 
   /// Base58 Solana address (`HAgk…`) derived from a precomputed [seed].
   ///
-  /// Solana uses ed25519 via SLIP-0010 (`m/44'/501'/0'/0'`) instead of the
-  /// secp256k1 curves the other networks rely on.
-  static String solanaAddressFromSeed(Uint8List seed) {
-    final Uint8List privateSeed =
-        Slip10.deriveEd25519Seed(seed, Slip10.solanaPath);
+  /// Solana uses ed25519 via SLIP-0010 (`m/44'/501'/<account>'/0'`) instead of
+  /// the secp256k1 curves the other networks rely on.
+  static String solanaAddressFromSeed(Uint8List seed, {int account = 0}) {
+    final Uint8List privateSeed = Slip10.deriveEd25519Seed(
+      seed,
+      Slip10.solanaPathFor(account),
+    );
     final ed.PrivateKey privateKey = ed.newKeyFromSeed(privateSeed);
     final Uint8List publicKey =
         Uint8List.fromList(ed.public(privateKey).bytes);
@@ -107,12 +128,14 @@ class AddressDeriver {
 
   /// `0x…` Aptos account address derived from a precomputed [seed].
   ///
-  /// Aptos also uses ed25519 (SLIP-0010, `m/44'/637'/0'/0'/0'`) but shows a
-  /// 32-byte hex *authentication key*: `SHA3-256(publicKey ‖ 0x00)`, where the
-  /// trailing `0x00` identifies the single-signer ed25519 scheme.
-  static String aptosAddressFromSeed(Uint8List seed) {
-    final Uint8List privateSeed =
-        Slip10.deriveEd25519Seed(seed, Slip10.aptosPath);
+  /// Aptos also uses ed25519 (SLIP-0010, `m/44'/637'/<account>'/0'/0'`) but
+  /// shows a 32-byte hex *authentication key*: `SHA3-256(publicKey ‖ 0x00)`,
+  /// where the trailing `0x00` identifies the single-signer ed25519 scheme.
+  static String aptosAddressFromSeed(Uint8List seed, {int account = 0}) {
+    final Uint8List privateSeed = Slip10.deriveEd25519Seed(
+      seed,
+      Slip10.aptosPathFor(account),
+    );
     final ed.PrivateKey privateKey = ed.newKeyFromSeed(privateSeed);
     final Uint8List publicKey =
         Uint8List.fromList(ed.public(privateKey).bytes);

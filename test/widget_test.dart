@@ -86,7 +86,13 @@ void main() {
 
     expect(find.text('Enter your recovery phrase'), findsOneWidget);
 
-    await tester.enterText(find.byType(TextField), mnemonic);
+    // Two fields exist now (phrase + optional passphrase), so the phrase one
+    // has to be addressed by its label.
+    expect(find.text('Passphrase (25th word) — optional'), findsOneWidget);
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Recovery phrase'),
+      mnemonic,
+    );
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Valid 12-word phrase'), findsOneWidget);

@@ -1,7 +1,13 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 
+import '../../core/utils/app_log.dart';
+import '../../core/utils/csv_export.dart';
 import '../../core/utils/explorer.dart';
+import '../../core/utils/feedback.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/units.dart';
 import '../../data/networks/chain_models.dart';
@@ -55,7 +61,19 @@ class _ActivityScreenState extends State<ActivityScreen> {
     final List<Object> items = _groupedByDay(filtered);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Activity')),
+      appBar: AppBar(
+        title: const Text('Activity'),
+        actions: <Widget>[
+          IconButton(
+            tooltip: 'Export CSV',
+            onPressed: snapshot == null || snapshot.transactions.isEmpty
+                ? null
+                : () => _exportCsv(context, snapshot),
+            icon: const Icon(Icons.file_download_outlined),
+          ),
+          const SizedBox(width: 6),
+        ],
+      ),
       body: RefreshIndicator(
         onRefresh: wallet.refresh,
         child: ListView(
@@ -150,6 +168,42 @@ class _ActivityScreenState extends State<ActivityScreen> {
         network: snapshot.network,
         tokens: snapshot.tokens,
       );
+
+  /// Shares the loaded activity as a CSV file.
+  ///
+  /// The OS share sheet is the export: it covers "save to Drive", "send to
+  /// myself" and the rest without this app owning a file picker or a
+  /// Downloads-folder permission.
+  Future<void> _exportCsv(
+    BuildContext context,
+    AccountSnapshot snapshot,
+  ) async {
+    final String csv = buildActivityCsv(snapshot);
+    try {
+      await SharePlus.instance.share(
+        ShareParams(
+          files: <XFile>[
+            XFile.fromData(
+              utf8.encode(csv),
+              mimeType: 'text/csv',
+              name: 'material-wallet-activity.csv',
+            ),
+          ],
+          fileNameOverrides: const <String>['material-wallet-activity.csv'],
+          subject: 'Material Wallet activity',
+        ),
+      );
+    } catch (error, stackTrace) {
+      AppLog.warning('Could not share the activity export', error, stackTrace);
+      if (context.mounted) {
+        showAppSnackBar(
+          context,
+          'Could not export the activity.',
+          icon: Icons.error_outline_rounded,
+        );
+      }
+    }
+  }
 
   /// Flattens the feed into day headers and transactions.
   List<Object> _groupedByDay(List<ChainTransaction> entries) {    final List<Object> items = <Object>[];

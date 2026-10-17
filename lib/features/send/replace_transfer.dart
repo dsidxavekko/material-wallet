@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/utils/feedback.dart';
 import '../../core/utils/units.dart';
+import '../../data/models/chain_kind.dart';
 import '../../data/networks/chain_models.dart';
 import '../../data/networks/network_config.dart';
 import '../../state/send_controller.dart';
@@ -190,7 +191,12 @@ List<ReplacementKind> replacementKindsFor({
     return const <ReplacementKind>[];
   }
   final int? nonce = original.nonce;
-  if (nonce == null || !network.canSign) {
+  // A nonce-based replacement is an EVM-only mechanic: Bitcoin's RBF rebuilds
+  // the whole transaction from a fresh utxo set and Solana has no nonces here,
+  // so a `canSign` chain would still get a dead action offered.
+  if (nonce == null ||
+      network.chain != ChainKind.evm ||
+      !network.canSign) {
     return const <ReplacementKind>[];
   }
 

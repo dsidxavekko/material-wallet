@@ -435,6 +435,15 @@ class _WalletSection extends StatelessWidget {
         _SettingsGroup(
           children: <Widget>[
             ListTile(
+              leading: const Icon(Icons.switch_account_rounded),
+              title: const Text('Active account'),
+              subtitle: Text(
+                'Account ${identity.accountIndex + 1} of ${identity.accountCount}',
+              ),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () => _pickAccount(context, identity),
+            ),
+            ListTile(
               leading: const Icon(Icons.qr_code_2_rounded),
               isThreeLine: true,
               title: const Text('Receive address'),
@@ -546,6 +555,55 @@ class _WalletSection extends StatelessWidget {
     }
   }
 
+  /// Dialog that switches between the derived accounts and can add a new one.
+  ///
+  /// Accounts are BIP-44 indexes of the same seed — no extra secret is stored,
+  /// and switching only re-derives the addresses and reloads the balances.
+  Future<void> _pickAccount(
+    BuildContext context,
+    WalletIdentityController identity,
+  ) async {
+    const int addNew = -1;
+    final int? chosen = await showDialog<int>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: const Text('Active account'),
+        children: <Widget>[
+          RadioGroup<int>(
+            groupValue: identity.accountIndex,
+            onChanged: (int? value) => Navigator.of(dialogContext).pop(value),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                for (int i = 0; i < identity.accountCount; i++)
+                  RadioListTile<int>(
+                    value: i,
+                    title: Text('Account ${i + 1}'),
+                    subtitle: i == 0 ? const Text('Default') : null,
+                  ),
+              ],
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.add_rounded),
+            title: const Text('Add account'),
+            subtitle: const Text('A fresh set of addresses from the same seed'),
+            onTap: () => Navigator.of(dialogContext).pop(addNew),
+          ),
+        ],
+      ),
+    );
+
+    if (chosen == null || !context.mounted) {
+      return;
+    }
+    if (chosen == addNew) {
+      await identity.addAccount();
+      return;
+    }
+    await identity.selectAccount(chosen);
+  }
+
   Future<void> _revealPhrase(BuildContext context) async {
     final WalletIdentityController identity =
         context.read<WalletIdentityController>();
@@ -624,6 +682,38 @@ class _WalletSection extends StatelessWidget {
                   style: text.bodyMedium
                       ?.copyWith(color: scheme.onSurfaceVariant),
                 ),
+                if (identity.account?.hasPassphrase ?? false) ...<Widget>[
+                  const SizedBox(height: 14),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: scheme.tertiaryContainer,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Icon(
+                          Icons.info_outline_rounded,
+                          color: scheme.onTertiaryContainer,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'This wallet also uses a BIP-39 passphrase (25th '
+                            'word). Restoring needs both: the words alone open '
+                            'a different, empty wallet. The passphrase is not '
+                            'shown here.',
+                            style: text.bodySmall?.copyWith(
+                              color: scheme.onTertiaryContainer,
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 18),
                 MnemonicGrid(words: words),
               ],

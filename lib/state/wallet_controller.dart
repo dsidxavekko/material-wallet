@@ -101,14 +101,18 @@ class WalletController extends ChangeNotifier {
     }
   }
 
-  /// Recomputes the cross-network total from each chain's cached snapshot,
-  /// using the freshest in-memory value for the active network.
+  /// Recomputes the cross-network total **for the active account**, using the
+  /// freshest in-memory value for the active network.
   Future<void> _refreshPortfolio() async {
     double total = 0;
     bool any = false;
     for (final NetworkConfig n in NetworkCatalog.all) {
+      final String? address = identity.addressFor(n);
+      if (address == null) {
+        continue;
+      }
       final AccountSnapshot? cached =
-          n.id == network.id ? _snapshot : await _cache.read(n.id);
+          n.id == network.id ? _snapshot : await _cache.read(n.id, address);
       final double? fiat = cached?.fiatBalance;
       if (fiat != null) {
         total += fiat;
@@ -162,7 +166,7 @@ class WalletController extends ChangeNotifier {
     // screen is useful before the network answers and while offline. A snapshot
     // from a different network or address is never shown.
     if (_snapshot?.network.id != network.id || _snapshot?.address != address) {
-      final AccountSnapshot? cached = await _cache.read(network.id);
+      final AccountSnapshot? cached = await _cache.read(network.id, address);
       if (token != _requestToken) {
         return;
       }
