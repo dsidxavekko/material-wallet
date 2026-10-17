@@ -86,6 +86,22 @@ generated locally, encrypted, and stored only on this device.
 
 ---
 
+## Screenshots
+
+| Wallet                          | Activity                          | Send                          |
+| ------------------------------- | --------------------------------- | ----------------------------- |
+| ![Wallet](screenshots/03-wallet.png) | ![Activity](screenshots/05-activity.png) | ![Send](screenshots/04-send.png) |
+
+| Onboarding                          | Unlock lock screen                | Settings                          |
+| ----------------------------------- | --------------------------------- | --------------------------------- |
+| ![Onboarding](screenshots/01-onboarding.png) | ![Lock](screenshots/02-lock.png) | ![Settings](screenshots/06-settings.png) |
+
+> The screens were rendered headlessly in the widget-test harness
+> (`flutter test tool/screenshots_test.dart --update-goldens`) with a
+> deterministic test phrase and canned network responses — no real funds.
+
+---
+
 ## Supported networks
 
 | Group   | Network        | Address standard      | Data source                     |

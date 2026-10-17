@@ -14,6 +14,8 @@ analyzer:
     - build/**
     - android/**
     - web/**
+    # Golden-screenshot generator reaches for test-only APIs outside test/.
+    - tool/**
 
 linter:
   # The lint rules applied to this project can be customized in the

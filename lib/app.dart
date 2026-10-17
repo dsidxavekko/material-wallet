@@ -7,6 +7,8 @@ import 'package:provider/provider.dart';
 import 'core/theme/app_theme.dart';
 import 'data/deep_links/payment_link.dart';
 import 'data/notifications/notification_service.dart';
+import 'data/networks/chain_api.dart';
+import 'data/networks/price_api.dart';
 import 'data/wallet/wallet_storage.dart';
 import 'features/lock/lock_screen.dart';
 import 'features/onboarding/onboarding_screen.dart';
@@ -28,11 +30,20 @@ final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 /// * [WalletIdentityController] — the encrypted seed and derived addresses
 /// * [WalletController] — live balance/history for the active network
 class MaterialWalletApp extends StatelessWidget {
-  const MaterialWalletApp({super.key, this.storage = const WalletStorage()});
+  const MaterialWalletApp({
+    super.key,
+    this.storage = const WalletStorage(),
+    this.chainApi,
+    this.priceApi,
+  });
 
   /// Where the encrypted seed lives. Injectable so tests can supply an
   /// in-memory stand-in instead of a platform keystore.
   final WalletStorage storage;
+
+  /// Network APIs, injectable for golden tests and offline demos.
+  final ChainApi? chainApi;
+  final PriceApi? priceApi;
 
   @override
   Widget build(BuildContext context) {
@@ -51,6 +62,8 @@ class MaterialWalletApp extends StatelessWidget {
           create: (context) => WalletController(
             identity: context.read<WalletIdentityController>(),
             settings: context.read<SettingsController>(),
+            chainApi: chainApi,
+            priceApi: priceApi,
           ),
         ),
         Provider<NotificationService>(create: (_) => NotificationService()),
