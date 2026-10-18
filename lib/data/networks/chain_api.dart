@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:convert/convert.dart';
 import 'package:http/http.dart' as http;
 
+import '../../core/crypto/hashing.dart';
 import '../../core/utils/app_log.dart';
 import '../models/chain_kind.dart';
 import '../wallet/bitcoin_signer.dart';
@@ -211,8 +212,8 @@ class ChainApi {
     NetworkConfig network,
     String address,
   ) async {
-    final Object? result = await _rpc(
-      _signingRpc(network),
+    final Object? result = await _evmRpc(
+      network,
       'eth_getTransactionCount',
       <Object?>[address, 'pending'],
     );
@@ -230,12 +231,10 @@ class ChainApi {
   Future<({BigInt baseFee, BigInt maxPriorityFeePerGas})> fetchFeeData(
     NetworkConfig network,
   ) async {
-    final String rpc = _signingRpc(network);
-
     BigInt priority = BigInt.zero;
     try {
       priority = _hexToBigInt(
-        await _rpc(rpc, 'eth_maxPriorityFeePerGas', const <Object?>[]),
+        await _evmRpc(network, 'eth_maxPriorityFeePerGas', const <Object?>[]),
       );
     } catch (_) {
       // Older nodes and some non-Ethereum chains lack the method.
@@ -243,8 +242,8 @@ class ChainApi {
 
     BigInt baseFee = BigInt.zero;
     try {
-      final Object? block = await _rpc(
-        rpc,
+      final Object? block = await _evmRpc(
+        network,
         'eth_getBlockByNumber',
         <Object?>['latest', false],
       );
@@ -258,7 +257,7 @@ class ChainApi {
     if (priority == BigInt.zero && baseFee == BigInt.zero) {
       // No 1559 data at all: use the legacy gas price as the whole fee.
       priority =
-          _hexToBigInt(await _rpc(rpc, 'eth_gasPrice', const <Object?>[]));
+          _hexToBigInt(await _evmRpc(network, 'eth_gasPrice', const <Object?>[]));
     }
 
     return (baseFee: baseFee, maxPriorityFeePerGas: priority);
@@ -278,8 +277,8 @@ class ChainApi {
     Uint8List? data,
   }) async {
     try {
-      final Object? result = await _rpc(
-        _signingRpc(network),
+      final Object? result = await _evmRpc(
+        network,
         'eth_estimateGas',
         <Object?>[
           <String, Object?>{
@@ -298,15 +297,28 @@ class ChainApi {
   }
 
   /// Broadcasts a signed transaction and returns its hash.
+  ///
+  /// Walks the network's nodes in order, moving on only when one cannot be
+  /// reached. The signed bytes are identical on every node, so a node that
+  /// answers "already known" (the transaction reached it through an earlier
+  /// attempt or gossip) is a success, and the hash is the keccak of the bytes.
   Future<String> sendRawTransaction(
     NetworkConfig network,
     String rawTransaction,
   ) async {
-    final Object? result = await _rpc(
-      _signingRpc(network),
-      'eth_sendRawTransaction',
-      <Object?>[rawTransaction],
-    );
+    final Object? result;
+    try {
+      result = await _evmRpc(
+        network,
+        'eth_sendRawTransaction',
+        <Object?>[rawTransaction],
+      );
+    } on ChainApiException catch (error) {
+      if (_isAlreadyKnown(error.message)) {
+        return _rawTransactionHash(rawTransaction);
+      }
+      rethrow;
+    }
     if (result is! String || result.isEmpty) {
       throw const ChainApiException(
         'The node accepted the transaction but returned no hash.',
@@ -314,6 +326,22 @@ class ChainApi {
       );
     }
     return result;
+  }
+
+  static bool _isAlreadyKnown(String message) {
+    final String lower = message.toLowerCase();
+    return lower.contains('already known') ||
+        lower.contains('known transaction') ||
+        lower.contains('already exists');
+  }
+
+  /// `keccak256(rawTransaction)` as `0x…` — the hash every node derives.
+  static String _rawTransactionHash(String rawTransaction) {
+    final String body = rawTransaction.startsWith('0x')
+        ? rawTransaction.substring(2)
+        : rawTransaction;
+    final Uint8List bytes = Uint8List.fromList(hex.decode(body));
+    return '0x${hex.encode(Hashing.keccak256(bytes))}';
   }
 
   /// Waits until [hash] is mined, returning whether it succeeded.
@@ -327,8 +355,8 @@ class ChainApi {
   }) async {
     for (int i = 0; i < attempts; i++) {
       await Future<void>.delayed(Duration(seconds: 2 + i));
-      final Object? result = await _rpc(
-        _signingRpc(network),
+      final Object? result = await _evmRpc(
+        network,
         'eth_getTransactionReceipt',
         <Object?>[hash],
       );
@@ -474,16 +502,38 @@ class ChainApi {
     return null;
   }
 
-  /// RPC endpoint used for signing; throws on chains the wallet cannot sign for.
-  String _signingRpc(NetworkConfig network) {
-    final String? url = network.sendRpcUrl;
-    if (network.chain != ChainKind.evm || url == null) {
+  /// JSON-RPC call against the network's signing-side nodes, in order.
+  ///
+  /// Falls through to the next node only when the failure is a transport
+  /// problem (unreachable, timeout, 5xx, 429, garbled body). A JSON-RPC error
+  /// is the node's real answer — the same request would get the same answer
+  /// elsewhere, and retrying could double-submit — so it is surfaced as is.
+  /// Throws on chains the wallet cannot sign for.
+  Future<Object?> _evmRpc(
+    NetworkConfig network,
+    String method,
+    List<Object?> params,
+  ) async {
+    final List<String> urls = network.sendRpcUrls;
+    if (network.chain != ChainKind.evm || urls.isEmpty) {
       throw ChainApiException(
         '${network.name} does not support sending yet.',
         retryable: false,
       );
     }
-    return url;
+    ChainApiException? last;
+    for (final String url in urls) {
+      try {
+        return await _rpc(url, method, params);
+      } on ChainApiException catch (error) {
+        if (!error.retryable) {
+          rethrow;
+        }
+        last = error;
+        AppLog.warning('RPC node $url unavailable for ${network.name}', error);
+      }
+    }
+    throw last!;
   }
 
   /// `0x`-prefixed minimal hex quantity for a [BigInt].
@@ -613,8 +663,8 @@ class ChainApi {
     required String token,
     required String owner,
   }) async {
-    final Object? result = await _rpc(
-      _signingRpc(network),
+    final Object? result = await _evmRpc(
+      network,
       'eth_call',
       <Object?>[
         <String, Object?>{

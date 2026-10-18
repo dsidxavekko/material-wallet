@@ -1022,7 +1022,8 @@ class _AboutCard extends StatelessWidget {
               leading: const Icon(Icons.cloud_outlined),
               title: const Text('Data sources'),
               subtitle: const Text(
-                'mempool.space · Blockscout · CoinGecko · PublicNode · Solana RPC · Aptos fullnode',
+                'mempool.space · Blockscout · CoinGecko · PublicNode · dRPC · 1RPC · '
+                'official chain RPCs (Base, Arbitrum, Polygon, BNB) · Solana RPC · Aptos fullnode',
               ),
               isThreeLine: true,
             ),

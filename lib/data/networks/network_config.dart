@@ -25,7 +25,7 @@ class NetworkConfig {
     this.addressPath = '/address/{address}',
     this.txPath = '/tx/{hash}',
     this.chainId,
-    this.sendRpcUrl,
+    this.sendRpcUrls = const <String>[],
   });
 
   final String id;
@@ -73,12 +73,17 @@ class NetworkConfig {
   /// `null` on chains the wallet cannot sign for (Bitcoin, Solana, Aptos).
   final int? chainId;
 
-  /// JSON-RPC endpoint used **only** for broadcasting signed transactions.
+  /// JSON-RPC endpoints used **only** for signing-side calls and broadcasting,
+  /// in order of preference. A later node is tried only when the earlier one
+  /// cannot be reached — never because it gave a JSON-RPC answer.
   ///
   /// Kept separate from [rpcUrl] on purpose: setting `rpcUrl` switches balance
   /// and history reads to JSON-RPC and disables the Blockscout token index, so
   /// the two must not be conflated.
-  final String? sendRpcUrl;
+  final List<String> sendRpcUrls;
+
+  /// The preferred broadcast node, or `null` when the chain cannot send.
+  String? get sendRpcUrl => sendRpcUrls.isEmpty ? null : sendRpcUrls.first;
 
   /// `true` when the wallet can build and broadcast a transaction here.
   ///
@@ -88,7 +93,7 @@ class NetworkConfig {
   /// sign yet.
   bool get canSign => switch (chain) {
         ChainKind.bitcoin => true,
-        ChainKind.evm => chainId != null && sendRpcUrl != null,
+        ChainKind.evm => chainId != null && sendRpcUrls.isNotEmpty,
         ChainKind.solana || ChainKind.aptos => false,
       };
 
@@ -171,7 +176,11 @@ class NetworkCatalog {
     color: Color(0xFF627EEA),
     priceId: 'ethereum',
     chainId: 1,
-    sendRpcUrl: 'https://ethereum-rpc.publicnode.com',
+    sendRpcUrls: <String>[
+      'https://ethereum-rpc.publicnode.com',
+      'https://eth.drpc.org',
+      'https://1rpc.io/eth',
+    ],
   );
 
   static const NetworkConfig sepolia = NetworkConfig(
@@ -185,7 +194,11 @@ class NetworkCatalog {
     color: Color(0xFF627EEA),
     isTestnet: true,
     chainId: 11155111,
-    sendRpcUrl: 'https://ethereum-sepolia-rpc.publicnode.com',
+    sendRpcUrls: <String>[
+      'https://ethereum-sepolia-rpc.publicnode.com',
+      'https://sepolia.drpc.org',
+      'https://1rpc.io/sepolia',
+    ],
   );
 
   static const NetworkConfig base = NetworkConfig(
@@ -199,7 +212,11 @@ class NetworkCatalog {
     color: Color(0xFF0052FF),
     priceId: 'ethereum',
     chainId: 8453,
-    sendRpcUrl: 'https://base-rpc.publicnode.com',
+    sendRpcUrls: <String>[
+      'https://base-rpc.publicnode.com',
+      'https://mainnet.base.org',
+      'https://base.drpc.org',
+    ],
   );
 
   static const NetworkConfig polygon = NetworkConfig(
@@ -213,7 +230,11 @@ class NetworkCatalog {
     color: Color(0xFF8247E5),
     priceId: 'polygon-ecosystem-token',
     chainId: 137,
-    sendRpcUrl: 'https://polygon-bor-rpc.publicnode.com',
+    sendRpcUrls: <String>[
+      'https://polygon-bor-rpc.publicnode.com',
+      'https://polygon-rpc.com',
+      'https://polygon.drpc.org',
+    ],
   );
 
   static const NetworkConfig arbitrum = NetworkConfig(
@@ -227,7 +248,11 @@ class NetworkCatalog {
     color: Color(0xFF28A0F0),
     priceId: 'ethereum',
     chainId: 42161,
-    sendRpcUrl: 'https://arbitrum-one-rpc.publicnode.com',
+    sendRpcUrls: <String>[
+      'https://arbitrum-one-rpc.publicnode.com',
+      'https://arb1.arbitrum.io/rpc',
+      'https://arbitrum.drpc.org',
+    ],
   );
 
   // --- BNB Chain (key-less JSON-RPC) ---------------------------------------
