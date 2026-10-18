@@ -212,7 +212,8 @@ lib/
 ├── shared/widgets/           # reusable UI widgets
 └── state/                    # controllers (settings, identity, wallet)
 docs/
-└── ЦІЛІ.md                   # analysis and development goals
+├── GOALS.md                  # analysis and development goals (English)
+└── ЦІЛІ.md                   # the same document in Ukrainian (original)
 ```
 
 ---
@@ -276,7 +277,8 @@ docs/
 - [ ] Local notes on transactions, included in the CSV export.
 - [ ] ENS names in the recipient field.
 
-Full analysis, reasons and acceptance criteria: [`docs/ЦІЛІ.md`](docs/ЦІЛІ.md).
+Full analysis, reasons and acceptance criteria: [`docs/GOALS.md`](docs/GOALS.md)
+(English) · [`docs/ЦІЛІ.md`](docs/ЦІЛІ.md) (original, Ukrainian).
 
 ---
 
