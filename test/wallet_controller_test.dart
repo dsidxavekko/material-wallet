@@ -3,11 +3,14 @@ import 'dart:io';
 
 import 'package:crypto_wallet/core/utils/formatters.dart';
 import 'package:crypto_wallet/data/networks/chain_api.dart';
+import 'package:crypto_wallet/data/networks/chain_models.dart';
 import 'package:crypto_wallet/data/networks/network_config.dart';
 import 'package:crypto_wallet/data/networks/price_api.dart';
+import 'package:crypto_wallet/data/notifications/notification_service.dart';
 import 'package:crypto_wallet/data/wallet/seed_vault.dart';
 import 'package:crypto_wallet/data/wallet/wallet_storage.dart';
 import 'package:crypto_wallet/features/settings/settings_screen.dart';
+import 'package:crypto_wallet/state/confirmation_watcher.dart';
 import 'package:crypto_wallet/state/settings_controller.dart';
 import 'package:crypto_wallet/state/wallet_controller.dart';
 import 'package:crypto_wallet/state/wallet_identity_controller.dart';
@@ -35,6 +38,98 @@ class _FakeVaultStorage extends WalletStorage {
   Future<void> clear() async {
     vault = null;
   }
+}
+
+/// Counts system notifications instead of posting them.
+class _RecordingNotifications extends NotificationService {
+  int shown = 0;
+
+  @override
+  bool get enabled => true;
+
+  @override
+  Future<void> show({
+    required int id,
+    required String title,
+    required String body,
+  }) async {
+    shown++;
+  }
+}
+
+/// Watched-transfer storage that keeps everything in memory.
+class _NoopWatchStorage extends WalletStorage {
+  final List<String> watched = <String>[];
+
+  @override
+  Future<List<String>> readWatchedTxs() async => List<String>.from(watched);
+
+  @override
+  Future<void> writeWatchedTxs(List<String> hashes) async {
+    watched
+      ..clear()
+      ..addAll(hashes);
+  }
+}
+
+/// Chain that reports one outgoing transfer: pending while [pendingLoads]
+/// balance reads remain, confirmed after that.
+class _PendingChainApi extends ChainApi {
+  _PendingChainApi({required this.pendingLoads});
+
+  int pendingLoads;
+  int transactionReads = 0;
+
+  @override
+  Future<BigInt> fetchBalance(NetworkConfig network, String address) async {
+    if (pendingLoads > 0) {
+      pendingLoads--;
+    }
+    return BigInt.parse('2000000000000000000');
+  }
+
+  @override
+  Future<List<ChainTransaction>> fetchTransactions(
+    NetworkConfig network,
+    String address,
+  ) async {
+    transactionReads++;
+    return <ChainTransaction>[
+      ChainTransaction(
+        hash: '0xpending',
+        timestamp: DateTime(2026),
+        amount: -BigInt.from(1000),
+        fee: BigInt.one,
+        counterparty: '0xdef',
+        isIncoming: false,
+        confirmed: pendingLoads == 0,
+        nonce: 3,
+      ),
+    ];
+  }
+
+  @override
+  Future<List<TokenBalance>> fetchTokenBalances(
+    NetworkConfig network,
+    String address,
+  ) async =>
+      const <TokenBalance>[];
+
+  @override
+  void dispose() {}
+}
+
+/// Price API that answers "no price" without touching the network.
+class _FakePriceApi extends PriceApi {
+  @override
+  Future<CoinPrice?> fetchPrice(String coinGeckoId) async => null;
+
+  @override
+  Future<List<double>> fetchChart(String coinGeckoId) async =>
+      const <double>[];
+
+  @override
+  void dispose() {}
 }
 
 void main() {
@@ -378,5 +473,126 @@ void main() {
     final RegExpMatch? match =
         RegExp(r'^version:\s*(\S+)', multiLine: true).firstMatch(pubspec);
     expect(match?.group(1), '$appVersion+$appBuildNumber');
+  });
+
+  group('pending polling (A6)', () {
+    test('re-loads while a transfer is pending and stops once it confirms',
+        () async {
+      final WalletIdentityController identity = await storedWallet();
+      await identity.unlock(pin);
+
+      final SettingsController settings = SettingsController();
+      final _PendingChainApi api = _PendingChainApi(pendingLoads: 3);
+      final WalletController wallet = WalletController(
+        identity: identity,
+        settings: settings,
+        chainApi: api,
+        priceApi: _FakePriceApi(),
+        // Short cadence so the test runs in milliseconds, not 20 s.
+        pendingPollInterval: const Duration(milliseconds: 10),
+      );
+      await settle(wallet);
+      final int readsAfterFirstLoad = api.transactionReads;
+
+      // The transfer is still pending: the controller must re-read on its own,
+      // without a pull-to-refresh.
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      expect(
+        api.transactionReads,
+        greaterThan(readsAfterFirstLoad),
+        reason: 'a pending outgoing transfer must be polled',
+      );
+
+      // Once the chain reports it confirmed, polling stops: no further reads.
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      final int readsAfterConfirm = api.transactionReads;
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      expect(api.transactionReads, readsAfterConfirm);
+      expect(wallet.snapshot?.transactions.single.confirmed, isTrue);
+
+      wallet.dispose();
+    });
+
+    test('notifies exactly once when the polled transfer confirms', () async {
+      final WalletIdentityController identity = await storedWallet();
+      await identity.unlock(pin);
+
+      final SettingsController settings = SettingsController()
+        ..setNotificationsEnabled(true);
+      final _PendingChainApi api = _PendingChainApi(pendingLoads: 2);
+      final WalletController wallet = WalletController(
+        identity: identity,
+        settings: settings,
+        chainApi: api,
+        priceApi: _FakePriceApi(),
+        pendingPollInterval: const Duration(milliseconds: 10),
+      );
+      final _RecordingNotifications notifications =
+          _RecordingNotifications();
+      final ConfirmationWatcher watcher = ConfirmationWatcher(
+        wallet: wallet,
+        settings: settings,
+        notifications: notifications,
+        storage: _NoopWatchStorage(),
+      );
+      await settle(wallet);
+
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+
+      expect(notifications.shown, 1,
+          reason: 'the transfer must be announced exactly once');
+
+      watcher.dispose();
+      wallet.dispose();
+    });
+
+    test('does not poll when nothing is pending', () async {
+      final WalletIdentityController identity = await storedWallet();
+      await identity.unlock(pin);
+
+      final SettingsController settings = SettingsController()
+        ..setNetwork(NetworkCatalog.ethereum);
+      int historyReads = 0;
+      final MockClient confirmedOnly = MockClient((request) async {
+        final String url = request.url.toString();
+        if (url.contains('/transactions')) {
+          historyReads++;
+          return json(<String, Object>{
+            'items': <Object>[
+              <String, Object>{
+                'hash': '0xdone',
+                'timestamp': '2026-01-02T10:00:00.000000Z',
+                'from': <String, Object>{'hash': '0xdef'},
+                'to': <String, Object>{'hash': '0x9858'},
+                'value': '1',
+                'fee': <String, Object>{'value': '1'},
+                'status': 'ok',
+                'block': 1,
+                'nonce': 1,
+              },
+            ],
+          });
+        }
+        if (url.contains('/addresses/')) {
+          return json(<String, Object>{'coin_balance': '1'});
+        }
+        return http.Response('{}', 404);
+      });
+      final WalletController wallet = WalletController(
+        identity: identity,
+        settings: settings,
+        chainApi: ChainApi(client: confirmedOnly),
+        priceApi: PriceApi(client: confirmedOnly),
+        pendingPollInterval: const Duration(milliseconds: 10),
+      );
+      await settle(wallet);
+      expect(historyReads, 1);
+
+      // Nothing is pending, so the poller must stay silent.
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      expect(historyReads, 1);
+
+      wallet.dispose();
+    });
   });
 }

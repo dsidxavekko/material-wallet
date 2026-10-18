@@ -386,20 +386,28 @@ class ChainApi {
     return utxos;
   }
 
-  /// Recommended satoshis-per-vbyte for a ~30 minute confirmation target.
+  /// The network's ready-made confirmation tiers from mempool.space.
   ///
   /// Throws rather than guessing, so a transfer is never signed with a fee the
   /// user did not see.
-  Future<int> fetchBitcoinFeeRate(NetworkConfig network) async {
+  Future<BitcoinFeeTiers> fetchBitcoinFeeTiers(NetworkConfig network) async {
     final Object? json = await _get('${network.apiBase}/v1/fees/recommended');
-    final num? rate = (json as Map<String, Object?>?)?['halfHourFee'] as num?;
-    if (rate == null || rate <= 0) {
+    final BitcoinFeeTiers? tiers =
+        json is Map<String, Object?> ? BitcoinFeeTiers.fromJson(json) : null;
+    if (tiers == null) {
       throw const ChainApiException(
         'The node returned no fee estimate.',
       );
     }
-    return rate.ceil();
+    return tiers;
   }
+
+  /// Recommended satoshis-per-vbyte for a ~30 minute confirmation target.
+  ///
+  /// Throws rather than guessing, so a transfer is never signed with a fee the
+  /// user did not see.
+  Future<int> fetchBitcoinFeeRate(NetworkConfig network) async =>
+      (await fetchBitcoinFeeTiers(network)).halfHourFee;
 
   /// Broadcasts a raw Bitcoin transaction and returns its txid.
   Future<String> broadcastBitcoinTransaction(
@@ -934,8 +942,21 @@ class ChainApi {
           ) ??
           BigInt.zero;
 
+      // The original's own fee cap, tip, gas limit and calldata. Blockscout v2
+      // exposes them (hex quantities); a replacement must be priced from these
+      // and carry identical calldata, so they are kept when present.
+      final BigInt? maxFeePerGas = _parseQuantity(raw['max_fee_per_gas']);
+      final BigInt? maxPriorityFeePerGas =
+          _parseQuantity(raw['max_priority_fee_per_gas']);
+      final BigInt? gasLimit = _parseQuantity(raw['gas_limit']);
+      final String? rawInput = raw['raw_input'] is String &&
+              (raw['raw_input'] as String).startsWith('0x')
+          ? raw['raw_input'] as String
+          : null;
+
       // Blockscout reports the nonce as an integer in v2 and hex in some
-      // deployments, so accept either.
+      // deployments, so accept either. The fee-cap fields below follow the
+      // same rule (hex strings in the standard v2 response).
       final Object? nonceRaw = raw['nonce'];
       final int? nonce = nonceRaw is num
           ? nonceRaw.toInt()
@@ -966,12 +987,31 @@ class ChainApi {
           confirmed: raw['block'] != null,
           failed: raw['status'] == 'error',
           nonce: nonce,
+          maxFeePerGas: maxFeePerGas,
+          maxPriorityFeePerGas: maxPriorityFeePerGas,
+          gasLimit: gasLimit,
+          rawInput: rawInput,
         ),
       );
     }
 
     result.sort((a, b) => b.timestamp.compareTo(a.timestamp));
     return result;
+  }
+
+  /// A JSON-RPC-style quantity: `0x`-prefixed hex, a plain decimal string, or
+  /// an integer. `null` when absent or unparseable — the callers treat that as
+  /// "the API did not say", never as zero.
+  static BigInt? _parseQuantity(Object? raw) {
+    if (raw is num) {
+      return BigInt.from(raw.toInt());
+    }
+    if (raw is! String || raw.isEmpty) {
+      return null;
+    }
+    return raw.startsWith('0x')
+        ? BigInt.tryParse(raw.substring(2), radix: 16)
+        : BigInt.tryParse(raw);
   }
 
   // --- Solana parsing ------------------------------------------------------

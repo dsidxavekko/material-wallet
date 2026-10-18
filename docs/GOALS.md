@@ -32,12 +32,12 @@ The principles are constraints on every goal in this document:
 
 | | |
 |---|---|
-| Size | `lib/` ≈ 15.4k lines, `test/` ≈ 5.6k, ~258 tests |
+| Size | `lib/` ≈ 15.7k lines, `test/` ≈ 5.9k, ~299 tests |
 | Networks | 10: Bitcoin (+ testnet), Ethereum, Sepolia, Base, Polygon, Arbitrum, BNB, Solana, Aptos |
 | Sending | EVM (EIP-1559, ERC-20, speed-up / cancel, revoke) and Bitcoin (P2WPKH). BNB, Solana, Aptos — view only |
 | Security | AES-256-GCM + PBKDF2 600k, 6–8 digit PIN, biometrics, auto-lock, backoff after wrong PINs, `FLAG_SECURE`, re-authentication before every send |
 | Providers | mempool.space, Blockscout, CoinGecko, publicnode, Solana RPC, Aptos fullnode |
-| `ponytail:` markers | 3 |
+| `ponytail:` markers | 2 |
 
 Three things are done unusually well:
 
@@ -88,6 +88,11 @@ Facts taken from the code and from live API responses on 18 October 2026.
 
 ### 3.3. "Transfer confirmed" only arrives after a manual refresh
 
+> **Updated 2026-10-18:** fixed (goal A6 in §4). `WalletController` now polls
+> while the snapshot holds an outgoing pending transfer (EVM ~20 s, Bitcoin
+> ~60 s), stopping on lock, dispose and network change; the optimistic note in
+> `confirmation_watcher.dart` was corrected to match.
+
 `WalletController` has no timer: data is reloaded only when the (network,
 address) pair changes or on pull-to-refresh. The success screen waits for a
 receipt for ~90 s on EVM (12 attempts, 2…13 s) and ~3.2 min on Bitcoin
@@ -112,6 +117,10 @@ than reality.
 
 ### 3.5. Bitcoin: a stuck transfer cannot be rescued
 
+> **Updated 2026-10-18:** the presets now use mempool.space's real tiers (goal
+> B2 in §4): Slow → `hourFee`, Normal → `halfHourFee`, Fast → `fastestFee`.
+> RBF (second bullet) is still open as goal B3.
+
 - Presets are multipliers of `halfHourFee` (`send_controller.dart:51`: Slow =
   ½, Fast = ×2), although mempool.space returns ready-made tiers
   `fastestFee`, `halfHourFee`, `hourFee`, `economyFee`, `minimumFee` (checked).
@@ -121,6 +130,12 @@ than reality.
   with no way out inside the app.
 
 ### 3.6. EVM replacement limits rest on an outdated assumption
+
+> **Updated 2026-10-18:** fixed (goal B4 in §4). `ChainTransaction` now parses
+> the four Blockscout v2 fields (old caches still read fine), the replacement
+> is priced with `replacementFeeFor` = max(fast preset, original × 1.1), and
+> speed-up is offered for ERC-20/approve when `raw_input` is present, reusing
+> it byte for byte. The two outdated notes are gone.
 
 The `ponytail:` note in `replace_transfer.dart:38` and the comment on
 `replacementKindsFor` (lines 181–184) say the history API exposes neither the
@@ -162,9 +177,9 @@ so directly.
 
 ### 3.9. Smaller items
 
-- Address-poisoning checks run only on EVM (`send_screen.dart:179`).
-  `AddressGuard` itself is network-neutral; for bech32 only the `bc1q` / `tb1q`
-  prefix needs to be skipped.
+- Address-poisoning checks run only on EVM (`send_screen.dart:179`) — fixed
+  2026-10-18 (goal B5): the EVM-only condition is gone and `AddressGuard`
+  skips the `bc1` / `tb1` bech32 prefix like it skips `0x`.
 - BNB Chain has `chainId: 56` but no `sendRpcUrl` — view only.
   `tool/verify_eip1559.dart` is hardwired to Sepolia constants (lines 22–23).
 - "Hide balance" is not persisted across launches and does not apply to
@@ -215,7 +230,7 @@ balance; otherwise it refuses with an explanation. Any other `/function` is
 refused.
 *Done when:* new cases in `payment_link_test.dart`, including "unknown token".
 
-**A6. Polling while something is pending** · 2–3 h
+**A6. Polling while something is pending** · 2–3 h · done 2026-10-18
 A timer in `WalletController` (EVM ~20 s, Bitcoin ~60 s) runs only while the
 snapshot contains an outgoing pending transaction; it stops on lock, dispose
 and network change. The price cache (60 s) already protects CoinGecko.
@@ -250,7 +265,7 @@ Integration point: `_prepare()` in `send_screen.dart`, before
 `_PreparedSheet`; new `ChainApi.fetchAddressInfo`.
 *Done when:* a test for each row of the table with canonical responses.
 
-**B2. Bitcoin: real fee tiers** · 1–2 h
+**B2. Bitcoin: real fee tiers** · 1–2 h · done 2026-10-18
 Slow → `hourFee`, Normal → `halfHourFee`, Fast → `fastestFee`.
 
 **B3. Bitcoin: RBF** · signalling is one line; Speed up is 1–2 days
@@ -261,13 +276,13 @@ fee and a bump for the extra size); if change is not enough, refuse clearly.
 *Done when:* a unit test of the replacement plan, and a transfer at 1 sat/vB
 replaced and confirmed on testnet.
 
-**B4. Honest EVM replacement (3.6)** · half a day
+**B4. Honest EVM replacement (3.6)** · half a day · done 2026-10-18
 Replacement price = max(fast preset, original × 1.1); speed-up for ERC-20 and
 approve uses the original's `raw_input`. Remove the two outdated notes.
 *Done when:* a test: replacement is always ≥ 110% of the original, and calldata
 is byte-identical to `raw_input`.
 
-**B5. Poisoning check on all networks** · 1–2 h
+**B5. Poisoning check on all networks** · 1–2 h · done 2026-10-18
 `AddressGuard` skips `bc1q` / `tb1q`; remove the "EVM only" condition.
 
 **B6. Password instead of PIN — your decision (3.8)** · a day
@@ -360,6 +375,7 @@ history-based poisoning check on this network — the UI must say so.
 
 The first four rows are about two days of work, after which the wallet stops
 showing wrong amounts and catches the most expensive sending mistakes.
+Rows 1–4 and all of row 5 except B3 (Bitcoin RBF) are done as of 2026-10-18.
 
 ---
 

@@ -55,14 +55,17 @@ generated locally, encrypted, and stored only on this device.
   EVM networks; tap a token to send it.
 - ↩️ **Fix a stuck transfer** — replaces a pending outgoing EVM transaction with
   one that reuses its nonce, either as a **speed-up** (same transfer, higher
-  fee) or a **cancel** (zero-value self-transfer that can never confirm).
+  fee) or a **cancel** (zero-value self-transfer that can never confirm). The
+  replacement is priced from the stuck transaction's own fee cap plus 10 % (the
+  node's rule), and a speed-up of an ERC-20 transfer or approval reuses the
+  original calldata byte for byte.
 - 🔓 **Token approvals** — lists what contracts are allowed to spend your
   tokens and can revoke each one (`approve(spender, 0)`), the only in-wallet way
   to undo a malicious approval.
-- 🕵️ **Address poisoning warning** — before sending, a recipient whose first and
-  last characters copy an address this wallet already deals with is flagged: the
-  scam pattern where a worthless token arrives from an address built to look
-  like a contract you trust.
+- 🕵️ **Address poisoning warning** — on every chain, before sending, a recipient
+  whose first and last characters copy an address this wallet already deals
+  with is flagged: the scam pattern where a worthless token arrives from an
+  address built to look like a contract you trust.
 - 🛟 **Recipient check before signing** — on Blockscout-backed EVM networks the
   recipient is looked up right before the signature, so a scam-tagged address,
   a token contract (funds sent there are usually lost) or a token sent to its
@@ -70,7 +73,9 @@ generated locally, encrypted, and stored only on this device.
   fails, the send sheet says the address could not be verified rather than
   staying silent.
 - 🔔 **Confirmation notifications** — a local notification when an outgoing
-  transfer confirms, even after a restart.
+  transfer confirms, even after a restart; while a transfer is pending the
+  wallet re-reads the chain on its own (EVM ~20 s, Bitcoin ~60 s) so the
+  notification arrives without a manual refresh.
 - 🔗 **Payment links** — `bitcoin:`, `ethereum:` (EIP-681), `solana:` and
   `aptos:` URIs open the app and prefill the send flow.
 - 🧮 **Portfolio total** — the account's value summed across every network it has
@@ -251,7 +256,7 @@ docs/
 - [x] Single source of truth for the app version (About screen).
 - [x] Scanner and paste read the amount and chain id from payment links.
 - [x] EIP-681 token payment links open a token transfer, or refuse clearly.
-- [ ] Pending transfers are polled, so "Transfer confirmed" fires without a
+- [x] Pending transfers are polled, so "Transfer confirmed" fires without a
       manual refresh.
 - [ ] Token transfers, approvals and reverts appear in Activity, with paging.
 
@@ -259,12 +264,11 @@ docs/
 
 - [x] Recipient check before signing: flags scam-tagged addresses, token
       contracts and token-transfer targets (Blockscout).
-- [ ] Bitcoin fee presets from the node's fastest / half-hour / hour / economy
-      rates.
+- [x] Bitcoin fee presets from the node's fastest / half-hour / hour rates.
 - [ ] Bitcoin RBF (BIP-125) signalling and Speed up.
-- [ ] EVM replacements priced from the original transaction (≥ 110 %) and
+- [x] EVM replacements priced from the original transaction (≥ 110 %) and
       applied to token transfers and approvals too.
-- [ ] Address poisoning check on every chain, not only EVM.
+- [x] Address poisoning check on every chain, not only EVM.
 - [ ] Optional password instead of the 6–8 digit PIN.
 
 ### Multi-chain (milestone C)

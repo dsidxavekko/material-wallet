@@ -65,9 +65,13 @@ class _SendScreenState extends State<SendScreen> {
   FeePreset _preset = FeePreset.normal;
 
   /// Bitcoin: the prepared inputs/outputs/fee for the entered amount, and the
-  /// recommended sat/vB rate they were priced from.
+  /// network's published confirmation tiers they were priced from.
   BitcoinPlan? _btcPlan;
-  int? _btcFeeRate;
+  BitcoinFeeTiers? _btcTiers;
+
+  /// Fallback sat/vB when the network published no tiers at all — the lowest
+  /// rate a node will relay.
+  static const int _btcFallbackRate = 1;
 
   /// User-entered sat/vB, used when [_preset] is custom on Bitcoin.
   int? _customBtcRate;
@@ -108,14 +112,22 @@ class _SendScreenState extends State<SendScreen> {
           _quote?.maxPriorityFeePerGas ?? BigInt.zero,
         );
 
-  /// The sat/vB the current preset selects on Bitcoin.
+  /// The sat/vB the current preset selects on Bitcoin: a published tier for
+  /// Slow/Normal/Fast, the user's entry for custom.
   int get _btcRate {
-    final int base = _btcFeeRate ?? 1;
     if (_preset == FeePreset.custom) {
-      return _customBtcRate ?? base;
+      return _customBtcRate ?? _btcTiers?.halfHourFee ?? _btcFallbackRate;
     }
-    return _preset.satPerVbFor(base);
+    return _preset.satPerVbFor(_btcTiers ?? _fallbackTiers);
   }
+
+  /// Used only when the network published no tiers: one relay-minimum rate for
+  /// every preset, so the plan still builds instead of crashing.
+  BitcoinFeeTiers get _fallbackTiers => const BitcoinFeeTiers(
+        fastestFee: _btcFallbackRate,
+        halfHourFee: _btcFallbackRate,
+        hourFee: _btcFallbackRate,
+      );
 
   @override
   void initState() {
@@ -178,15 +190,11 @@ class _SendScreenState extends State<SendScreen> {
   /// so it is done against the small set of addresses this wallet already
   /// deals with rather than any on-chain index.
   String? get _impersonatedAddress {
-    final NetworkConfig network = _network;
-    if (network.chain != ChainKind.evm) {
-      return null;
-    }
     final String recipient = _extractAddress(_addressController.text.trim());
     if (recipient.isEmpty) {
       return null;
     }
-    return AddressGuard.impersonates(recipient, _knownAddresses(network));
+    return AddressGuard.impersonates(recipient, _knownAddresses(_network));
   }
 
   /// Every address the user has deliberately saved or sent to on [network].
@@ -245,10 +253,7 @@ class _SendScreenState extends State<SendScreen> {
     );
 
     if (_isBitcoin) {
-      final int? recommended = _btcFeeRate ?? await controller.recommendedBitcoinFeeRate();
-      if (recommended != null && recommended > 0) {
-        _btcFeeRate ??= recommended;
-      }
+      _btcTiers ??= await controller.recommendedBitcoinFeeTiers();
       final BitcoinPlan? plan = await controller.prepareBitcoin(
         to: recipient,
         amount: _nativeOut,

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../core/utils/app_log.dart';
+import '../data/models/chain_kind.dart';
 import '../data/networks/chain_api.dart';
 import '../data/networks/chain_models.dart';
 import '../data/networks/network_config.dart';
@@ -23,9 +24,11 @@ class WalletController extends ChangeNotifier {
     ChainApi? chainApi,
     PriceApi? priceApi,
     SnapshotCache? cache,
+    Duration? pendingPollInterval,
   })  : _chainApi = chainApi ?? ChainApi(),
         _priceApi = priceApi ?? PriceApi(),
-        _cache = cache ?? const SnapshotCache() {
+        _cache = cache ?? const SnapshotCache(),
+        _pendingPollOverride = pendingPollInterval {
     identity.addListener(_onDependencyChanged);
     settings.addListener(_onDependencyChanged);
     // Deferred so the very first notify happens after the first build.
@@ -38,6 +41,9 @@ class WalletController extends ChangeNotifier {
   final PriceApi _priceApi;
   final SnapshotCache _cache;
 
+  /// Test seam: replaces the per-chain pending-poll cadence.
+  final Duration? _pendingPollOverride;
+
   AccountSnapshot? _snapshot;
   bool _loading = false;
   String? _error;
@@ -45,6 +51,19 @@ class WalletController extends ChangeNotifier {
   String? _lastKey;
   int _requestToken = 0;
   bool _disposed = false;
+
+  /// Re-reads the network while an outgoing transfer is waiting to confirm.
+  ///
+  /// Without it "Transfer confirmed" only arrives on the next manual refresh —
+  /// the success screen gives up waiting long before an average Bitcoin block.
+  /// Runs only while the visible snapshot holds a pending outgoing transfer,
+  /// and stops on lock (no address → no snapshot), dispose and network change
+  /// (the reload after a change re-evaluates the condition itself).
+  Timer? _pendingPoll;
+
+  /// Poll cadence per chain: EVM blocks are ~12 s, Bitcoin ~10 minutes.
+  static const Duration _evmPollInterval = Duration(seconds: 20);
+  static const Duration _bitcoinPollInterval = Duration(seconds: 60);
 
   /// Total USD value of the last cached snapshot of every network, when known.
   double? _portfolioFiat;
@@ -92,6 +111,7 @@ class WalletController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _pendingPoll?.cancel();
     identity.removeListener(_onDependencyChanged);
     settings.removeListener(_onDependencyChanged);
     _chainApi.dispose();
@@ -173,6 +193,7 @@ class WalletController extends ChangeNotifier {
       _loading = false;
       _error = null;
       _errorRetryable = true;
+      _syncPendingPoll();
       _safeNotify();
       return;
     }
@@ -276,8 +297,34 @@ class WalletController extends ChangeNotifier {
     } finally {
       if (token == _requestToken) {
         _loading = false;
+        _syncPendingPoll();
         _safeNotify();
       }
     }
+  }
+
+  /// Starts or stops [_pendingPoll] to match the current snapshot.
+  ///
+  /// A poll tick is a normal reload, so a confirmed transfer also refreshes the
+  /// balance, the history and the notification (via [ConfirmationWatcher]) and
+  /// the next sync sees no pending transfer and stops the timer by itself.
+  void _syncPendingPoll() {
+    final bool pending = _snapshot?.transactions.any(
+          (ChainTransaction tx) => tx.isIncoming == false && tx.isPending,
+        ) ??
+        false;
+    if (!pending) {
+      _pendingPoll?.cancel();
+      _pendingPoll = null;
+      return;
+    }
+    if (_pendingPoll != null) {
+      return;
+    }
+    final Duration interval = _pendingPollOverride ??
+        (_snapshot!.network.chain == ChainKind.bitcoin
+            ? _bitcoinPollInterval
+            : _evmPollInterval);
+    _pendingPoll = Timer.periodic(interval, (_) => unawaited(_load()));
   }
 }

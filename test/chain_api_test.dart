@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:crypto_wallet/data/networks/chain_api.dart';
+import 'package:crypto_wallet/data/networks/chain_models.dart';
 import 'package:crypto_wallet/data/networks/network_config.dart';
 import 'package:crypto_wallet/state/send_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -170,6 +171,42 @@ void main() {
       expect(txs.first.nonce, 7);
     });
 
+    test('reads the original fee cap, tip, gas limit and calldata (B4)',
+        () async {
+      // A replacement must be priced from the stuck transaction's own caps and
+      // carry identical calldata, so all four fields have to survive parsing —
+      // Blockscout v2 serves them as hex quantities.
+      final ChainApi client = api(
+        () => json(<String, Object?>{
+          'items': <Object>[
+            <String, Object?>{
+              'hash': '0xabc',
+              'timestamp': '2026-01-02T10:00:00.000000Z',
+              'from': <String, Object>{'hash': evmAddress},
+              'to': <String, Object>{'hash': otherEvm},
+              'value': '0',
+              'fee': <String, Object>{'value': '21000000000000'},
+              'status': 'ok',
+              'block': null,
+              'nonce': 7,
+              'max_fee_per_gas': '0x77359400', // 2 gwei
+              'max_priority_fee_per_gas': '0x3b9aca00', // 1 gwei
+              'gas_limit': '0x5208', // 21000
+              'raw_input': '0xa9059cbb',
+            },
+          ],
+        }),
+      );
+
+      final txs =
+          await client.fetchTransactions(NetworkCatalog.ethereum, evmAddress);
+
+      expect(txs.first.maxFeePerGas, BigInt.from(2000000000));
+      expect(txs.first.maxPriorityFeePerGas, BigInt.from(1000000000));
+      expect(txs.first.gasLimit, BigInt.from(21000));
+      expect(txs.first.rawInput, '0xa9059cbb');
+    });
+
     test('flags reverted transactions as failed', () async {
       final ChainApi client = api(
         () => json(<String, Object>{
@@ -294,6 +331,66 @@ void main() {
       expect(
         await client.fetchFeeEstimate(NetworkCatalog.ethereum),
         BigInt.from(320000000) * BigInt.from(21000),
+      );
+    });
+  });
+
+  group('Bitcoin fee tiers', () {
+    test('reads every published tier, not just one', () async {
+      final ChainApi client = api(
+        () => json(<String, Object>{
+          'fastestFee': 42,
+          'halfHourFee': 8,
+          'hourFee': 3,
+          'economyFee': 2,
+          'minimumFee': 1,
+        }),
+      );
+
+      final BitcoinFeeTiers tiers =
+          await client.fetchBitcoinFeeTiers(NetworkCatalog.bitcoin);
+      expect(tiers.fastestFee, 42);
+      expect(tiers.halfHourFee, 8);
+      expect(tiers.hourFee, 3);
+    });
+
+    test('the presets map onto the tiers, not onto multipliers', () {
+      // Slow must confirm within an hour, Fast in the next block: the API
+      // publishes those targets, so the wallet must not invent its own rates.
+      const BitcoinFeeTiers tiers = BitcoinFeeTiers(
+        fastestFee: 42,
+        halfHourFee: 8,
+        hourFee: 3,
+      );
+      expect(FeePreset.slow.satPerVbFor(tiers), 3);
+      expect(FeePreset.normal.satPerVbFor(tiers), 8);
+      expect(FeePreset.fast.satPerVbFor(tiers), 42);
+    });
+
+    test('throws instead of guessing when a tier is missing', () async {
+      final ChainApi client = api(
+        () => json(<String, Object>{'halfHourFee': 8}),
+      );
+
+      expect(
+        () => client.fetchBitcoinFeeTiers(NetworkCatalog.bitcoin),
+        throwsA(isA<ChainApiException>()),
+      );
+    });
+
+    test('the single-rate helper still answers with the half-hour tier',
+        () async {
+      final ChainApi client = api(
+        () => json(<String, Object>{
+          'fastestFee': 42,
+          'halfHourFee': 8,
+          'hourFee': 3,
+        }),
+      );
+
+      expect(
+        await client.fetchBitcoinFeeRate(NetworkCatalog.bitcoin),
+        8,
       );
     });
   });

@@ -1,3 +1,6 @@
+import 'dart:typed_data';
+
+import 'package:convert/convert.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -35,10 +38,9 @@ enum ReplacementKind {
 /// on a fee bump. [ReplacementKind.cancel] sends nothing of the user's own
 /// funds, so it needs no payload and works for every transfer.
 ///
-/// ponytail: the replacement is priced from the fast preset rather than from
-/// the stuck transaction's own fee cap, which the history API does not expose.
-/// A transaction already priced above the current fast preset is therefore not
-/// replaced — the node rejects it as underpriced.
+/// The replacement is priced from the stuck transaction's own fee cap (plus
+/// the 10% a node demands) when Blockscout exposes it, so a transaction
+/// already priced above the current fast preset can still be rescued.
 Future<void> showReplaceTransfer(
   BuildContext context, {
   required NetworkConfig network,
@@ -54,6 +56,10 @@ Future<void> showReplaceTransfer(
     return;
   }
 
+  // A speed-up of a token transfer reuses the original's calldata byte for
+  // byte; a native transfer (and the cancel) carries none.
+  final Uint8List? calldata = cancelling ? null : speedUpCalldata(original);
+
   final bool? confirmed = await showDialog<bool>(
     context: context,
     builder: (dialogContext) => AlertDialog(
@@ -66,11 +72,16 @@ Future<void> showReplaceTransfer(
             ? 'This sends 0 ${network.symbol} to yourself and reuses the '
                 'pending transaction\'s nonce, so it can never confirm. It '
                 'only works while the transaction is still pending.'
-            : 'This sends '
-                '${Units.formatWithSymbol(original.amount.abs(), network.decimals, network.symbol)} '
-                'to ${original.counterparty} again with a higher fee, reusing '
-                'the pending transaction\'s nonce. Exactly one of the two will '
-                'confirm.',
+            : calldata != null
+                ? 'This re-sends the identical token transfer to '
+                    '${original.counterparty} with a higher fee, reusing the '
+                    'pending transaction\'s nonce and calldata. Exactly one '
+                    'of the two will confirm.'
+                : 'This sends '
+                    '${Units.formatWithSymbol(original.amount.abs(), network.decimals, network.symbol)} '
+                    'to ${original.counterparty} again with a higher fee, reusing '
+                    'the pending transaction\'s nonce. Exactly one of the two will '
+                    'confirm.',
       ),
       actions: <Widget>[
         TextButton(
@@ -112,7 +123,7 @@ Future<void> showReplaceTransfer(
   final String recipient = cancelling ? ownAddress : original.counterparty;
 
   final ({BigInt baseFee, BigInt maxPriorityFeePerGas, BigInt gasLimit})? quote =
-      await controller.prepare(to: recipient, value: outgoing);
+      await controller.prepare(to: recipient, value: outgoing, data: calldata);
   if (quote == null) {
     controller.dispose();
     if (context.mounted) {
@@ -130,6 +141,9 @@ Future<void> showReplaceTransfer(
     return;
   }
 
+  final ({BigInt maxFeePerGas, BigInt maxPriorityFeePerGas}) fee =
+      replacementFeeFor(original: original, quote: quote);
+
   await showDialog<void>(
     context: context,
     barrierDismissible: false,
@@ -139,11 +153,10 @@ Future<void> showReplaceTransfer(
         to: recipient,
         value: outgoing,
         nonceOverride: nonce,
-        maxPriorityFeePerGas:
-            FeePreset.fast.tipFor(quote.maxPriorityFeePerGas),
-        maxFeePerGas:
-            FeePreset.fast.capFor(quote.baseFee, quote.maxPriorityFeePerGas),
+        maxPriorityFeePerGas: fee.maxPriorityFeePerGas,
+        maxFeePerGas: fee.maxFeePerGas,
         gasLimit: quote.gasLimit,
+        data: calldata,
       ),
     ),
   );
@@ -179,9 +192,10 @@ Future<void> showReplaceTransfer(
 /// The replacements offered for [original] on [network].
 ///
 /// Both need a known nonce on a chain the wallet can sign for. A speed-up is
-/// only offered for a plain native transfer: the calldata of a token transfer
-/// is not recoverable from the history API, and a replacement that changes the
-/// payload is rejected anyway.
+/// offered for a plain native transfer always, and for a token transfer or
+/// approval only when the API exposed the original's calldata — a replacement
+/// that cannot reproduce the payload byte for byte is rejected by the node
+/// anyway.
 List<ReplacementKind> replacementKindsFor({
   required ChainTransaction original,
   required NetworkConfig network,
@@ -206,7 +220,58 @@ List<ReplacementKind> replacementKindsFor({
   );
 
   return <ReplacementKind>[
-    if (!isTokenTransfer) ReplacementKind.speedUp,
+    if (!isTokenTransfer || speedUpCalldata(original) != null)
+      ReplacementKind.speedUp,
     ReplacementKind.cancel,
   ];
+}
+
+/// The fees a replacement must carry.
+///
+/// A node applies the geth replacement rule: the new transaction's fee cap and
+/// tip must each be at least 10% above the *original's own* values, not above
+/// whatever the current fast preset happens to be. When the history API
+/// exposed the original's caps (Blockscout v2 does) the larger of the two
+/// candidates wins; without them the fast preset is the best that can be
+/// offered.
+///
+/// Pure so the ≥110% invariant is testable without a network.
+({BigInt maxFeePerGas, BigInt maxPriorityFeePerGas}) replacementFeeFor({
+  required ChainTransaction original,
+  required ({BigInt baseFee, BigInt maxPriorityFeePerGas, BigInt gasLimit})
+      quote,
+}) {
+  final BigInt fastCap =
+      FeePreset.fast.capFor(quote.baseFee, quote.maxPriorityFeePerGas);
+  final BigInt fastTip =
+      FeePreset.fast.tipFor(quote.maxPriorityFeePerGas);
+
+  final BigInt bumpedCap = _bump(original.maxFeePerGas);
+  final BigInt bumpedTip = _bump(original.maxPriorityFeePerGas);
+
+  return (
+    maxFeePerGas: bumpedCap > fastCap ? bumpedCap : fastCap,
+    maxPriorityFeePerGas: bumpedTip > fastTip ? bumpedTip : fastTip,
+  );
+}
+
+/// [value] raised by the geth replacement percentage (10%), or zero when the
+/// original value is unknown — the caller falls back to its own preset then.
+BigInt _bump(BigInt? value) => value == null
+    ? BigInt.zero
+    : value * BigInt.from(11) ~/ BigInt.from(10) + BigInt.one;
+
+/// The original's calldata as signing bytes, or `null` when it carried none
+/// (a plain native transfer, cancel, or an API that does not expose
+/// `raw_input`).
+Uint8List? speedUpCalldata(ChainTransaction original) {
+  final String? raw = original.rawInput;
+  if (raw == null || raw.length <= 2) {
+    return null;
+  }
+  try {
+    return Uint8List.fromList(hex.decode(raw.substring(2)));
+  } on FormatException {
+    return null;
+  }
 }

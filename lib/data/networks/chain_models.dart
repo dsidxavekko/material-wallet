@@ -17,6 +17,10 @@ class ChainTransaction {
     required this.confirmed,
     this.failed = false,
     this.nonce,
+    this.maxFeePerGas,
+    this.maxPriorityFeePerGas,
+    this.gasLimit,
+    this.rawInput,
   });
 
   final String hash;
@@ -38,6 +42,23 @@ class ChainTransaction {
   /// Needed to replace a stuck transaction with the same nonce (a cancel).
   final int? nonce;
 
+  /// EIP-1559 fee cap of the original transaction, in wei per gas.
+  ///
+  /// A replacement must bid above *this*, not above the current fast preset —
+  /// the node rejects anything below the original's own fee cap + 10%.
+  final BigInt? maxFeePerGas;
+
+  /// Priority tip of the original transaction, in wei per gas.
+  final BigInt? maxPriorityFeePerGas;
+
+  /// Gas limit of the original transaction.
+  final BigInt? gasLimit;
+
+  /// Calldata of the original transaction as `0x…` hex, when the API exposes
+  /// it. A speed-up must carry a byte-identical payload, so this is what lets
+  /// a token transfer or approval be replaced at all.
+  final String? rawInput;
+
   bool get isPending => !confirmed && !failed;
 
   /// Formatted amount including the coin ticker, e.g. `-0.015 BTC`.
@@ -56,6 +77,10 @@ class ChainTransaction {
         'confirmed': confirmed,
         'failed': failed,
         'nonce': nonce,
+        'maxFeePerGas': maxFeePerGas?.toString(),
+        'maxPriorityFeePerGas': maxPriorityFeePerGas?.toString(),
+        'gasLimit': gasLimit?.toString(),
+        'rawInput': rawInput,
       };
 
   factory ChainTransaction.fromJson(Map<String, Object?> json) =>
@@ -69,7 +94,59 @@ class ChainTransaction {
         confirmed: json['confirmed'] as bool? ?? false,
         failed: json['failed'] as bool? ?? false,
         nonce: (json['nonce'] as num?)?.toInt(),
+        // Optional replacement fields: an older cache simply has none.
+        maxFeePerGas: BigInt.tryParse(json['maxFeePerGas'] as String? ?? ''),
+        maxPriorityFeePerGas:
+            BigInt.tryParse(json['maxPriorityFeePerGas'] as String? ?? ''),
+        gasLimit: BigInt.tryParse(json['gasLimit'] as String? ?? ''),
+        rawInput: json['rawInput'] as String?,
       );
+}
+
+/// mempool.space's ready-made confirmation targets, in sat/vB.
+///
+/// The API publishes real tiers; multiplying one of them by 0.5 or 2 (as the
+/// wallet used to) invents rates the network did not ask for. Each preset maps
+/// to a tier directly: Slow → [hourFee], Normal → [halfHourFee],
+/// Fast → [fastestFee].
+class BitcoinFeeTiers {
+  const BitcoinFeeTiers({
+    required this.fastestFee,
+    required this.halfHourFee,
+    required this.hourFee,
+  });
+
+  /// Fee for the next block, ~10 minutes.
+  final int fastestFee;
+
+  /// Fee for ~30 minutes.
+  final int halfHourFee;
+
+  /// Fee for ~1 hour.
+  final int hourFee;
+
+  /// All three tiers from the `/v1/fees/recommended` JSON, or `null` when a
+  /// tier is missing or nonsensical — the caller must not guess a fee.
+  static BitcoinFeeTiers? fromJson(Map<String, Object?> json) {
+    final int? fastest = _tier(json['fastestFee']);
+    final int? halfHour = _tier(json['halfHourFee']);
+    final int? hour = _tier(json['hourFee']);
+    if (fastest == null || halfHour == null || hour == null) {
+      return null;
+    }
+    return BitcoinFeeTiers(
+      fastestFee: fastest,
+      halfHourFee: halfHour,
+      hourFee: hour,
+    );
+  }
+
+  static int? _tier(Object? raw) {
+    if (raw is num && raw > 0) {
+      return raw.ceil();
+    }
+    return null;
+  }
 }
 
 /// Spot price of the network's native coin plus its 24h change.

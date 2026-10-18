@@ -44,15 +44,19 @@ class AddressGuard {
   }
 
   /// The comparable characters of [address]: trimmed, lower-cased, and without
-  /// the `0x` prefix, which every EVM address shares and which would otherwise
-  /// eat two of the four head characters.
+  /// the prefix every address of its chain shares — `0x` on EVM, `bc1`/`tb1`
+  /// on Bitcoin — which would otherwise eat head characters that carry no
+  /// distinguishing information.
   ///
   /// `null` when the string is too short to have a middle at all — a label like
   /// `Unknown` would otherwise match everything.
   static String? _body(String address) {
-    final String trimmed = address.trim().toLowerCase();
-    final String bare =
-        trimmed.startsWith('0x') ? trimmed.substring(2) : trimmed;
+    String bare = address.trim().toLowerCase();
+    if (bare.startsWith('0x')) {
+      bare = bare.substring(2);
+    } else if (bare.startsWith('bc1') || bare.startsWith('tb1')) {
+      bare = bare.substring(3);
+    }
     return bare.length >= headChars + tailChars + 4 ? bare : null;
   }
 }

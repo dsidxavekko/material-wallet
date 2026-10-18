@@ -14,10 +14,11 @@ import 'wallet_controller.dart';
 /// pending and fires a system notification the moment it turns confirmed — even
 /// if that happens after a restart, because the pending set is persisted.
 ///
-/// ponytail: confirmation is only noticed while the app is running (or when it
-/// next syncs). A transfer that confirms while the app is fully closed is
-/// announced on the next launch, not in real time; a background worker would be
-/// needed to do better.
+/// ponytail: confirmation is only noticed while the app is running and the
+/// wallet is unlocked (WalletController polls a pending transfer every 20–60 s
+/// and the watcher reacts to each reload). A transfer that confirms while the
+/// app is fully closed or locked is announced on the next launch, not in real
+/// time; a background worker would be needed to do better.
 class ConfirmationWatcher {
   ConfirmationWatcher({
     required this.wallet,

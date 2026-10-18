@@ -1,10 +1,11 @@
-import 'dart:math' as math;
+import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
 import '../core/utils/app_log.dart';
 import '../data/models/chain_kind.dart';
 import '../data/networks/chain_api.dart';
+import '../data/networks/chain_models.dart';
 import '../data/networks/network_config.dart';
 import '../data/wallet/address_deriver.dart';
 import '../data/wallet/bitcoin_signer.dart';
@@ -42,18 +43,17 @@ enum FeePreset {
   BigInt capFor(BigInt baseFee, BigInt tip) =>
       baseFee * BigInt.two + tipFor(tip);
 
-  /// Bitcoin satoshis per virtual byte for this preset given a network
-  /// [recommended] rate.
+  /// The satoshis-per-vbyte this preset selects from the network's published
+  /// [tiers]: Slow confirms within an hour, Normal within half an hour, Fast
+  /// targets the next block.
   ///
-  /// The tip/handling of EIP-1559 does not apply here; only the multiplier does.
-  /// The slow preset never drops below 1 sat/vB, which is the lowest rate a
-  /// node will relay.
-  int satPerVbFor(int recommended) => switch (this) {
-        FeePreset.slow => math.max(1, recommended ~/ 2),
-        FeePreset.normal => recommended,
-        FeePreset.fast => recommended * 2,
+  /// The tip/handling of EIP-1559 does not apply here; only the target does.
+  int satPerVbFor(BitcoinFeeTiers tiers) => switch (this) {
+        FeePreset.slow => tiers.hourFee,
+        FeePreset.normal => tiers.halfHourFee,
+        FeePreset.fast => tiers.fastestFee,
         // Unused: the UI builds the custom rate from the user's own input.
-        FeePreset.custom => recommended,
+        FeePreset.custom => tiers.halfHourFee,
       };
 }
 
@@ -276,15 +276,15 @@ class SendController extends ChangeNotifier {
 
   // --- Bitcoin transfer -----------------------------------------------------
 
-  /// The network's recommended sat/vB rate, or `null` when it is unavailable.
-  Future<int?> recommendedBitcoinFeeRate() async {
+  /// The network's ready-made confirmation tiers, or `null` when unavailable.
+  Future<BitcoinFeeTiers?> recommendedBitcoinFeeTiers() async {
     if (network.chain != ChainKind.bitcoin) {
       return null;
     }
     try {
-      return await _chainApi.fetchBitcoinFeeRate(network);
+      return await _chainApi.fetchBitcoinFeeTiers(network);
     } catch (error) {
-      AppLog.warning('Bitcoin fee rate unavailable', error);
+      AppLog.warning('Bitcoin fee tiers unavailable', error);
       return null;
     }
   }
