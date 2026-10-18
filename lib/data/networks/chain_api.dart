@@ -110,6 +110,29 @@ class ChainApi {
     return _parseEvmTransactions(json, address);
   }
 
+  /// What the explorer knows about [address], for the pre-signature recipient
+  /// check: a scam flag, a token contract, an ENS name.
+  ///
+  /// Only Blockscout-backed EVM networks answer this; every other chain
+  /// returns `null` and the caller skips the check rather than guessing.
+  /// Throws [ChainApiException] when the lookup fails — the caller must show
+  /// "could not verify", never treat silence as a pass.
+  Future<AddressInfo?> fetchAddressInfo(
+    NetworkConfig network,
+    String address,
+  ) async {
+    if (network.chain != ChainKind.evm || network.rpcUrl != null) {
+      return null;
+    }
+
+    final Object? json = await _get('${network.apiBase}/addresses/$address');
+    if (json is! Map<String, Object?>) {
+      // 404: a fresh address with no history. Nothing to warn about.
+      return null;
+    }
+    return AddressInfo.fromJson(json);
+  }
+
   /// Rough network fee for a simple transfer, in the smallest unit.
   ///
   /// Returns `null` when no estimate is available, so the UI can say "unknown"

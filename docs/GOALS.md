@@ -233,7 +233,7 @@ fields.
 ### Milestone B — "Safer sending" · ~4 days
 
 **B1. Recipient check before signing** · half a day to a day · **biggest
-safety gain per hour of work**
+safety gain per hour of work** · ✓ done 18.10.2026
 
 One GET to `{apiBase}/addresses/{to}` on Blockscout networks (checked:
 `is_contract`, `is_scam`, `token`, `ens_domain_name`):

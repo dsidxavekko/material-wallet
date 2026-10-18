@@ -83,6 +83,12 @@ class WalletController extends ChangeNotifier {
   /// Returns `null` when the estimate is unavailable.
   Future<BigInt?> estimateFee() => _chainApi.fetchFeeEstimate(network);
 
+  /// What the explorer knows about [address] on the active network, for the
+  /// pre-signature recipient check. `null` when the chain has no address
+  /// index; throws [ChainApiException] when the lookup itself failed.
+  Future<AddressInfo?> fetchAddressInfo(String address) =>
+      _chainApi.fetchAddressInfo(network, address);
+
   @override
   void dispose() {
     _disposed = true;

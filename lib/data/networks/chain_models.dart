@@ -213,6 +213,45 @@ class TokenApproval {
       : Units.format(amount, decimals, maxDecimals: 4);
 }
 
+/// What the explorer knows about an address, fetched just before signing.
+///
+/// The signals that matter most: `is_scam` and whether the address *is* a
+/// token contract — funds sent to a token contract are, with rare exceptions,
+/// unrecoverable, and no amount of UI polish after the fact brings them back.
+class AddressInfo {
+  const AddressInfo({
+    required this.isContract,
+    required this.isScam,
+    this.tokenSymbol,
+    this.ensDomain,
+  });
+
+  factory AddressInfo.fromJson(Map<String, Object?> json) {
+    final Object? token = json['token'];
+    return AddressInfo(
+      isContract: json['is_contract'] as bool? ?? false,
+      isScam: json['is_scam'] as bool? ?? false,
+      tokenSymbol: token is Map<String, Object?> ? token['symbol'] as String? : null,
+      ensDomain: json['ens_domain_name'] as String?,
+    );
+  }
+
+  /// A contract (Safe, exchange wallet, app) rather than a person.
+  final bool isContract;
+
+  /// Flagged by the explorer as a scam address.
+  final bool isScam;
+
+  /// Ticker of the token this address is the contract of, or `null` when it is
+  /// not a token contract.
+  final String? tokenSymbol;
+
+  /// ENS name (`vitalik.eth`), when the explorer knows one.
+  final String? ensDomain;
+
+  bool get isTokenContract => tokenSymbol != null;
+}
+
 /// Everything the UI needs to render the account for the selected network.
 class AccountSnapshot {
   const AccountSnapshot({

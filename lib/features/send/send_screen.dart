@@ -10,6 +10,7 @@ import '../../core/utils/formatters.dart';
 import '../../core/utils/units.dart';
 import '../../data/deep_links/payment_link.dart';
 import '../../data/models/chain_kind.dart';
+import '../../data/networks/chain_api.dart';
 import '../../data/networks/chain_models.dart';
 import '../../data/networks/network_config.dart';
 import '../../data/wallet/address_guard.dart';
@@ -17,6 +18,7 @@ import '../../data/wallet/address_validator.dart';
 import '../../data/wallet/bitcoin_signer.dart';
 import '../../data/wallet/contact_store.dart';
 import '../../data/wallet/evm_signer.dart';
+import '../../data/wallet/recipient_check.dart';
 import '../../shared/widgets/empty_state.dart';
 import '../../state/contacts_controller.dart';
 import '../../state/send_controller.dart';
@@ -753,7 +755,30 @@ class _SendScreenState extends State<SendScreen> {
     final bool alreadySaved = contacts.contains(recipient, network.id);
     final bool canSend = network.canSign && (_isBitcoin ? _btcPlan != null : _quote != null);
 
-    final VoidCallback? onSend = !canSend
+    // Ask the explorer about the recipient while the sheet opens, so a scam
+    // flag or a token-contract address is seen before the signature, not after
+    // the money is gone. A failed lookup is reported, never assumed clean.
+    bool lookupFailed = false;
+    AddressInfo? info;
+    if (network.chain == ChainKind.evm) {
+      try {
+        info = await context.read<WalletController>().fetchAddressInfo(recipient);
+      } on ChainApiException {
+        lookupFailed = true;
+      }
+      if (!mounted) {
+        return;
+      }
+    }
+    final RecipientCheck check = checkRecipient(
+      recipient: recipient,
+      isTokenTransfer: _isToken,
+      tokenContract: widget.token?.contractAddress,
+      info: info,
+      lookupFailed: lookupFailed,
+    );
+
+    final VoidCallback? onSend = !canSend || !check.maySend
         ? null
         : _isBitcoin
             ? () => _signAndSendBitcoin(recipient)
@@ -766,6 +791,7 @@ class _SendScreenState extends State<SendScreen> {
       builder: (_) => _PreparedSheet(
         network: network,
         recipient: recipient,
+        check: check,
         amount: _enteredAmount,
         amountDecimals: _decimals,
         amountSymbol: _symbol,
@@ -1327,6 +1353,7 @@ class _PreparedSheet extends StatelessWidget {
   const _PreparedSheet({
     required this.network,
     required this.recipient,
+    required this.check,
     required this.amount,
     required this.amountDecimals,
     required this.amountSymbol,
@@ -1341,6 +1368,10 @@ class _PreparedSheet extends StatelessWidget {
 
   final NetworkConfig network;
   final String recipient;
+
+  /// The pre-signature check of the recipient; its [RecipientCheck.message]
+  /// is shown, and a [RecipientRisk.block] disables the send button.
+  final RecipientCheck check;
   final BigInt amount;
   final int amountDecimals;
   final String amountSymbol;
@@ -1378,6 +1409,10 @@ class _PreparedSheet extends StatelessWidget {
             ),
             const SizedBox(height: 18),
             _line(context, 'To', recipient),
+            if (check.risk != RecipientRisk.none) ...<Widget>[
+              const SizedBox(height: 12),
+              _RecipientWarning(check: check),
+            ],
             _line(
               context,
               'Amount',
@@ -1427,12 +1462,15 @@ class _PreparedSheet extends StatelessWidget {
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      onSend == null
-                        ? 'Sending is not supported on ${network.name} yet. '
-                            'Restore your recovery phrase in a signing wallet '
-                            'to move funds.'
-                        : 'The transfer is signed on this device and sent '
-                            'straight to ${network.name}. It cannot be undone.',
+                      !check.maySend
+                        ? 'Sending is blocked until you fix the recipient '
+                            'above.'
+                        : onSend == null
+                          ? 'Sending is not supported on ${network.name} yet. '
+                              'Restore your recovery phrase in a signing wallet '
+                              'to move funds.'
+                          : 'The transfer is signed on this device and sent '
+                              'straight to ${network.name}. It cannot be undone.',
                     style: text.bodySmall?.copyWith(
                       color: scheme.onTertiaryContainer,
                       height: 1.45,
@@ -1572,6 +1610,49 @@ class _PoisonWarning extends StatelessWidget {
                       ),
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A finding from the pre-signature recipient check, shown on the review sheet.
+class _RecipientWarning extends StatelessWidget {
+  const _RecipientWarning({required this.check});
+
+  final RecipientCheck check;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final bool serious = check.risk == RecipientRisk.warn ||
+        check.risk == RecipientRisk.block;
+    final Color background =
+        serious ? scheme.errorContainer : scheme.tertiaryContainer;
+    final Color foreground = serious
+        ? scheme.onErrorContainer
+        : scheme.onTertiaryContainer;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Icon(Icons.warning_amber_rounded, color: foreground),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              check.message,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: foreground,
+                    height: 1.4,
+                  ),
             ),
           ),
         ],
