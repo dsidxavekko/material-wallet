@@ -89,23 +89,75 @@ class _PendingChainApi extends ChainApi {
   }
 
   @override
-  Future<List<ChainTransaction>> fetchTransactions(
+  Future<ActivityPage> fetchActivityPage(
+    NetworkConfig network,
+    String address, {
+    ActivityCursor? after,
+  }) async {
+    transactionReads++;
+    return ActivityPage(
+      native: <ChainTransaction>[
+        ChainTransaction(
+          hash: '0xpending',
+          timestamp: DateTime(2026),
+          amount: -BigInt.from(1000),
+          fee: BigInt.one,
+          counterparty: '0xdef',
+          isIncoming: false,
+          confirmed: pendingLoads == 0,
+          nonce: 3,
+        ),
+      ],
+    );
+  }
+
+  @override
+  Future<List<TokenBalance>> fetchTokenBalances(
     NetworkConfig network,
     String address,
-  ) async {
-    transactionReads++;
-    return <ChainTransaction>[
-      ChainTransaction(
-        hash: '0xpending',
-        timestamp: DateTime(2026),
-        amount: -BigInt.from(1000),
-        fee: BigInt.one,
-        counterparty: '0xdef',
-        isIncoming: false,
-        confirmed: pendingLoads == 0,
-        nonce: 3,
-      ),
-    ];
+  ) async =>
+      const <TokenBalance>[];
+
+  @override
+  void dispose() {}
+}
+
+/// Chain whose history has two pages; the second is reached with a cursor.
+class _PagedChainApi extends ChainApi {
+  int pageReads = 0;
+  bool failMore = false;
+
+  ChainTransaction _row(String hash, int day) => ChainTransaction(
+        hash: hash,
+        timestamp: DateTime(2026, 1, day),
+        amount: BigInt.one,
+        fee: BigInt.zero,
+        counterparty: '0xabc',
+        isIncoming: true,
+        confirmed: true,
+      );
+
+  @override
+  Future<BigInt> fetchBalance(NetworkConfig network, String address) async =>
+      BigInt.one;
+
+  @override
+  Future<ActivityPage> fetchActivityPage(
+    NetworkConfig network,
+    String address, {
+    ActivityCursor? after,
+  }) async {
+    pageReads++;
+    if (after == null) {
+      return ActivityPage(
+        native: <ChainTransaction>[_row('0xnew', 5), _row('0xmid', 4)],
+        next: const ActivityCursor(native: <String, String>{'page': '2'}),
+      );
+    }
+    if (failMore) {
+      throw const ChainApiException('Could not reach the blockchain API.');
+    }
+    return ActivityPage(native: <ChainTransaction>[_row('0xold', 1)]);
   }
 
   @override
@@ -591,6 +643,74 @@ void main() {
       // Nothing is pending, so the poller must stay silent.
       await Future<void>.delayed(const Duration(milliseconds: 60));
       expect(historyReads, 1);
+
+      wallet.dispose();
+    });
+  });
+
+  group('load more (A7)', () {
+    Future<(WalletController, _PagedChainApi)> loaded() async {
+      final WalletIdentityController identity = await storedWallet();
+      await identity.unlock(pin);
+      final _PagedChainApi api = _PagedChainApi();
+      final WalletController wallet = WalletController(
+        identity: identity,
+        settings: SettingsController(),
+        chainApi: api,
+        priceApi: _FakePriceApi(),
+      );
+      await settle(wallet);
+      return (wallet, api);
+    }
+
+    test('appends the older page and exhausts the cursor', () async {
+      final (WalletController wallet, _PagedChainApi api) = await loaded();
+
+      expect(wallet.canLoadMore, isTrue);
+      expect(wallet.snapshot!.transactions, hasLength(2));
+
+      await wallet.loadMoreActivity();
+
+      expect(
+        wallet.snapshot!.transactions.map((ChainTransaction t) => t.hash),
+        <String>['0xnew', '0xmid', '0xold'],
+      );
+      expect(wallet.canLoadMore, isFalse);
+
+      // Asking again with nothing left does not touch the network.
+      final int reads = api.pageReads;
+      await wallet.loadMoreActivity();
+      expect(api.pageReads, reads);
+
+      wallet.dispose();
+    });
+
+    test('a refresh keeps the older rows the user already loaded', () async {
+      final (WalletController wallet, _) = await loaded();
+      await wallet.loadMoreActivity();
+
+      await wallet.refresh();
+      await settle(wallet);
+
+      expect(wallet.snapshot!.transactions, hasLength(3));
+      expect(wallet.canLoadMore, isFalse);
+
+      wallet.dispose();
+    });
+
+    test('a failure keeps the cursor so the button can retry', () async {
+      final (WalletController wallet, _PagedChainApi api) = await loaded();
+      api.failMore = true;
+
+      await wallet.loadMoreActivity();
+      expect(wallet.loadMoreError, isNotNull);
+      expect(wallet.canLoadMore, isTrue);
+      expect(wallet.snapshot!.transactions, hasLength(2));
+
+      api.failMore = false;
+      await wallet.loadMoreActivity();
+      expect(wallet.loadMoreError, isNull);
+      expect(wallet.snapshot!.transactions, hasLength(3));
 
       wallet.dispose();
     });

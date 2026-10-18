@@ -133,7 +133,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
                       currency: currency,
                       price: snapshot.price,
                       counterpartyLabel: contacts.labelFor(
-                        item.counterparty,
+                        item.displayCounterparty,
                         snapshot.network.id,
                       ),
                       onExplorer: () => openExplorer(
@@ -151,6 +151,8 @@ class _ActivityScreenState extends State<ActivityScreen> {
                     )
                   else if (item is String)
                     _DayHeader(label: item),
+              if (wallet.canLoadMore || wallet.loadMoreError != null)
+                _LoadMore(wallet: wallet),
             ],
           ],
         ),
@@ -217,6 +219,48 @@ class _ActivityScreenState extends State<ActivityScreen> {
       items.add(entry);
     }
     return items;
+  }
+}
+
+/// "Load more" at the foot of the feed; older history is fetched on demand.
+class _LoadMore extends StatelessWidget {
+  const _LoadMore({required this.wallet});
+
+  final WalletController wallet;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      child: Column(
+        children: <Widget>[
+          if (wallet.loadMoreError != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                wallet.loadMoreError!,
+                textAlign: TextAlign.center,
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: scheme.error),
+              ),
+            ),
+          OutlinedButton.icon(
+            onPressed: wallet.loadingMore ? null : wallet.loadMoreActivity,
+            icon: wallet.loadingMore
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.expand_more_rounded),
+            label: Text(wallet.loadingMore ? 'Loading…' : 'Load more'),
+          ),
+        ],
+      ),
+    );
   }
 }
 

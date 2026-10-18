@@ -16,7 +16,7 @@ String buildActivityCsv(AccountSnapshot snapshot) {
 
   final StringBuffer buffer = StringBuffer();
   buffer.writeln(
-    'date,network,direction,amount,ticker,fee,counterparty,hash,status',
+    'date,network,direction,amount,ticker,fee,fee_ticker,counterparty,hash,status',
   );
 
   for (final ChainTransaction tx in snapshot.transactions) {
@@ -29,10 +29,15 @@ String buildActivityCsv(AccountSnapshot snapshot) {
       tx.timestamp.toUtc().toIso8601String(),
       snapshot.network.name,
       tx.isIncoming ? 'in' : 'out',
-      Units.format(tx.amount.abs(), decimals, group: false),
-      snapshot.network.symbol,
+      // A token row reports the token amount in the token's own ticker; the gas
+      // it cost stays a separate column in the chain's coin.
+      tx.isToken
+          ? Units.format(tx.tokenAmount!, tx.tokenDecimals!, group: false)
+          : Units.format(tx.amount.abs(), decimals, group: false),
+      tx.isToken ? tx.tokenSymbol! : snapshot.network.symbol,
       Units.format(tx.fee, decimals, group: false),
-      tx.counterparty,
+      snapshot.network.symbol,
+      tx.displayCounterparty,
       tx.hash,
       status,
     ].map(_escape).join(','));

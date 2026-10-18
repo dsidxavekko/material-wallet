@@ -53,7 +53,9 @@ class TransactionTile extends StatelessWidget {
       _ => scheme.primary,
     };
 
-    final String? fiat = price == null
+    // The coin price says nothing about a token amount, so token rows carry no
+    // fiat figure rather than a wrong one.
+    final String? fiat = price == null || transaction.isToken
         ? null
         : AppFormat.fiat(
             Units.toDouble(transaction.amount.abs(), network.decimals) *
@@ -91,8 +93,10 @@ class TransactionTile extends StatelessWidget {
                     children: <Widget>[
                       Flexible(
                         child: Text(
-                          '${transaction.isIncoming ? 'Received' : 'Sent'} '
-                          '${network.symbol}',
+                          transaction.isApproval && !transaction.isToken
+                              ? 'Token approval'
+                              : '${transaction.isIncoming ? 'Received' : 'Sent'} '
+                                  '${transaction.tokenSymbol ?? network.symbol}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: text.titleSmall
@@ -111,7 +115,7 @@ class TransactionTile extends StatelessWidget {
                   const SizedBox(height: 3),
                   Text(
                     '${AppFormat.relativeTime(transaction.timestamp)} · '
-                    '${counterpartyLabel ?? AppFormat.shortAddress(transaction.counterparty, head: 6, tail: 4)}',
+                    '${counterpartyLabel ?? AppFormat.shortAddress(transaction.displayCounterparty, head: 6, tail: 4)}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: text.bodySmall
@@ -128,9 +132,9 @@ class TransactionTile extends StatelessWidget {
                   transaction.amountLabel(network),
                   style: text.titleSmall?.copyWith(
                     fontWeight: FontWeight.w700,
-                    color: transaction.amount.isNegative
-                        ? scheme.onSurface
-                        : semantic.positive,
+                    color: transaction.isIncoming
+                        ? semantic.positive
+                        : scheme.onSurface,
                   ),
                 ),
                 if (fiat != null) ...<Widget>[

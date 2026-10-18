@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../core/utils/app_log.dart';
 import '../data/models/chain_kind.dart';
+import '../data/networks/activity_merge.dart';
 import '../data/networks/chain_api.dart';
 import '../data/networks/chain_models.dart';
 import '../data/networks/network_config.dart';
@@ -65,6 +66,19 @@ class WalletController extends ChangeNotifier {
   static const Duration _evmPollInterval = Duration(seconds: 20);
   static const Duration _bitcoinPollInterval = Duration(seconds: 60);
 
+  /// History accumulated across pages for the active (network, address).
+  ///
+  /// Kept raw — native rows and token transfers apart — and merged again on
+  /// every change, because a token transfer and its call can arrive on
+  /// different pages.
+  List<ChainTransaction> _nativeRows = const <ChainTransaction>[];
+  List<TokenTransfer> _transferRows = const <TokenTransfer>[];
+  ActivityCursor? _activityCursor;
+  String? _activityKey;
+  bool _olderLoaded = false;
+  bool _loadingMore = false;
+  String? _loadMoreError;
+
   /// Total USD value of the last cached snapshot of every network, when known.
   double? _portfolioFiat;
 
@@ -82,6 +96,14 @@ class WalletController extends ChangeNotifier {
   double? get portfolioFiat => _portfolioFiat;
 
   String? get error => _error;
+
+  /// Whether older history can still be fetched for the active account.
+  bool get canLoadMore => _activityCursor != null;
+
+  bool get loadingMore => _loadingMore;
+
+  /// Why the last "load more" failed, or `null`.
+  String? get loadMoreError => _loadMoreError;
 
   /// Whether the last [error] is worth retrying (network hiccups are, a
   /// malformed response is not).
@@ -230,7 +252,7 @@ class WalletController extends ChangeNotifier {
       final List<Object?> results =
           await Future.wait<Object?>(<Future<Object?>>[
         _chainApi.fetchBalance(network, address),
-        _chainApi.fetchTransactions(network, address),
+        _chainApi.fetchActivityPage(network, address),
         _chainApi.fetchTokenBalances(network, address),
         network.priceId == null
             ? Future<Object?>.value()
@@ -245,8 +267,7 @@ class WalletController extends ChangeNotifier {
       }
 
       final BigInt balance = results[0]! as BigInt;
-      final List<ChainTransaction> transactions =
-          results[1]! as List<ChainTransaction>;
+      final ActivityPage page = results[1]! as ActivityPage;
       final List<TokenBalance> tokens = results[2]! as List<TokenBalance>;
       final CoinPrice? fetchedPrice = results[3] as CoinPrice?;
       final List<double> fetchedChart = results[4]! as List<double>;
@@ -264,17 +285,67 @@ class WalletController extends ChangeNotifier {
           ? fetchedChart
           : (sameNetwork ? previous?.chart ?? const <double>[] : fetchedChart);
 
+      // Older pages already loaded stay put across a reload (a poll tick must
+      // not throw away what the user scrolled to); the fresh first page
+      // replaces its own rows, and anything still pending is re-read from it.
+      final String activityKey = '${network.id}|$address';
+      final bool keepOlder = _activityKey == activityKey && _olderLoaded;
+      _nativeRows = keepOlder
+          ? _dedupe<ChainTransaction>(
+              <ChainTransaction>[
+                ...page.native,
+                ..._nativeRows.where((ChainTransaction t) => t.confirmed),
+              ],
+              (ChainTransaction t) => t.hash.toLowerCase(),
+            )
+          : page.native;
+      _transferRows = keepOlder
+          ? _dedupe<TokenTransfer>(
+              <TokenTransfer>[...page.transfers, ..._transferRows],
+              _transferKey,
+            )
+          : page.transfers;
+      if (!keepOlder) {
+        _activityCursor = page.next;
+        _olderLoaded = false;
+      }
+      _activityKey = activityKey;
+      _loadMoreError = null;
+
       _snapshot = AccountSnapshot(
         network: network,
         address: address,
         balance: balance,
-        transactions: transactions,
+        transactions: mergeTokenTransfers(
+          native: _nativeRows,
+          transfers: _transferRows,
+          address: address,
+        ),
         chart: chart,
         price: price,
         tokens: tokens,
         fetchedAt: DateTime.now(),
       );
-      unawaited(_cache.write(_snapshot!));
+      // Only the first page is persisted: the cache exists to paint the screen
+      // before the network answers, not to archive history.
+      unawaited(
+        _cache.write(
+          AccountSnapshot(
+            network: network,
+            address: address,
+            balance: balance,
+            transactions: mergeTokenTransfers(
+              native: page.native,
+              transfers: page.transfers,
+              address: address,
+            ),
+            chart: chart,
+            price: price,
+            tokens: tokens,
+            fetchedAt: _snapshot!.fetchedAt,
+          ),
+        ),
+      );
       unawaited(_refreshPortfolio());
     } on ChainApiException catch (error) {
       if (token != _requestToken) {
@@ -302,6 +373,76 @@ class WalletController extends ChangeNotifier {
       }
     }
   }
+
+  /// Fetches the next, older page of history and appends it.
+  ///
+  /// A failure keeps the cursor, so the same button can simply be tapped again.
+  Future<void> loadMoreActivity() async {
+    final ActivityCursor? cursor = _activityCursor;
+    final AccountSnapshot? current = _snapshot;
+    if (cursor == null || current == null || _loadingMore) {
+      return;
+    }
+    final String key = '${current.network.id}|${current.address}';
+    _loadingMore = true;
+    _loadMoreError = null;
+    _safeNotify();
+    try {
+      final ActivityPage page = await _chainApi.fetchActivityPage(
+        current.network,
+        current.address,
+        after: cursor,
+      );
+      if (_disposed || _activityKey != key) {
+        return;
+      }
+      _nativeRows = _dedupe<ChainTransaction>(
+        <ChainTransaction>[..._nativeRows, ...page.native],
+        (ChainTransaction t) => t.hash.toLowerCase(),
+      );
+      _transferRows = _dedupe<TokenTransfer>(
+        <TokenTransfer>[..._transferRows, ...page.transfers],
+        _transferKey,
+      );
+      _activityCursor = page.next;
+      _olderLoaded = true;
+      final AccountSnapshot base = _snapshot ?? current;
+      _snapshot = AccountSnapshot(
+        network: base.network,
+        address: base.address,
+        balance: base.balance,
+        transactions: mergeTokenTransfers(
+          native: _nativeRows,
+          transfers: _transferRows,
+          address: base.address,
+        ),
+        chart: base.chart,
+        price: base.price,
+        tokens: base.tokens,
+        fetchedAt: base.fetchedAt,
+      );
+    } on ChainApiException catch (error) {
+      _loadMoreError = error.message;
+    } catch (error, stackTrace) {
+      AppLog.error('Could not load more activity', error, stackTrace);
+      _loadMoreError = 'Could not load more activity.';
+    } finally {
+      _loadingMore = false;
+      _safeNotify();
+    }
+  }
+
+  /// First occurrence wins, order is kept.
+  static List<T> _dedupe<T>(List<T> items, String Function(T) keyOf) {
+    final Set<String> seen = <String>{};
+    return <T>[
+      for (final T item in items)
+        if (seen.add(keyOf(item))) item,
+    ];
+  }
+
+  static String _transferKey(TokenTransfer t) =>
+      '${t.hash}|${t.contract}|${t.from}|${t.to}|${t.value}'.toLowerCase();
 
   /// Starts or stops [_pendingPoll] to match the current snapshot.
   ///

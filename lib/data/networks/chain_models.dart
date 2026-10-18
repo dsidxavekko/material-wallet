@@ -21,6 +21,10 @@ class ChainTransaction {
     this.maxPriorityFeePerGas,
     this.gasLimit,
     this.rawInput,
+    this.tokenSymbol,
+    this.tokenDecimals,
+    this.tokenAmount,
+    this.tokenPeer,
   });
 
   final String hash;
@@ -59,10 +63,67 @@ class ChainTransaction {
   /// a token transfer or approval be replaced at all.
   final String? rawInput;
 
+  /// Ticker of the ERC-20 moved by this row, when it is a token transfer.
+  ///
+  /// The native [amount] and [fee] stay as the chain reported them — a token
+  /// transfer still costs gas — and a replacement still needs the contract in
+  /// [counterparty], so the token view lives in these separate fields.
+  final String? tokenSymbol;
+  final int? tokenDecimals;
+
+  /// Unsigned token amount in the token's smallest unit.
+  final BigInt? tokenAmount;
+
+  /// The other side of the *token* transfer (the recipient or the sender),
+  /// as opposed to [counterparty], which is the contract for a call.
+  final String? tokenPeer;
+
+  bool get isToken =>
+      tokenSymbol != null && tokenDecimals != null && tokenAmount != null;
+
+  /// `approve(address,uint256)` calldata: a permission, not a payment.
+  bool get isApproval =>
+      rawInput != null && rawInput!.toLowerCase().startsWith('0x095ea7b3');
+
+  /// Who to show as the other side: the token peer when there is one.
+  String get displayCounterparty => tokenPeer ?? counterparty;
+
   bool get isPending => !confirmed && !failed;
+
+  /// This row with the token transfer [symbol]/[amount] to/from [peer]
+  /// attached; everything native is kept as is.
+  ChainTransaction withToken({
+    required String symbol,
+    required int decimals,
+    required BigInt amount,
+    required String peer,
+  }) =>
+      ChainTransaction(
+        hash: hash,
+        timestamp: timestamp,
+        amount: this.amount,
+        fee: fee,
+        counterparty: counterparty,
+        isIncoming: isIncoming,
+        confirmed: confirmed,
+        failed: failed,
+        nonce: nonce,
+        maxFeePerGas: maxFeePerGas,
+        maxPriorityFeePerGas: maxPriorityFeePerGas,
+        gasLimit: gasLimit,
+        rawInput: rawInput,
+        tokenSymbol: symbol,
+        tokenDecimals: decimals,
+        tokenAmount: amount,
+        tokenPeer: peer,
+      );
 
   /// Formatted amount including the coin ticker, e.g. `-0.015 BTC`.
   String amountLabel(NetworkConfig network) {
+    if (isToken) {
+      return '${isIncoming ? '+' : '−'}'
+          '${Units.formatWithSymbol(tokenAmount!, tokenDecimals!, tokenSymbol!)}';
+    }
     final String sign = amount.isNegative ? '−' : '+';
     return '$sign${Units.formatWithSymbol(amount.abs(), network.decimals, network.symbol)}';
   }
@@ -81,6 +142,10 @@ class ChainTransaction {
         'maxPriorityFeePerGas': maxPriorityFeePerGas?.toString(),
         'gasLimit': gasLimit?.toString(),
         'rawInput': rawInput,
+        if (tokenSymbol != null) 'tokenSymbol': tokenSymbol,
+        if (tokenDecimals != null) 'tokenDecimals': tokenDecimals,
+        if (tokenAmount != null) 'tokenAmount': tokenAmount.toString(),
+        if (tokenPeer != null) 'tokenPeer': tokenPeer,
       };
 
   factory ChainTransaction.fromJson(Map<String, Object?> json) =>
@@ -100,7 +165,68 @@ class ChainTransaction {
             BigInt.tryParse(json['maxPriorityFeePerGas'] as String? ?? ''),
         gasLimit: BigInt.tryParse(json['gasLimit'] as String? ?? ''),
         rawInput: json['rawInput'] as String?,
+        // Optional token fields: a cache written before token rows has none.
+        tokenSymbol: json['tokenSymbol'] as String?,
+        tokenDecimals: (json['tokenDecimals'] as num?)?.toInt(),
+        tokenAmount: BigInt.tryParse(json['tokenAmount'] as String? ?? ''),
+        tokenPeer: json['tokenPeer'] as String?,
       );
+}
+
+/// One ERC-20 `Transfer` event involving the wallet, from Blockscout's
+/// `/addresses/{a}/token-transfers`.
+class TokenTransfer {
+  const TokenTransfer({
+    required this.hash,
+    required this.timestamp,
+    required this.from,
+    required this.to,
+    required this.value,
+    required this.symbol,
+    required this.decimals,
+    required this.contract,
+  });
+
+  /// Hash of the transaction that carried the event.
+  final String hash;
+  final DateTime timestamp;
+  final String from;
+  final String to;
+
+  /// Amount in the token's smallest unit.
+  final BigInt value;
+  final String symbol;
+  final int decimals;
+  final String contract;
+}
+
+/// Where the next, older page of activity starts.
+///
+/// Opaque to callers: each chain fills the parts it paginates with. On
+/// Blockscout the native list and the token-transfer list page independently,
+/// so each keeps its own `next_page_params` (`null` once that side is
+/// exhausted).
+class ActivityCursor {
+  const ActivityCursor({this.native, this.transfers});
+
+  final Map<String, String>? native;
+  final Map<String, String>? transfers;
+}
+
+/// One page of history as the API returned it, before token transfers are
+/// folded into the native rows.
+class ActivityPage {
+  const ActivityPage({
+    this.native = const <ChainTransaction>[],
+    this.transfers = const <TokenTransfer>[],
+    this.next,
+  });
+
+  final List<ChainTransaction> native;
+  final List<TokenTransfer> transfers;
+
+  /// Cursor for the following page, or `null` when this was the last.
+  final ActivityCursor? next;
 }
 
 /// mempool.space's ready-made confirmation targets, in sat/vB.
