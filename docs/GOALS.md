@@ -57,6 +57,10 @@ Facts taken from the code and from live API responses on 18 October 2026.
 
 ### 3.1. Wrong numbers on the home screen
 
+> **Updated 2026-10-18:** all three items are fixed (goals A1–A3 in §4): rates
+> come live from CoinGecko (all three in one request), the portfolio counts
+> tokens, and the version is a single constant verified by a test.
+
 - **Fiat rates are constants.** `formatters.dart:8–10`: EUR 0.92, UAH 41.5,
   with the comment "static demo values". CoinGecko today: 1 USD ≈ 0.890 EUR,
   ≈ 44.92 UAH. The hryvnia balance is understated by **~7.6%**, the euro
@@ -182,19 +186,19 @@ criterion a test can verify.
 
 ### Milestone A — "Honest numbers" · ~3 days
 
-**A1. Live fiat rates** · 1–2 h
+**A1. Live fiat rates** · 1–2 h · done 2026-10-18
 Same request in `price_api.dart`, but with `vs_currencies=usd,eur,uah` —
 CoinGecko returns all three in one call (checked). Rate = eur/usd, uah/usd; the
 constant stays as a fallback in case of 429.
 *Done when:* a test with a canonical response gives a hryvnia balance equal to
 the UAH price × balance.
 
-**A2. Portfolio with tokens** · 1–2 h
+**A2. Portfolio with tokens** · 1–2 h · done 2026-10-18
 `_refreshPortfolio()` adds token `usdValue`; tokens without a rate are not
 counted.
 *Done when:* a test: $5 in ETH + $1000 in USDC = $1005.
 
-**A3. Version from one place** · 30 min
+**A3. Version from one place** · 30 min · done 2026-10-18
 One constant plus a test that reads `pubspec.yaml` and compares. No new
 dependency.
 
@@ -323,7 +327,7 @@ history-based poisoning check on this network — the UI must say so.
 | D5. Local notes on transactions, included in CSV | half a day | hash → text map |
 | D6. ENS (`name.eth`) in the recipient field | a day | eth_call to the Universal Resolver; the resolved address is shown on review and passes B1 |
 | D7. Search in Activity by address, label or hash | 2–3 h | after A7 |
-| D8. Full provider list in About | 10 min | see 3.9 |
+| D8. Full provider list in About | 10 min | see 3.9 · done 2026-10-18 |
 
 ### Larger ideas — separate branches
 

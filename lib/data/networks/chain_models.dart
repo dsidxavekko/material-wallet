@@ -1,3 +1,4 @@
+import '../../core/utils/formatters.dart';
 import '../../core/utils/units.dart';
 import 'network_config.dart';
 
@@ -73,22 +74,52 @@ class ChainTransaction {
 
 /// Spot price of the network's native coin plus its 24h change.
 class CoinPrice {
-  const CoinPrice({required this.usd, required this.change24h});
+  const CoinPrice({
+    required this.usd,
+    required this.change24h,
+    this.eur,
+    this.uah,
+  });
 
   final double usd;
 
   /// Percentage change over the last 24 hours.
   final double change24h;
 
+  /// Optional EUR and UAH spot prices from the same quote, used to derive live
+  /// FX rates without a separate endpoint.
+  final double? eur;
+  final double? uah;
+
+  /// Applies [eur] and [uah] to [AppCurrency] when both [usd] and the target
+  /// quote are positive.
+  void applyFxRates() {
+    if (usd <= 0) {
+      return;
+    }
+    AppCurrency.updateUsdRates(
+      eur: eur != null ? eur! / usd : null,
+      uah: uah != null ? uah! / usd : null,
+    );
+  }
+
   Map<String, Object?> toJson() => <String, Object?>{
         'usd': usd,
         'change24h': change24h,
+        if (eur != null) 'eur': eur,
+        if (uah != null) 'uah': uah,
       };
 
-  factory CoinPrice.fromJson(Map<String, Object?> json) => CoinPrice(
-        usd: (json['usd'] as num).toDouble(),
-        change24h: (json['change24h'] as num?)?.toDouble() ?? 0,
-      );
+  factory CoinPrice.fromJson(Map<String, Object?> json) {
+    final CoinPrice price = CoinPrice(
+      usd: (json['usd'] as num).toDouble(),
+      change24h: (json['change24h'] as num?)?.toDouble() ?? 0,
+      eur: (json['eur'] as num?)?.toDouble(),
+      uah: (json['uah'] as num?)?.toDouble(),
+    );
+    price.applyFxRates();
+    return price;
+  }
 }
 
 /// An ERC-20 token balance returned by Blockscout.

@@ -118,6 +118,15 @@ class WalletController extends ChangeNotifier {
         total += fiat;
         any = true;
       }
+      if (cached != null) {
+        for (final TokenBalance token in cached.tokens) {
+          final double? tokenUsd = token.usdValue;
+          if (tokenUsd != null) {
+            total += tokenUsd;
+            any = true;
+          }
+        }
+      }
     }
     if (_disposed) {
       return;

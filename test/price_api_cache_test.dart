@@ -1,5 +1,8 @@
 import 'dart:convert';
 
+import 'package:crypto_wallet/core/utils/formatters.dart';
+import 'package:crypto_wallet/data/networks/chain_models.dart';
+import 'package:crypto_wallet/data/networks/network_config.dart';
 import 'package:crypto_wallet/data/networks/price_api.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -125,5 +128,43 @@ void main() {
     expect(c2, c1);
     expect(b.calls.length, 1);
     b.api.dispose();
+  });
+
+  test('live EUR and UAH quotes update FX rates so UAH balance = UAH price * balance',
+      () async {
+    AppCurrency.resetUsdRates();
+    addTearDown(AppCurrency.resetUsdRates);
+
+    final MockClient client = MockClient((request) async {
+      expect(request.url.queryParameters['vs_currencies'], 'usd,eur,uah');
+      return json(<String, Object>{
+        'bitcoin': <String, Object>{
+          'usd': 60000.0,
+          'eur': 53400.0,
+          'uah': 2695200.0,
+          'usd_24h_change': 1.5,
+        },
+      });
+    });
+    final PriceApi api = PriceApi(client: client);
+    final CoinPrice? price = await api.fetchPrice('bitcoin');
+
+    expect(price, isNotNull);
+    expect(AppCurrency.eur.usdRate, closeTo(53400.0 / 60000.0, 1e-9));
+    expect(AppCurrency.uah.usdRate, closeTo(2695200.0 / 60000.0, 1e-9));
+
+    final AccountSnapshot snapshot = AccountSnapshot(
+      network: NetworkCatalog.bitcoin,
+      address: 'bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh',
+      balance: BigInt.from(150000000), // 1.5 BTC
+      transactions: const <ChainTransaction>[],
+      chart: const <double>[],
+      fetchedAt: DateTime(2026, 10, 18),
+      price: price,
+    );
+
+    final double uahBalance = snapshot.fiatBalance! * AppCurrency.uah.usdRate;
+    expect(uahBalance, closeTo(1.5 * 2695200.0, 1e-6));
+    api.dispose();
   });
 }

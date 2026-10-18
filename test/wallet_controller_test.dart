@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:crypto_wallet/core/utils/formatters.dart';
 import 'package:crypto_wallet/data/networks/chain_api.dart';
@@ -6,6 +7,7 @@ import 'package:crypto_wallet/data/networks/network_config.dart';
 import 'package:crypto_wallet/data/networks/price_api.dart';
 import 'package:crypto_wallet/data/wallet/seed_vault.dart';
 import 'package:crypto_wallet/data/wallet/wallet_storage.dart';
+import 'package:crypto_wallet/features/settings/settings_screen.dart';
 import 'package:crypto_wallet/state/settings_controller.dart';
 import 'package:crypto_wallet/state/wallet_controller.dart';
 import 'package:crypto_wallet/state/wallet_identity_controller.dart';
@@ -303,5 +305,78 @@ void main() {
     expect(wallet.snapshot?.price?.usd, 60000);
 
     wallet.dispose();
+  });
+
+  test('portfolioFiat includes priced ERC-20 tokens ($5 ETH + $1000 USDC = $1005)',
+      () async {
+    final WalletIdentityController identity = await storedWallet();
+    await identity.unlock(pin);
+
+    final SettingsController settings = SettingsController();
+    settings.setNetwork(NetworkCatalog.ethereum);
+
+    final MockClient client = MockClient((request) async {
+      final String url = request.url.toString();
+      if (url.contains('/transactions')) {
+        return json(<String, Object>{'items': <Object>[]});
+      }
+      if (url.contains('/tokens')) {
+        return json(<String, Object>{
+          'items': <Object>[
+            <String, Object>{
+              'value': '1000000000', // 1000 USDC (6 decimals)
+              'token': <String, Object?>{
+                'symbol': 'USDC',
+                'name': 'USD Coin',
+                'decimals': '6',
+                'address_hash': '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+                'exchange_rate': '1.0',
+              },
+            },
+            <String, Object>{
+              'value': '500000000000000000000', // unpriced token — ignored
+              'token': <String, Object?>{
+                'symbol': 'MEME',
+                'name': 'Unpriced Token',
+                'decimals': '18',
+                'address_hash': '0x1111111111111111111111111111111111111111',
+                'exchange_rate': null,
+              },
+            },
+          ],
+        });
+      }
+      if (url.contains('/addresses/')) {
+        // 0.002 ETH at $2500 = $5
+        return json(<String, Object>{'coin_balance': '2000000000000000'});
+      }
+      if (url.contains('simple/price')) {
+        return json(<String, Object>{
+          'ethereum': <String, Object>{'usd': 2500.0, 'usd_24h_change': 0.5},
+        });
+      }
+      if (url.contains('market_chart')) {
+        return json(<String, Object>{'prices': <Object>[]});
+      }
+      return http.Response('{}', 404);
+    });
+
+    final WalletController wallet = buildWallet(identity, settings, client);
+    await settle(wallet);
+    // `_load` finishes before the unawaited `_refreshPortfolio()` recompute;
+    // yield a beat so portfolioFiat is settled too.
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    expect(wallet.snapshot?.fiatBalance, closeTo(5.0, 1e-6));
+    expect(wallet.portfolioFiat, closeTo(1005.0, 1e-6));
+
+    wallet.dispose();
+  });
+
+  test('appVersion and appBuildNumber match pubspec.yaml', () {
+    final String pubspec = File('pubspec.yaml').readAsStringSync();
+    final RegExpMatch? match =
+        RegExp(r'^version:\s*(\S+)', multiLine: true).firstMatch(pubspec);
+    expect(match?.group(1), '$appVersion+$appBuildNumber');
   });
 }

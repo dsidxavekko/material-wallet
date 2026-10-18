@@ -59,7 +59,7 @@ class PriceApi {
     }
     try {
       final String url = '$_base/simple/price?ids=$coinGeckoId'
-          '&vs_currencies=usd&include_24hr_change=true';
+          '&vs_currencies=usd,eur,uah&include_24hr_change=true';
       final Map<String, Object?>? json = await _getJson(url);
       final Map<String, Object?>? coin =
           json?[coinGeckoId] as Map<String, Object?>?;
@@ -73,7 +73,10 @@ class PriceApi {
       final CoinPrice price = CoinPrice(
         usd: usd.toDouble(),
         change24h: (coin['usd_24h_change'] as num?)?.toDouble() ?? 0,
+        eur: (coin['eur'] as num?)?.toDouble(),
+        uah: (coin['uah'] as num?)?.toDouble(),
       );
+      price.applyFxRates();
       _priceCache[coinGeckoId] =
           _CacheEntry<CoinPrice>(price, _now());
       return price;

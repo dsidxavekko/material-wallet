@@ -68,7 +68,7 @@ generated locally, encrypted, and stored only on this device.
 - 🔗 **Payment links** — `bitcoin:`, `ethereum:` (EIP-681), `solana:` and
   `aptos:` URIs open the app and prefill the send flow.
 - 🧮 **Portfolio total** — the account's value summed across every network it has
-  synced, shown on the home screen.
+  synced, priced ERC-20 holdings included, shown on the home screen.
 - 📷 **Receive** — real address as text and a scannable QR code.
 - 🗂️ **Your addresses** — every chain's receive address in one place, each with
   a QR code and a verify-against-a-second-device warning.
@@ -240,9 +240,9 @@ docs/
 
 ### Next: honest numbers (milestone A)
 
-- [ ] Live fiat rates for USD / EUR / UAH (replace the static demo rates).
-- [ ] Portfolio total includes ERC-20 holdings.
-- [ ] Single source of truth for the app version (About screen).
+- [x] Live fiat rates for USD / EUR / UAH (replace the static demo rates).
+- [x] Portfolio total includes ERC-20 holdings.
+- [x] Single source of truth for the app version (About screen).
 - [ ] Scanner and paste read the amount and chain id from payment links.
 - [ ] EIP-681 token payment links open a token transfer, or refuse clearly.
 - [ ] Pending transfers are polled, so "Transfer confirmed" fires without a

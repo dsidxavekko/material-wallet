@@ -992,6 +992,10 @@ class _CurrencySelector extends StatelessWidget {
   }
 }
 
+/// Application version and build number, kept in sync with `pubspec.yaml`.
+const String appVersion = '0.4.0';
+const String appBuildNumber = '5';
+
 class _AboutCard extends StatelessWidget {
   const _AboutCard();
 
@@ -1007,10 +1011,10 @@ class _AboutCard extends StatelessWidget {
               leading: const Icon(Icons.info_outline_rounded),
               title: const Text('Version'),
               subtitle: const Text('Self-custodial · BIP-39 / BIP-84 / BIP-44'),
-              trailing: const Text('0.3.0 (4)'),
+              trailing: const Text('$appVersion ($appBuildNumber)'),
               onTap: () => showAppSnackBar(
                 context,
-                'Material Wallet 0.3.0 — built with Flutter & Material 3.',
+                'Material Wallet $appVersion — built with Flutter & Material 3.',
                 icon: Icons.info_outline_rounded,
               ),
             ),
@@ -1018,7 +1022,7 @@ class _AboutCard extends StatelessWidget {
               leading: const Icon(Icons.cloud_outlined),
               title: const Text('Data sources'),
               subtitle: const Text(
-                'mempool.space · Blockscout · CoinGecko',
+                'mempool.space · Blockscout · CoinGecko · PublicNode · Solana RPC · Aptos fullnode',
               ),
               isThreeLine: true,
             ),

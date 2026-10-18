@@ -2,18 +2,37 @@ import 'package:intl/intl.dart';
 
 /// Fiat currencies the wallet can display.
 ///
-/// [usdRate] is how much one US dollar is worth in that currency. Values are
-/// static demo values — a real wallet would fetch live FX rates.
+/// [usdRate] is how much one US dollar is worth in that currency. Live rates
+/// from CoinGecko override [_fallbackUsdRate] via [updateUsdRates]; the static
+/// values remain as a fallback when the price endpoint is offline or
+/// rate-limited.
 enum AppCurrency {
   usd('USD', r'$', 1),
   eur('EUR', '€', 0.92),
   uah('UAH', '₴', 41.5);
 
-  const AppCurrency(this.code, this.symbol, this.usdRate);
+  const AppCurrency(this.code, this.symbol, this._fallbackUsdRate);
 
   final String code;
   final String symbol;
-  final double usdRate;
+  final double _fallbackUsdRate;
+
+  static final Map<AppCurrency, double> _liveUsdRates = <AppCurrency, double>{};
+
+  /// Updates live FX rates (`currency per 1 USD`) from a multi-currency quote.
+  static void updateUsdRates({double? eur, double? uah}) {
+    if (eur != null && eur > 0 && eur.isFinite) {
+      _liveUsdRates[AppCurrency.eur] = eur;
+    }
+    if (uah != null && uah > 0 && uah.isFinite) {
+      _liveUsdRates[AppCurrency.uah] = uah;
+    }
+  }
+
+  /// Restores the built-in fallback rates (used by tests).
+  static void resetUsdRates() => _liveUsdRates.clear();
+
+  double get usdRate => _liveUsdRates[this] ?? _fallbackUsdRate;
 
   String get label => '$code ($symbol)';
 }
