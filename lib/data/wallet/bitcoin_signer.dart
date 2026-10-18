@@ -345,6 +345,10 @@ class BitcoinSigner {
   /// Throws [BitcoinSigningException] with a user-facing reason whenever a safe
   /// replacement is impossible: already mined, never signalled RBF, inputs the
   /// wallet cannot sign, no change to take the fee from, or change too small.
+  ///
+  /// ponytail: speed-up only (no cancel), and the extra fee comes from change
+  /// alone — no inputs are added, so a transfer without enough change is
+  /// refused rather than rebuilt with more coins.
   static BitcoinPlan planReplacement({
     required BitcoinTxDetail original,
     required String ownAddress,

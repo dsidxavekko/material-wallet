@@ -32,12 +32,12 @@ The principles are constraints on every goal in this document:
 
 | | |
 |---|---|
-| Size | `lib/` ≈ 15.7k lines, `test/` ≈ 5.9k, ~299 tests |
+| Size | `lib/` ≈ 18.0k lines, `test/` ≈ 8.1k, 364 tests |
 | Networks | 10: Bitcoin (+ testnet), Ethereum, Sepolia, Base, Polygon, Arbitrum, BNB, Solana, Aptos |
-| Sending | EVM (EIP-1559, ERC-20, speed-up / cancel, revoke) and Bitcoin (P2WPKH). BNB, Solana, Aptos — view only |
-| Security | AES-256-GCM + PBKDF2 600k, 6–8 digit PIN, biometrics, auto-lock, backoff after wrong PINs, `FLAG_SECURE`, re-authentication before every send |
+| Sending | EVM (EIP-1559, ERC-20, speed-up / cancel, revoke) and Bitcoin (P2WPKH, RBF signalling and speed-up). BNB, Solana, Aptos — view only |
+| Security | AES-256-GCM + PBKDF2 600k, password (min. 8 characters; old 6–8 digit PINs still unlock), biometrics, auto-lock, backoff after wrong PINs, `FLAG_SECURE`, re-authentication before every send |
 | Providers | mempool.space, Blockscout, CoinGecko, publicnode, Solana RPC, Aptos fullnode |
-| `ponytail:` markers | 2 |
+| `ponytail:` markers | 4 |
 
 Three things are done unusually well:
 
@@ -74,6 +74,17 @@ Facts taken from the code and from live API responses on 18 October 2026.
   this once; while the number is hardcoded it will drift with every release.
 
 ### 3.2. Activity does not show everything
+
+> **Updated 2026-10-18:** fixed (goal A7 in §4). Activity merges the ERC-20
+> token-transfer feed into the native history (a token send is one row that
+> keeps the fee, an incoming transfer shows), pages both feeds via
+> `next_page_params` ("Load more"), pages Bitcoin via `/txs/chain/{txid}`, and
+> the CSV reports token amounts and has a fee-ticker column. Still open, and
+> marked `ponytail:` in `activity.dart`: Solana (6) and Aptos (15) stay on their
+> first page, NFT transfers are skipped, and a *pending* token send reads as a
+> fee-only row until it is mined. The parser follows the Blockscout v2 shape
+> recorded below; it was tested against canned responses, not a live one (the
+> session that built it could not reach Blockscout).
 
 - **Token transfers are invisible.** Only `/addresses/{a}/transactions` is
   read (`chain_api.dart:108`). An incoming USDC transfer never appears; an
@@ -119,7 +130,10 @@ than reality.
 
 > **Updated 2026-10-18:** the presets now use mempool.space's real tiers (goal
 > B2 in §4): Slow → `hourFee`, Normal → `halfHourFee`, Fast → `fastestFee`.
-> RBF (second bullet) is still open as goal B3.
+> RBF is fixed too (goal B3): every input is signed with `sequence =
+> 0xfffffffd`, and "Speed up" replaces a pending outgoing transfer that
+> signalled RBF. Transfers made by earlier builds used `0xffffffff` and cannot
+> be bumped; the app does not offer the action for them.
 
 - Presets are multipliers of `halfHourFee` (`send_controller.dart:51`: Slow =
   ½, Fast = ×2), although mempool.space returns ready-made tiers
@@ -161,6 +175,11 @@ BNB balance does not load at all.
 
 ### 3.8. The PIN is weaker than "600,000 rounds" suggests
 
+> **Updated 2026-10-18:** goal B6 is done — new wallets use a free-text
+> password of at least 8 characters, which the numbers below do not describe.
+> A vault created with a 6–8 digit PIN still unlocks and is exactly as weak as
+> described, until the user changes it in Settings.
+
 PBKDF2 with 600k rounds is the right figure for passwords, but a PIN is 6–8
 digits (`pin_field.dart`: `digitsOnly`, `maxLength: 8`). An RTX 4090 computes
 PBKDF2-HMAC-SHA256 at roughly 8.9 million/s with 999 iterations (hashcat, mode
@@ -183,8 +202,10 @@ so directly.
 - BNB Chain has `chainId: 56` but no `sendRpcUrl` — view only.
   `tool/verify_eip1559.dart` is hardwired to Sepolia constants (lines 22–23).
 - "Hide balance" is not persisted across launches and does not apply to
-  Activity (`home_screen.dart:36`).
-- Accounts have no names ("Account 2 of 3"), and an account cannot be hidden.
+  Activity (`home_screen.dart:36`) — fixed 2026-10-18 (goal D4): one setting in
+  `SettingsController` covers Home, tokens and Activity and survives a restart.
+- Accounts have no names ("Account 2 of 3") — fixed 2026-10-18 (goal D3). An
+  account still cannot be hidden.
 - About → "Data sources" lists 3 of the 6 providers
   (`settings_screen.dart:1021`), although each of the six sees the user's IP
   and addresses.
@@ -237,13 +258,19 @@ and network change. The price cache (60 s) already protects CoinGecko.
 *Done when:* a test with a fake `ChainApi`: pending → confirmed after N ticks →
 exactly one notification.
 
-**A7. Token transfers in Activity + "Load more"** · 1–2 days
+**A7. Token transfers in Activity + "Load more"** · 1–2 days · done 2026-10-18
 `/token-transfers` is merged with the native list by hash: the row "Sent ETH
 −fee" becomes "Sent 100 USDC", the fee stays. `ChainTransaction` gets optional
 token fields (old cache still reads fine); paging via `next_page_params`; the
 cache keeps only the first page. The CSV gets a separate fee-ticker column.
 *Done when:* tests for the merge and for reading an old cache without the new
 fields.
+*As built:* one row per transaction; an outgoing send merges with its outgoing
+token transfer, every other transfer (incoming, a swap's second leg) is its own
+row with no fee. The two feeds page independently, so while either has older
+pages, rows older than the newer of the two oldest-loaded timestamps are held
+back and a row is never split by the next page. A failed token feed degrades to
+the native history instead of failing the screen.
 
 ### Milestone B — "Safer sending" · ~4 days
 
@@ -268,13 +295,21 @@ Integration point: `_prepare()` in `send_screen.dart`, before
 **B2. Bitcoin: real fee tiers** · 1–2 h · done 2026-10-18
 Slow → `hourFee`, Normal → `halfHourFee`, Fast → `fastestFee`.
 
-**B3. Bitcoin: RBF** · signalling is one line; Speed up is 1–2 days
+**B3. Bitcoin: RBF** · signalling is one line; Speed up is 1–2 days · done 2026-10-18 (live testnet check still open)
 `sequence = 0xfffffffd` in `signP2wpkh` (the BIP-143 vector sets its own
 sequence values, so it stays valid). Speed up: `GET /tx/{txid}` → the same
 inputs and recipient, new fee taken from change (BIP-125 rules: higher absolute
 fee and a bump for the extra size); if change is not enough, refuse clearly.
 *Done when:* a unit test of the replacement plan, and a transfer at 1 sat/vB
 replaced and confirmed on testnet.
+*As built:* `BitcoinSigner.planReplacement` keeps the inputs and every recipient
+output, takes the extra fee only from change, and pays at least the target rate
+and at least the original fee + 1 sat/vB of the new size (BIP-125); change that
+would fall under dust is folded into the fee, and a transfer with too little or
+no change is refused with the reason. Before signing, `sendBitcoin` re-reads
+the original and refuses if it was mined or its fee changed. The unit tests
+pass; **the testnet round-trip has not been run** — the session could not
+reach mempool.space — so it is the remaining acceptance step.
 
 **B4. Honest EVM replacement (3.6)** · half a day · done 2026-10-18
 Replacement price = max(fast preset, original × 1.1); speed-up for ERC-20 and
@@ -337,11 +372,11 @@ history-based poisoning check on this network — the UI must say so.
 |---|---|---|
 | D1. Payment request: amount in Receive → QR with BIP-21 / EIP-681 / Solana Pay / `aptos:` + Share | half a day | `share_plus` is already there; round-trip test through `parsePaymentLink` |
 | D2. Fiat amount in Send | half a day | after A1; the amount is signed in coins, shown on review |
-| D3. Account names | 2–3 h | `shared_preferences`, account picker in Settings |
-| D4. Privacy mode that persists and applies everywhere | 2 h | `_hideBalance` → `SettingsController` |
-| D5. Local notes on transactions, included in CSV | half a day | hash → text map |
+| D3. Account names | 2–3 h | `shared_preferences`, account picker in Settings · done 2026-10-18 |
+| D4. Privacy mode that persists and applies everywhere | 2 h | `_hideBalance` → `SettingsController` · done 2026-10-18 |
+| D5. Local notes on transactions, included in CSV | half a day | hash → text map · done 2026-10-18 (CSV: new last column `note`; notes are dropped with the wallet) |
 | D6. ENS (`name.eth`) in the recipient field | a day | eth_call to the Universal Resolver; the resolved address is shown on review and passes B1 |
-| D7. Search in Activity by address, label or hash | 2–3 h | after A7 |
+| D7. Search in Activity by address, label or hash | 2–3 h | after A7 · done 2026-10-18 (also note, ticker; covers loaded rows and says so) |
 | D8. Full provider list in About | 10 min | see 3.9 · done 2026-10-18 |
 
 ### Larger ideas — separate branches
@@ -367,15 +402,17 @@ history-based poisoning check on this network — the UI must say so.
 | 3 | B1 | half a day to a day | largest safety gain; the data is already in Blockscout |
 | 4 | A6 | 2–3 h | makes the existing notifications actually work |
 | 5 | B2, B3 (signalling), B4, B5 | a day | EVM replacement becomes reliable, Bitcoin fee tiers become real |
-| 6 | A7 | 1–2 days | Activity and CSV become truthful |
+| 6 | A7 | 1–2 days | Activity and CSV become truthful · done 2026-10-18 |
 | 7 | C1, D1 | a day | resilience to an unavailable RPC + the most visible small feature |
-| 8 | B3 (Speed up), C2 | 2–4 days | Bitcoin can be rescued too; the portfolio becomes a multi-chain screen |
+| 8 | B3 (Speed up), C2 | 2–4 days | Bitcoin can be rescued too (B3 done 2026-10-18); the portfolio becomes a multi-chain screen |
 | 9 | C3 → C4 → C5 → C6 | ~2 weeks | closes the roadmap: every network shown can send |
-| 10 | D2–D7, B6 | as needed | |
+| 10 | D2–D7, B6 | as needed | B6, D3, D4, D5, D7 done 2026-10-18; D2, D6 open |
 
 The first four rows are about two days of work, after which the wallet stops
 showing wrong amounts and catches the most expensive sending mistakes.
-Rows 1–4 and all of row 5 except B3 (Bitcoin RBF) are done as of 2026-10-18.
+Rows 1–6 and 8 (B3; C2 is open), and B6, D3–D5 and D7 from row 10, are done as
+of 2026-10-18. What is left is C1–C6, D1, D2 and D6, and the live testnet check
+of B3.
 
 ---
 

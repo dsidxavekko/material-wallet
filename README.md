@@ -21,7 +21,8 @@ generated locally, encrypted, and stored only on this device.
   support for a **passphrase (25th word)**: the phrase and the passphrase are
   both encrypted into the vault and both are needed to restore.
 - 👥 **Multiple accounts** — BIP-44 account indexes from the same seed, each with
-  its own address on every chain, switchable from Settings.
+  its own address on every chain, switchable from Settings and nameable with a
+  local label ("Savings", "Trading").
 - 🔒 **Security first**
   - Recovery phrase encrypted with **AES-256-GCM**, key derived via
     **PBKDF2-HMAC-SHA256** (600,000 rounds, OWASP 2023 guidance).
@@ -58,7 +59,11 @@ generated locally, encrypted, and stored only on this device.
   fee) or a **cancel** (zero-value self-transfer that can never confirm). The
   replacement is priced from the stuck transaction's own fee cap plus 10 % (the
   node's rule), and a speed-up of an ERC-20 transfer or approval reuses the
-  original calldata byte for byte.
+  original calldata byte for byte. On **Bitcoin** every input signals
+  **RBF (BIP-125)**, and a pending transfer can be **sped up**: same inputs and
+  recipient, the extra fee taken from your change, never below the BIP-125
+  minimum. If the change cannot pay for it, or the transfer was made before RBF
+  signalling existed, the app says so instead of offering the action.
 - 🔓 **Token approvals** — lists what contracts are allowed to spend your
   tokens and can revoke each one (`approve(spender, 0)`), the only in-wallet way
   to undo a malicious approval.
@@ -88,8 +93,19 @@ generated locally, encrypted, and stored only on this device.
   APIs, prices from CoinGecko (cached to respect rate limits). The last snapshot
   is cached locally **per account**, so the app opens with data and works
   offline.
+- 📜 **Activity** — the native history merged with **ERC-20 transfers**, so a
+  token send reads "Sent 100 USDC" (the fee stays on the row) and an incoming
+  transfer is finally visible. **Load more** pages back through older history
+  (Blockscout networks and Bitcoin). Search by address, saved label, hash, note
+  or ticker; the search covers the rows loaded so far and says when more can be
+  loaded.
+- 📝 **Notes & privacy mode** — attach a private note to any transaction (kept
+  on the device, dropped with the wallet), and hide every amount on Home and
+  Activity with a switch that survives a restart.
 - 🧾 **CSV export** — share the loaded activity as a CSV file straight from the
-  share sheet.
+  share sheet. Token rows carry their own amount and ticker, the fee has its own
+  `fee_ticker` column, amounts are written at full precision, and your notes are
+  the last column.
 - 🎨 **Material 3 UI** — light / dark / system theme (persisted), multiple
   display currencies.
 - 🧪 **Tested** — unit and widget tests covering derivation, crypto, address
@@ -150,8 +166,21 @@ generated locally, encrypted, and stored only on this device.
 - The vault is re-locked after a configurable period in the background, and
   repeated wrong PINs are penalised with an escalating, persisted backoff.
 - The seed is overwritten in memory on lock. Non-secret data (settings, the
-  address book, the active account index and the last account snapshots) lives
-  in `shared_preferences`.
+  address book, account names, transaction notes, the active account index and
+  the last account snapshots) lives in `shared_preferences`.
+
+### What the password does and does not protect
+
+The 600,000 PBKDF2 rounds slow down guessing but cannot rescue a short secret:
+once an attacker holds the encrypted vault file (root access, forensics, or the
+browser's storage on the web build), a 6-digit numeric PIN can be guessed
+offline. A free-text password of at least 8 characters is what makes the vault
+file itself hard to attack — choose a long one. On Android the real barrier is
+the Keystore-backed storage plus `allowBackup="false"`, which keep the file from
+leaving the phone in the first place; biometric unlock is a convenience gate in
+front of the stored password, not a cryptographic one. The **web build has no
+Keystore**: its storage is the browser, so treat it as a demo, not a place to
+keep funds.
 
 ---
 
@@ -258,14 +287,17 @@ docs/
 - [x] EIP-681 token payment links open a token transfer, or refuse clearly.
 - [x] Pending transfers are polled, so "Transfer confirmed" fires without a
       manual refresh.
-- [ ] Token transfers, approvals and reverts appear in Activity, with paging.
+- [x] Token transfers appear in Activity, with paging ("Load more"), and the CSV
+      reports them. (Solana and Aptos history stay on their first page; a
+      pending token send reads as a fee row until it is mined.)
 
 ### Safer sending (milestone B)
 
 - [x] Recipient check before signing: flags scam-tagged addresses, token
       contracts and token-transfer targets (Blockscout).
 - [x] Bitcoin fee presets from the node's fastest / half-hour / hour rates.
-- [ ] Bitcoin RBF (BIP-125) signalling and Speed up.
+- [x] Bitcoin RBF (BIP-125) signalling and Speed up. (Unit-tested; the live
+      testnet round-trip is still to be run.)
 - [x] EVM replacements priced from the original transaction (≥ 110 %) and
       applied to token transfers and approvals too.
 - [x] Address poisoning check on every chain, not only EVM.
@@ -283,8 +315,10 @@ docs/
 
 - [ ] Receive screen with a BIP-21 / EIP-681 / Solana Pay / `aptos:` request
       and QR share.
-- [ ] Fiat amount in Send, account names, persistent balance hiding.
-- [ ] Local notes on transactions, included in the CSV export.
+- [ ] Fiat amount in Send.
+- [x] Account names, persistent balance hiding (Home and Activity).
+- [x] Local notes on transactions, included in the CSV export.
+- [x] Search in Activity.
 - [ ] ENS names in the recipient field.
 
 Full analysis, reasons and acceptance criteria: [`docs/GOALS.md`](docs/GOALS.md)

@@ -90,6 +90,11 @@ class ActivityPage {
 /// anything older than the newest of their "oldest loaded" timestamps is held
 /// back: past that point one list is complete and the other is not, and a row
 /// shown there could still be split or merged by the next page.
+///
+/// ponytail: ERC-20 only — NFT transfers are skipped. The token feed lists mined
+/// transfers, so a *pending* token send reads as a fee-only native row until it
+/// is mined. Only Blockscout networks and Bitcoin page; Solana and Aptos stay on
+/// their first page.
 List<ChainTransaction> mergeTokenTransfers({
   required List<ChainTransaction> natives,
   required List<TokenTransfer> transfers,
