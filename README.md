@@ -237,10 +237,46 @@ docs/
 - [ ] Known-answer test vectors for the address derivations beyond the ones
       already pinned (BIP-32 test vectors per coin type).
 
-The full analysis and the prioritised goals (live fiat rates, token-aware
-activity and portfolio, recipient checks before signing, RBF for Bitcoin,
-Solana/Aptos/BNB sending, RPC fallbacks) are in
-[`docs/ЦІЛІ.md`](docs/ЦІЛІ.md).
+### Next: honest numbers (milestone A)
+
+- [ ] Live fiat rates for USD / EUR / UAH (replace the static demo rates).
+- [ ] Portfolio total includes ERC-20 holdings.
+- [ ] Single source of truth for the app version (About screen).
+- [ ] Scanner and paste read the amount and chain id from payment links.
+- [ ] EIP-681 token payment links open a token transfer, or refuse clearly.
+- [ ] Pending transfers are polled, so "Transfer confirmed" fires without a
+      manual refresh.
+- [ ] Token transfers, approvals and reverts appear in Activity, with paging.
+
+### Safer sending (milestone B)
+
+- [ ] Recipient check before signing: flags scam-tagged addresses, token
+      contracts and token-transfer targets (Blockscout).
+- [ ] Bitcoin fee presets from the node's fastest / half-hour / hour / economy
+      rates.
+- [ ] Bitcoin RBF (BIP-125) signalling and Speed up.
+- [ ] EVM replacements priced from the original transaction (≥ 110 %) and
+      applied to token transfers and approvals too.
+- [ ] Address poisoning check on every chain, not only EVM.
+- [ ] Optional password instead of the 6–8 digit PIN.
+
+### Multi-chain (milestone C)
+
+- [ ] Fallback RPC endpoints for EVM broadcasting.
+- [ ] Single portfolio screen across all networks.
+- [ ] Solana SPL tokens, then SOL sending (validated on devnet).
+- [ ] Aptos APT sending (BCS, validated by simulation on testnet).
+- [ ] BNB Chain sending (BSC testnet first).
+
+### Convenience
+
+- [ ] Receive screen with a BIP-21 / EIP-681 / Solana Pay / `aptos:` request
+      and QR share.
+- [ ] Fiat amount in Send, account names, persistent balance hiding.
+- [ ] Local notes on transactions, included in the CSV export.
+- [ ] ENS names in the recipient field.
+
+Full analysis, reasons and acceptance criteria: [`docs/ЦІЛІ.md`](docs/ЦІЛІ.md).
 
 ---
 
