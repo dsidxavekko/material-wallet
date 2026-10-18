@@ -169,7 +169,9 @@ class SeedVault {
         );
       return utf8.decode(cipher.process(payload.sealed));
     } catch (_) {
-      throw const SeedVaultException('Wrong PIN — could not unlock the wallet.');
+      throw const SeedVaultException(
+        'Wrong password — could not unlock the wallet.',
+      );
     }
   }
 

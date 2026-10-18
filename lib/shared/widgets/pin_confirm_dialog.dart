@@ -57,7 +57,7 @@ class _PinConfirmDialogState extends State<PinConfirmDialog> {
       title: Text(widget.title),
       content: PinField(
         controller: _controller,
-        label: 'PIN',
+        label: 'Password',
         autofocus: true,
         textInputAction: TextInputAction.done,
         onSubmitted: (_) => _submit(),

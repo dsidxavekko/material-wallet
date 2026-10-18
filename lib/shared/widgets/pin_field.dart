@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
-/// Obscured numeric input used for wallet PIN codes.
+/// Shortest password accepted when a new one is set or changed.
 ///
-/// Adds a show/hide toggle and restricts input to digits so the field can be
+/// Unlocking has no minimum: a wallet created with the old 6–8 digit PIN keeps
+/// working, because the vault treats the secret as an opaque string.
+const int kMinPasswordLength = 8;
+
+/// Obscured text input used for the wallet password (formerly a numeric PIN).
+///
+/// Adds a show/hide toggle; any characters are allowed so the field can be
 /// reused on the lock screen and in the create/import flows.
 class PinField extends StatefulWidget {
   const PinField({
@@ -16,8 +21,8 @@ class PinField extends StatefulWidget {
     this.textInputAction = TextInputAction.next,
     this.onSubmitted,
     this.onChanged,
-    this.minLength = 6,
-    this.maxLength = 8,
+    this.minLength = kMinPasswordLength,
+    this.maxLength = 64,
   });
 
   final TextEditingController controller;
@@ -45,14 +50,11 @@ class _PinFieldState extends State<PinField> {
       autofocus: widget.autofocus,
       enabled: widget.enabled,
       obscureText: _obscured,
-      keyboardType: TextInputType.number,
+      keyboardType: TextInputType.visiblePassword,
       textInputAction: widget.textInputAction,
       autocorrect: false,
       enableSuggestions: false,
       maxLength: widget.maxLength,
-      inputFormatters: <TextInputFormatter>[
-        FilteringTextInputFormatter.digitsOnly,
-      ],
       onSubmitted: widget.onSubmitted,
       onChanged: widget.onChanged,
       decoration: InputDecoration(

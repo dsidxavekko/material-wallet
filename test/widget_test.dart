@@ -116,7 +116,7 @@ void main() {
     await tester.tap(find.text('Unlock'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('Wrong PIN'), findsOneWidget);
+    expect(find.textContaining('Wrong password'), findsOneWidget);
     expect(find.byType(NavigationBar), findsNothing);
   });
 }

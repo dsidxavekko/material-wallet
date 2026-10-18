@@ -142,7 +142,7 @@ class _LockScreenState extends State<LockScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Enter your PIN to decrypt the wallet.',
+                  'Enter your password to decrypt the wallet.',
                   textAlign: TextAlign.center,
                   style: text.bodyMedium
                       ?.copyWith(color: scheme.onSurfaceVariant),
@@ -150,7 +150,7 @@ class _LockScreenState extends State<LockScreen> {
                 const SizedBox(height: 28),
                 PinField(
                   controller: _pinController,
-                  label: 'PIN',
+                  label: 'Password',
                   autofocus: true,
                   enabled: !blocked,
                   errorText: throttleHint ?? _error,
@@ -189,7 +189,7 @@ class _LockScreenState extends State<LockScreen> {
                 const SizedBox(height: 8),
                 TextButton(
                   onPressed: _busy ? null : _confirmReset,
-                  child: const Text('Forgot PIN — remove wallet'),
+                  child: const Text('Forgot password — remove wallet'),
                 ),
                 const SizedBox(height: 12),
                 Text(
@@ -208,7 +208,7 @@ class _LockScreenState extends State<LockScreen> {
 
   Future<void> _unlock() async {
     if (_pinController.text.isEmpty) {
-      setState(() => _error = 'Enter your PIN');
+      setState(() => _error = 'Enter your password');
       return;
     }
 

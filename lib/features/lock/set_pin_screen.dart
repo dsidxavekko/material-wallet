@@ -24,7 +24,7 @@ class SetPinScreen extends StatefulWidget {
 }
 
 class _SetPinScreenState extends State<SetPinScreen> {
-  static const int _minLength = 6;
+  static const int _minLength = kMinPasswordLength;
 
   final TextEditingController _pinController = TextEditingController();
   final TextEditingController _confirmController = TextEditingController();
@@ -79,15 +79,16 @@ class _SetPinScreenState extends State<SetPinScreen> {
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
                 children: <Widget>[
                   Text(
-                    'Set a PIN',
+                    'Set a password',
                     style: text.titleLarge
                         ?.copyWith(fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(height: 8),
                   Text(
                     'Your recovery phrase is encrypted with AES-256-GCM using '
-                    'a key derived from this PIN, and you will need it every '
-                    'time you open the wallet.',
+                    'a key derived from this password, and you will need it '
+                    'every time you open the wallet. A passphrase of several '
+                    'words is much harder to guess than a short code.',
                     style: text.bodyMedium?.copyWith(
                       color: scheme.onSurfaceVariant,
                       height: 1.45,
@@ -96,7 +97,7 @@ class _SetPinScreenState extends State<SetPinScreen> {
                   const SizedBox(height: 24),
                   PinField(
                     controller: _pinController,
-                    label: 'PIN (min. $_minLength digits)',
+                    label: 'Password (min. $_minLength characters)',
                     autofocus: true,
                     enabled: !_busy,
                     errorText: _pinError,
@@ -108,7 +109,7 @@ class _SetPinScreenState extends State<SetPinScreen> {
                   const SizedBox(height: 16),
                   PinField(
                     controller: _confirmController,
-                    label: 'Confirm PIN',
+                    label: 'Confirm password',
                     enabled: !_busy,
                     errorText: _confirmError,
                     textInputAction: TextInputAction.done,
@@ -132,7 +133,7 @@ class _SetPinScreenState extends State<SetPinScreen> {
                         title: const Text('Unlock with fingerprint'),
                         subtitle: const Text(
                           'Open the wallet with your fingerprint instead of '
-                          'typing the PIN',
+                          'typing the password',
                         ),
                       ),
                     ),
@@ -153,7 +154,7 @@ class _SetPinScreenState extends State<SetPinScreen> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
-                            'There is no PIN recovery. If you forget it you '
+                            'There is no password recovery. If you forget it you '
                             'will need your recovery phrase to restore the '
                             'wallet.',
                             style: text.bodySmall?.copyWith(
@@ -193,10 +194,11 @@ class _SetPinScreenState extends State<SetPinScreen> {
 
     if (!_isValid) {
       setState(() {
-        _pinError =
-            pin.length < _minLength ? 'Use at least $_minLength digits' : null;
+        _pinError = pin.length < _minLength
+            ? 'Use at least $_minLength characters'
+            : null;
         _confirmError =
-            pin != _confirmController.text ? 'PINs do not match' : null;
+            pin != _confirmController.text ? 'Passwords do not match' : null;
       });
       return;
     }

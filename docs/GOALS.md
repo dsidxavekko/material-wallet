@@ -285,7 +285,7 @@ is byte-identical to `raw_input`.
 **B5. Poisoning check on all networks** · 1–2 h · done 2026-10-18
 `AddressGuard` skips `bc1q` / `tb1q`; remove the "EVM only" condition.
 
-**B6. Password instead of PIN — your decision (3.8)** · a day
+**B6. Password instead of PIN — your decision (3.8)** · a day · done 2026-10-18
 The vault format does not change (the PIN is just a string for PBKDF2); only
 the UI changes: `PinField`, creation, unlock, PIN change. An option, not a
 requirement.

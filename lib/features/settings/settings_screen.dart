@@ -285,7 +285,7 @@ class _SecuritySectionState extends State<_SecuritySection> {
 
   Future<String?> _confirmPin() => PinConfirmDialog.show(
         context,
-        title: 'Confirm your PIN',
+        title: 'Confirm your password',
         confirmLabel: 'Enable',
         icon: Icons.fingerprint_rounded,
       );
@@ -320,8 +320,8 @@ class _SecuritySectionState extends State<_SecuritySection> {
             _supported == false
                 ? 'Not available on this device'
                 : identity.biometricsEnabled
-                    ? 'Opens the wallet without typing the PIN'
-                    : 'Confirms your PIN once to set up',
+                    ? 'Opens the wallet without typing the password'
+                    : 'Confirms your password once to set up',
           ),
         ),
         ListTile(
@@ -503,7 +503,7 @@ class _WalletSection extends StatelessWidget {
             ),
             ListTile(
               leading: const Icon(Icons.password_rounded),
-              title: const Text('Change PIN'),
+              title: const Text('Change password'),
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: () => showModalBottomSheet<void>(
                 context: context,
@@ -646,7 +646,7 @@ class _WalletSection extends StatelessWidget {
     if (!await authorizeSensitiveAction(
       context,
       reason: 'Reveal recovery phrase',
-      title: 'Confirm your PIN',
+      title: 'Confirm your password',
       confirmLabel: 'Reveal',
       icon: Icons.key_rounded,
       allowPinFallback: true,
@@ -775,7 +775,7 @@ class _ChangePinSheet extends StatefulWidget {
 }
 
 class _ChangePinSheetState extends State<_ChangePinSheet> {
-  static const int _minLength = 6;
+  static const int _minLength = kMinPasswordLength;
 
   final TextEditingController _currentController = TextEditingController();
   final TextEditingController _nextController = TextEditingController();
@@ -806,19 +806,19 @@ class _ChangePinSheetState extends State<_ChangePinSheet> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               Text(
-                'Change PIN',
+                'Change password',
                 style: text.titleLarge?.copyWith(fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 8),
               Text(
-                'The recovery phrase is re-encrypted with the new PIN.',
+                'The recovery phrase is re-encrypted with the new password.',
                 style:
                     text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
               ),
               const SizedBox(height: 20),
               PinField(
                 controller: _currentController,
-                label: 'Current PIN',
+                label: 'Current password',
                 autofocus: true,
                 enabled: !_busy,
                 errorText: _error,
@@ -827,13 +827,13 @@ class _ChangePinSheetState extends State<_ChangePinSheet> {
               const SizedBox(height: 14),
               PinField(
                 controller: _nextController,
-                label: 'New PIN (min. $_minLength digits)',
+                label: 'New password (min. $_minLength characters)',
                 enabled: !_busy,
               ),
               const SizedBox(height: 14),
               PinField(
                 controller: _confirmController,
-                label: 'Confirm new PIN',
+                label: 'Confirm new password',
                 enabled: !_busy,
                 textInputAction: TextInputAction.done,
                 onSubmitted: (_) => _submit(),
@@ -848,7 +848,7 @@ class _ChangePinSheetState extends State<_ChangePinSheet> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.password_rounded),
-                label: Text(_busy ? 'Re-encrypting…' : 'Save new PIN'),
+                label: Text(_busy ? 'Re-encrypting…' : 'Save new password'),
               ),
             ],
           ),
@@ -861,11 +861,11 @@ class _ChangePinSheetState extends State<_ChangePinSheet> {
     final String next = _nextController.text;
 
     if (next.length < _minLength) {
-      setState(() => _error = 'Use at least $_minLength digits');
+      setState(() => _error = 'Use at least $_minLength characters');
       return;
     }
     if (next != _confirmController.text) {
-      setState(() => _error = 'New PINs do not match');
+      setState(() => _error = 'New passwords do not match');
       return;
     }
 
@@ -891,7 +891,7 @@ class _ChangePinSheetState extends State<_ChangePinSheet> {
       if (mounted) {
         setState(() {
           _busy = false;
-          _error = 'Could not change the PIN.';
+          _error = 'Could not change the password.';
         });
       }
       return;
@@ -903,7 +903,7 @@ class _ChangePinSheetState extends State<_ChangePinSheet> {
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
     Navigator.of(context).pop();
     messenger.showSnackBar(
-      const SnackBar(content: Text('PIN updated successfully.')),
+      const SnackBar(content: Text('Password updated successfully.')),
     );
   }
 }

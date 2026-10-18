@@ -25,7 +25,7 @@ generated locally, encrypted, and stored only on this device.
 - 🔒 **Security first**
   - Recovery phrase encrypted with **AES-256-GCM**, key derived via
     **PBKDF2-HMAC-SHA256** (600,000 rounds, OWASP 2023 guidance).
-  - 6-digit PIN lock, changeable in Settings.
+  - Password lock (min. 8 characters; older 6–8 digit PINs keep working), changeable in Settings.
   - **Biometric unlock** (fingerprint / face) via `local_auth`.
   - **Auto-lock** after a configurable time in the background, and
     **attempt throttling** with escalating backoff after wrong PINs.
@@ -269,7 +269,7 @@ docs/
 - [x] EVM replacements priced from the original transaction (≥ 110 %) and
       applied to token transfers and approvals too.
 - [x] Address poisoning check on every chain, not only EVM.
-- [ ] Optional password instead of the 6–8 digit PIN.
+- [x] Password instead of the 6–8 digit PIN (min. 8 characters; the vault format is unchanged, so old PINs still unlock).
 
 ### Multi-chain (milestone C)
 
