@@ -211,6 +211,8 @@ lib/
 │                             # activity, settings, scan, network pickers
 ├── shared/widgets/           # reusable UI widgets
 └── state/                    # controllers (settings, identity, wallet)
+docs/
+└── ЦІЛІ.md                   # analysis and development goals
 ```
 
 ---
@@ -234,6 +236,11 @@ lib/
       the vault, applied to every derivation (BIP-39 reference vector pinned).
 - [ ] Known-answer test vectors for the address derivations beyond the ones
       already pinned (BIP-32 test vectors per coin type).
+
+The full analysis and the prioritised goals (live fiat rates, token-aware
+activity and portfolio, recipient checks before signing, RBF for Bitcoin,
+Solana/Aptos/BNB sending, RPC fallbacks) are in
+[`docs/ЦІЛІ.md`](docs/ЦІЛІ.md).
 
 ---
 
