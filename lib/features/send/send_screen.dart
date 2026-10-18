@@ -8,6 +8,7 @@ import '../../core/utils/explorer.dart';
 import '../../core/utils/feedback.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/units.dart';
+import '../../data/deep_links/payment_link.dart';
 import '../../data/models/chain_kind.dart';
 import '../../data/networks/chain_models.dart';
 import '../../data/networks/network_config.dart';
@@ -510,8 +511,7 @@ class _SendScreenState extends State<SendScreen> {
       }
       return;
     }
-    _addressController.text = _extractAddress(text);
-    setState(() {});
+    await _applyPaymentTarget(text);
   }
 
   /// Opens the camera and fills the recipient from the decoded QR code.
@@ -522,8 +522,124 @@ class _SendScreenState extends State<SendScreen> {
     if (scanned == null || !mounted) {
       return;
     }
-    _addressController.text = _extractAddress(scanned);
+    await _applyPaymentTarget(scanned);
+  }
+
+  /// Schemes that look like a payment link — enough to tell "supported, but
+  /// malformed" apart from a plain address pasted from a chat.
+  static const Set<String> _paymentSchemes = <String>{
+    'bitcoin',
+    'ethereum',
+    'solana',
+    'aptos',
+  };
+
+  /// Applies a scanned or pasted value. A payment link prefills the recipient,
+  /// the amount and — after a confirmation — the network; an EIP-681 token
+  /// transfer opens a token send; anything else is treated as a bare address.
+  Future<void> _applyPaymentTarget(String value) async {
+    final Uri? uri = Uri.tryParse(value);
+    final PaymentLink? link = parsePaymentLink(uri ?? Uri());
+
+    if (link == null) {
+      if (uri != null && _paymentSchemes.contains(uri.scheme.toLowerCase())) {
+        if (mounted) {
+          showAppSnackBar(
+            context,
+            'This payment link is not supported — nothing was filled in.',
+            icon: Icons.link_off_rounded,
+          );
+        }
+        return;
+      }
+      _addressController.text = _extractAddress(value);
+      if (mounted) {
+        setState(() {});
+      }
+      return;
+    }
+
+    final NetworkConfig network = _network;
+    if (link.network.id != network.id) {
+      final bool? move = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Different network'),
+          content: Text(
+            'This link targets ${link.network.name}, but the send screen is '
+            'set to ${network.name}. Switch?',
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Switch'),
+            ),
+          ],
+        ),
+      );
+      if (move != true || !mounted) {
+        return;
+      }
+      context.read<SettingsController>().setNetwork(link.network);
+    }
+    if (!mounted) {
+      return;
+    }
+
+    if (link.isTokenTransfer) {
+      final TokenBalance? token = _tokenFor(link.tokenContract!, link.network);
+      if (token == null) {
+        showAppSnackBar(
+          context,
+          'This link pays with a token that is not in your '
+          '${link.network.name} balance. Open the network, let it sync and '
+          'scan the code again.',
+          icon: Icons.token_rounded,
+        );
+        return;
+      }
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute<void>(
+          builder: (_) => SendScreen(
+            token: token,
+            initialRecipient: link.recipient,
+            initialAmount: Units.format(
+              BigInt.parse(link.uint256!),
+              token.decimals,
+              maxDecimals: token.decimals,
+              group: false,
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
+    _addressController.text = link.recipient;
+    if (link.amount != null) {
+      _amountController.text = link.amount!;
+    }
     setState(() {});
+    await _refreshQuote();
+  }
+
+  /// The account's holding of [contract] on [network], when that snapshot is
+  /// already loaded; `null` otherwise.
+  TokenBalance? _tokenFor(String contract, NetworkConfig network) {
+    final AccountSnapshot? snapshot = context.read<WalletController>().snapshot;
+    if (snapshot == null || snapshot.network.id != network.id) {
+      return null;
+    }
+    for (final TokenBalance token in snapshot.tokens) {
+      if (token.contractAddress.toLowerCase() == contract.toLowerCase()) {
+        return token;
+      }
+    }
+    return null;
   }
 
   /// Strips an optional URI scheme so `bitcoin:bc1…?amount=1` becomes `bc1…`.

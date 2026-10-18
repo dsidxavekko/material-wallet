@@ -243,8 +243,8 @@ docs/
 - [x] Live fiat rates for USD / EUR / UAH (replace the static demo rates).
 - [x] Portfolio total includes ERC-20 holdings.
 - [x] Single source of truth for the app version (About screen).
-- [ ] Scanner and paste read the amount and chain id from payment links.
-- [ ] EIP-681 token payment links open a token transfer, or refuse clearly.
+- [x] Scanner and paste read the amount and chain id from payment links.
+- [x] EIP-681 token payment links open a token transfer, or refuse clearly.
 - [ ] Pending transfers are polled, so "Transfer confirmed" fires without a
       manual refresh.
 - [ ] Token transfers, approvals and reverts appear in Activity, with paging.

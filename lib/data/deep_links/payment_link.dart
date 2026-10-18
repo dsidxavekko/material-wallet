@@ -8,19 +8,35 @@ class PaymentLink {
     required this.network,
     required this.recipient,
     this.amount,
+    this.tokenContract,
+    this.uint256,
   });
 
   final NetworkConfig network;
 
-  /// The recipient address.
+  /// The recipient address. For an EIP-681 token transfer this is the
+  /// `address` query parameter — whoever receives the tokens — never the token
+  /// contract itself.
   final String recipient;
 
   /// Whole-coin amount as a decimal string, when the link carried one.
   final String? amount;
+
+  /// Token contract of an EIP-681 `transfer` call
+  /// (`ethereum:<token>@<chainId>/transfer?address=…&uint256=…`).
+  final String? tokenContract;
+
+  /// Raw transfer amount in the token's smallest unit, as written in the link.
+  final String? uint256;
+
+  /// `true` when the URI moves an ERC-20 token instead of the native coin.
+  bool get isTokenTransfer => tokenContract != null;
 }
 
 /// Parses a payment URI into a [PaymentLink], or returns `null` when the scheme
-/// is unknown or the address is missing.
+/// is unknown, the address is missing, or an EIP-681 function call is not a
+/// well-formed token `transfer` (any other function is refused, never misread
+/// as a native send to the contract).
 PaymentLink? parsePaymentLink(Uri uri) {
   final String scheme = uri.scheme.toLowerCase();
   final NetworkConfig? network = switch (scheme) {
@@ -35,24 +51,55 @@ PaymentLink? parsePaymentLink(Uri uri) {
   }
 
   // An opaque URI puts the address in `path`; a few wallets use `host`.
-  String recipient = uri.path.isNotEmpty ? uri.path : uri.host;
-  final int at = recipient.indexOf('@'); // ethereum:<address>@<chainId>
-  if (at >= 0) {
-    recipient = recipient.substring(0, at);
-  }
-  final int slash = recipient.indexOf('/'); // ethereum:<address>/<function>
+  String value = uri.path.isNotEmpty ? uri.path : uri.host;
+
+  // A trailing EIP-681 function name, e.g. `ethereum:<token>@1/transfer?…`.
+  String? function;
+  final int slash = value.indexOf('/');
   if (slash >= 0) {
-    recipient = recipient.substring(0, slash);
+    function = value.substring(slash + 1).trim();
+    value = value.substring(0, slash);
   }
-  recipient = recipient.trim();
-  if (recipient.isEmpty) {
+
+  final int at = value.indexOf('@'); // ethereum:<address>@<chainId>
+  String address = (at >= 0 ? value.substring(0, at) : value).trim();
+  if (address.isEmpty) {
+    return null;
+  }
+
+  String? tokenContract;
+  String? uint256;
+  if (scheme == 'ethereum') {
+    if (function != null) {
+      // A token `transfer` carries its own recipient in `address`; treating
+      // the token contract as the recipient would send ETH to a contract and
+      // the payment would never arrive.
+      if (function != 'transfer') {
+        return null;
+      }
+      final String? to = uri.queryParameters['address']?.trim();
+      final String? raw = uri.queryParameters['uint256'];
+      if (to == null ||
+          to.isEmpty ||
+          raw == null ||
+          BigInt.tryParse(raw) == null) {
+        return null;
+      }
+      tokenContract = address;
+      address = to;
+      uint256 = raw;
+    }
+  } else if (function != null) {
+    // The non-EVM schemes carry no function part (`solana:<addr>?amount=…`).
     return null;
   }
 
   return PaymentLink(
     network: network,
-    recipient: recipient,
-    amount: _amountFor(uri, network),
+    recipient: address,
+    amount: tokenContract == null ? _amountFor(uri, network) : null,
+    tokenContract: tokenContract,
+    uint256: uint256,
   );
 }
 

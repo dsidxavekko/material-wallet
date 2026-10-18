@@ -5,9 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'core/theme/app_theme.dart';
+import 'core/utils/feedback.dart';
+import 'core/utils/units.dart';
 import 'data/deep_links/payment_link.dart';
 import 'data/notifications/notification_service.dart';
 import 'data/networks/chain_api.dart';
+import 'data/networks/chain_models.dart';
 import 'data/networks/price_api.dart';
 import 'data/wallet/wallet_storage.dart';
 import 'features/lock/lock_screen.dart';
@@ -153,6 +156,42 @@ class _AppViewState extends State<_AppView> with WidgetsBindingObserver {
     }
     _pendingLink = null;
 
+    // An EIP-681 token transfer pays with a token, not with the chain's coin:
+    // opening a native send here would move ETH to the token contract and the
+    // merchant would never see the payment.
+    if (link.isTokenTransfer) {
+      final TokenBalance? token = _linkToken(link);
+      if (token == null) {
+        final BuildContext? ui = appNavigatorKey.currentContext;
+        if (ui != null) {
+          showAppSnackBar(
+            ui,
+            'This link pays with a token that is not in your '
+            '${link.network.name} balance. Open the network, let it sync and '
+            'scan the code again.',
+            icon: Icons.link_off_rounded,
+          );
+        }
+        return;
+      }
+      context.read<SettingsController>().setNetwork(link.network);
+      appNavigatorKey.currentState?.push(
+        MaterialPageRoute<void>(
+          builder: (_) => SendScreen(
+            token: token,
+            initialRecipient: link.recipient,
+            initialAmount: Units.format(
+              BigInt.parse(link.uint256!),
+              token.decimals,
+              maxDecimals: token.decimals,
+              group: false,
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
     context.read<SettingsController>().setNetwork(link.network);
     appNavigatorKey.currentState?.push(
       MaterialPageRoute<void>(
@@ -162,6 +201,22 @@ class _AppViewState extends State<_AppView> with WidgetsBindingObserver {
         ),
       ),
     );
+  }
+
+  /// The account's holding of the link's token on that network, when the
+  /// snapshot is already loaded; `null` otherwise.
+  TokenBalance? _linkToken(PaymentLink link) {
+    final AccountSnapshot? snapshot = context.read<WalletController>().snapshot;
+    if (snapshot == null || snapshot.network.id != link.network.id) {
+      return null;
+    }
+    final String contract = link.tokenContract!.toLowerCase();
+    for (final TokenBalance token in snapshot.tokens) {
+      if (token.contractAddress.toLowerCase() == contract) {
+        return token;
+      }
+    }
+    return null;
   }
 
   void _flushPendingLink() {

@@ -67,4 +67,69 @@ void main() {
       expect(parsePaymentLink(Uri.parse('bitcoin:')), isNull);
     });
   });
+
+  group('parsePaymentLink — EIP-681 token transfer', () {
+    const String usdc = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
+    const String shop = '0x9858EfFD232B4033E47d90003D41EC34EcaEda94';
+
+    test('opens a token transfer: the shop is the recipient, not the contract',
+        () {
+      final PaymentLink? link = parsePaymentLink(Uri.parse(
+        'ethereum:$usdc@1/transfer?address=$shop&uint256=100000000',
+      ));
+
+      expect(link, isNotNull);
+      expect(link!.isTokenTransfer, isTrue);
+      expect(link.network.id, NetworkCatalog.ethereum.id);
+      expect(link.tokenContract, usdc);
+      // The old behaviour made the token contract itself the recipient.
+      expect(link.recipient, shop);
+      expect(link.uint256, '100000000');
+      expect(link.amount, isNull);
+    });
+
+    test('keeps the chain id of a token transfer', () {
+      final PaymentLink? link = parsePaymentLink(Uri.parse(
+        'ethereum:$usdc@137/transfer?address=$shop&uint256=5',
+      ));
+
+      expect(link!.network.id, NetworkCatalog.polygon.id);
+      expect(link.isTokenTransfer, isTrue);
+    });
+
+    test('a transfer without a chain id defaults to Ethereum', () {
+      final PaymentLink? link = parsePaymentLink(Uri.parse(
+        'ethereum:$usdc/transfer?address=$shop&uint256=7',
+      ));
+
+      expect(link!.network.id, NetworkCatalog.ethereum.id);
+      expect(link.uint256, '7');
+    });
+
+    test('rejects any function other than transfer', () {
+      expect(
+        parsePaymentLink(Uri.parse(
+          'ethereum:$usdc@1/approve?address=$shop&uint256=100',
+        )),
+        isNull,
+      );
+    });
+
+    test('rejects a transfer without a recipient or amount', () {
+      expect(
+        parsePaymentLink(Uri.parse('ethereum:$usdc/transfer?uint256=100')),
+        isNull,
+      );
+      expect(
+        parsePaymentLink(Uri.parse('ethereum:$usdc/transfer?address=$shop')),
+        isNull,
+      );
+      expect(
+        parsePaymentLink(
+          Uri.parse('ethereum:$usdc/transfer?address=$shop&uint256=abc'),
+        ),
+        isNull,
+      );
+    });
+  });
 }

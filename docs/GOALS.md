@@ -202,13 +202,13 @@ counted.
 One constant plus a test that reads `pubspec.yaml` and compares. No new
 dependency.
 
-**A4. Scanner and paste go through `parsePaymentLink`** · 1–2 h
+**A4. Scanner and paste go through `parsePaymentLink`** · 1–2 h · done 2026-10-18
 The amount from the link is filled in; a link for another network offers to
 switch, instead of silently replacing the network.
 *Done when:* a widget test: scanning `bitcoin:…?amount=0.5` fills the amount
 field with `0.5`.
 
-**A5. EIP-681 for tokens** · half a day
+**A5. EIP-681 for tokens** · half a day · done 2026-10-18
 `ethereum:<token>@<id>/transfer?address=…&uint256=…` opens
 `SendScreen(token: …)` with recipient and amount, if the token is in the
 balance; otherwise it refuses with an explanation. Any other `/function` is

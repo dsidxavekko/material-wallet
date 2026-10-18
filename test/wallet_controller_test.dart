@@ -307,7 +307,7 @@ void main() {
     wallet.dispose();
   });
 
-  test('portfolioFiat includes priced ERC-20 tokens ($5 ETH + $1000 USDC = $1005)',
+  test('portfolioFiat includes priced ERC-20 tokens: 5 ETH + 1000 USDC = 1005',
       () async {
     final WalletIdentityController identity = await storedWallet();
     await identity.unlock(pin);
