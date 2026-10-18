@@ -438,7 +438,8 @@ class _WalletSection extends StatelessWidget {
               leading: const Icon(Icons.switch_account_rounded),
               title: const Text('Active account'),
               subtitle: Text(
-                'Account ${identity.accountIndex + 1} of ${identity.accountCount}',
+                '${identity.accountName(identity.accountIndex)} · '
+                '${identity.accountIndex + 1} of ${identity.accountCount}',
               ),
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: () => _pickAccount(context, identity),
@@ -566,31 +567,50 @@ class _WalletSection extends StatelessWidget {
     const int addNew = -1;
     final int? chosen = await showDialog<int>(
       context: context,
-      builder: (dialogContext) => SimpleDialog(
-        title: const Text('Active account'),
-        children: <Widget>[
-          RadioGroup<int>(
-            groupValue: identity.accountIndex,
-            onChanged: (int? value) => Navigator.of(dialogContext).pop(value),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                for (int i = 0; i < identity.accountCount; i++)
-                  RadioListTile<int>(
-                    value: i,
-                    title: Text('Account ${i + 1}'),
-                    subtitle: i == 0 ? const Text('Default') : null,
-                  ),
-              ],
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (BuildContext _, StateSetter setDialogState) => SimpleDialog(
+          title: const Text('Active account'),
+          children: <Widget>[
+            RadioGroup<int>(
+              groupValue: identity.accountIndex,
+              onChanged: (int? value) => Navigator.of(dialogContext).pop(value),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  for (int i = 0; i < identity.accountCount; i++)
+                    RadioListTile<int>(
+                      value: i,
+                      title: Text(
+                        identity.accountName(i),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: Text(
+                        identity.hasCustomAccountName(i)
+                            ? 'Account ${i + 1}${i == 0 ? ' · Default' : ''}'
+                            : (i == 0 ? 'Default' : 'Account ${i + 1}'),
+                      ),
+                      secondary: IconButton(
+                        tooltip: 'Rename',
+                        icon: const Icon(Icons.edit_outlined),
+                        onPressed: () async {
+                          await _renameAccount(dialogContext, identity, i);
+                          setDialogState(() {});
+                        },
+                      ),
+                    ),
+                ],
+              ),
             ),
-          ),
-          ListTile(
-            leading: const Icon(Icons.add_rounded),
-            title: const Text('Add account'),
-            subtitle: const Text('A fresh set of addresses from the same seed'),
-            onTap: () => Navigator.of(dialogContext).pop(addNew),
-          ),
-        ],
+            ListTile(
+              leading: const Icon(Icons.add_rounded),
+              title: const Text('Add account'),
+              subtitle:
+                  const Text('A fresh set of addresses from the same seed'),
+              onTap: () => Navigator.of(dialogContext).pop(addNew),
+            ),
+          ],
+        ),
       ),
     );
 
@@ -602,6 +622,50 @@ class _WalletSection extends StatelessWidget {
       return;
     }
     await identity.selectAccount(chosen);
+  }
+
+  /// Asks for a local name for account [index]; blank restores "Account N".
+  Future<void> _renameAccount(
+    BuildContext context,
+    WalletIdentityController identity,
+    int index,
+  ) async {
+    final TextEditingController controller = TextEditingController(
+      text: identity.hasCustomAccountName(index) ? identity.accountName(index) : '',
+    );
+    final String? name = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.edit_outlined),
+        title: Text('Name account ${index + 1}'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: WalletIdentityController.maxAccountNameLength,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(
+            hintText: 'e.g. Savings, Trading',
+            helperText: 'Only a label on this device. Leave empty to reset.',
+            helperMaxLines: 2,
+          ),
+          onSubmitted: (String value) => Navigator.of(dialogContext).pop(value),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(controller.text),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (name != null) {
+      await identity.renameAccount(index, name);
+    }
   }
 
   Future<void> _revealPhrase(BuildContext context) async {

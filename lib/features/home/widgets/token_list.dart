@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../data/networks/chain_models.dart';
 import '../../../shared/widgets/coin_avatar.dart';
+import '../../../shared/widgets/hidden_amount.dart';
 
 /// ERC-20 holdings for the active account.
 class TokenList extends StatelessWidget {
@@ -11,10 +12,14 @@ class TokenList extends StatelessWidget {
     required this.tokens,
     required this.currency,
     this.onTokenTap,
+    this.hidden = false,
   });
 
   final List<TokenBalance> tokens;
   final AppCurrency currency;
+
+  /// Privacy mode: amounts show as dots.
+  final bool hidden;
 
   /// Opens the send flow for the tapped token, when provided.
   final ValueChanged<TokenBalance>? onTokenTap;
@@ -33,6 +38,7 @@ class TokenList extends StatelessWidget {
             _TokenTile(
               token: tokens[i],
               currency: currency,
+              hidden: hidden,
               text: text,
               scheme: scheme,
               onTap: onTokenTap == null
@@ -50,6 +56,7 @@ class _TokenTile extends StatelessWidget {
   const _TokenTile({
     required this.token,
     required this.currency,
+    required this.hidden,
     required this.text,
     required this.scheme,
     this.onTap,
@@ -57,6 +64,7 @@ class _TokenTile extends StatelessWidget {
 
   final TokenBalance token;
   final AppCurrency currency;
+  final bool hidden;
   final TextTheme text;
   final ColorScheme scheme;
   final VoidCallback? onTap;
@@ -100,13 +108,17 @@ class _TokenTile extends StatelessWidget {
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: <Widget>[
-              Text(
-                token.amountLabel,
+              HiddenAmount(
+                text: token.amountLabel,
+                hidden: hidden,
+                dotCount: 5,
                 style: text.titleSmall?.copyWith(fontWeight: FontWeight.w600),
               ),
               if (value != null)
-                Text(
-                  AppFormat.fiat(value, currency),
+                HiddenAmount(
+                  text: AppFormat.fiat(value, currency),
+                  hidden: hidden,
+                  dotCount: 4,
                   style: text.bodySmall
                       ?.copyWith(color: scheme.onSurfaceVariant),
                 ),

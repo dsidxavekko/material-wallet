@@ -288,12 +288,12 @@ void main() {
       expect(
         lines.first,
         'date,network,direction,amount,ticker,fee,fee_ticker,counterparty,'
-        'hash,status',
+        'hash,status,note',
       );
       expect(
         lines[1],
         '2026-05-01T12:05:00.000Z,Ethereum,out,100,USDC,0.000000000000021,ETH,'
-        '$other,0xa,confirmed',
+        '$other,0xa,confirmed,',
       );
     });
   });

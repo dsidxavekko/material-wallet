@@ -5,6 +5,7 @@ import '../../../core/utils/formatters.dart';
 import '../../../core/utils/units.dart';
 import '../../../data/networks/chain_models.dart';
 import '../../../data/networks/network_config.dart';
+import '../../../shared/widgets/hidden_amount.dart';
 import '../../send/replace_transfer.dart';
 
 /// Activity feed row for a single on-chain transaction.
@@ -21,6 +22,9 @@ class TransactionTile extends StatelessWidget {
     this.onExplorer,
     this.counterpartyLabel,
     this.tokenUsdRate,
+    this.hidden = false,
+    this.note,
+    this.onEditNote,
     this.replacements = const <ReplacementKind>[],
     this.onReplace,
   });
@@ -33,6 +37,16 @@ class TransactionTile extends StatelessWidget {
 
   /// Address-book label for the counterparty, when one is saved.
   final String? counterpartyLabel;
+
+  /// Privacy mode: the amounts show as dots. The counterparty and note stay,
+  /// they are what the user scans a feed for.
+  final bool hidden;
+
+  /// The user's private note on this transaction, if any.
+  final String? note;
+
+  /// Opens the note editor. When set, the row's menu offers "Add / Edit note".
+  final VoidCallback? onEditNote;
 
   /// USD price of one whole token, for a token row whose holding the explorer
   /// prices. Without it a token row shows no fiat value rather than a guess.
@@ -130,6 +144,30 @@ class TransactionTile extends StatelessWidget {
                     style: text.bodySmall
                         ?.copyWith(color: scheme.onSurfaceVariant),
                   ),
+                  if (note != null && note!.isNotEmpty) ...<Widget>[
+                    const SizedBox(height: 3),
+                    Row(
+                      children: <Widget>[
+                        Icon(
+                          Icons.sticky_note_2_outlined,
+                          size: 13,
+                          color: scheme.primary,
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            note!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: text.bodySmall?.copyWith(
+                              color: scheme.primary,
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -137,8 +175,10 @@ class TransactionTile extends StatelessWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: <Widget>[
-                Text(
-                  transaction.amountLabel(network),
+                HiddenAmount(
+                  text: transaction.amountLabel(network),
+                  hidden: hidden,
+                  dotCount: 5,
                   style: text.titleSmall?.copyWith(
                     fontWeight: FontWeight.w700,
                     color: transaction.isTokenTransfer
@@ -152,8 +192,10 @@ class TransactionTile extends StatelessWidget {
                 ),
                 if (fiat != null) ...<Widget>[
                   const SizedBox(height: 3),
-                  Text(
-                    fiat,
+                  HiddenAmount(
+                    text: fiat,
+                    hidden: hidden,
+                    dotCount: 4,
                     style: text.bodySmall
                         ?.copyWith(color: scheme.onSurfaceVariant),
                   ),
@@ -161,7 +203,7 @@ class TransactionTile extends StatelessWidget {
               ],
             ),
             const SizedBox(width: 2),
-            if (replacements.isEmpty)
+            if (replacements.isEmpty && onEditNote == null)
               IconButton(
                 tooltip: 'View on explorer',
                 visualDensity: VisualDensity.compact,
@@ -178,6 +220,10 @@ class TransactionTile extends StatelessWidget {
                     onExplorer?.call();
                     return;
                   }
+                  if (action == 'note') {
+                    onEditNote?.call();
+                    return;
+                  }
                   onReplace?.call(ReplacementKind.values.byName(action));
                 },
                 itemBuilder: (_) => <PopupMenuEntry<String>>[
@@ -185,6 +231,13 @@ class TransactionTile extends StatelessWidget {
                     value: 'explorer',
                     child: Text('View on explorer'),
                   ),
+                  if (onEditNote != null)
+                    PopupMenuItem<String>(
+                      value: 'note',
+                      child: Text(
+                        note == null || note!.isEmpty ? 'Add note' : 'Edit note',
+                      ),
+                    ),
                   for (final ReplacementKind kind in replacements)
                     PopupMenuItem<String>(
                       value: kind.name,

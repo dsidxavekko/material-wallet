@@ -10,16 +10,22 @@ import 'units.dart';
 /// numbers, and the sign lives in a separate `direction` column — a `-` glued
 /// to a number is exactly the kind of thing a spreadsheet imports as text.
 ///
+/// [noteFor] supplies the user's private note for a transaction; it becomes the
+/// last column.
+///
 /// The counterparty may be an address-book label containing commas, so every
 /// field is escaped per RFC 4180 (quote when it carries `,`, `"` or a line
 /// break; double the quotes inside).
-String buildActivityCsv(AccountSnapshot snapshot) {
+String buildActivityCsv(
+  AccountSnapshot snapshot, {
+  String? Function(ChainTransaction tx)? noteFor,
+}) {
   final int decimals = snapshot.network.decimals;
 
   final StringBuffer buffer = StringBuffer();
   buffer.writeln(
     'date,network,direction,amount,ticker,fee,fee_ticker,counterparty,hash,'
-    'status',
+    'status,note',
   );
 
   for (final ChainTransaction tx in snapshot.transactions) {
@@ -52,6 +58,7 @@ String buildActivityCsv(AccountSnapshot snapshot) {
       tx.displayCounterparty,
       tx.hash,
       status,
+      noteFor?.call(tx) ?? '',
     ].map(_escape).join(','));
   }
 

@@ -14,9 +14,12 @@ import '../../data/networks/chain_models.dart';
 import '../../shared/widgets/empty_state.dart';
 import '../../state/contacts_controller.dart';
 import '../../state/settings_controller.dart';
+import '../../state/tx_notes_controller.dart';
 import '../../state/wallet_controller.dart';
 import '../home/widgets/state_cards.dart';
 import '../send/replace_transfer.dart';
+import 'activity_search.dart';
+import 'widgets/note_dialog.dart';
 import 'widgets/transaction_tile.dart';
 
 /// Filters available in the activity feed.
@@ -40,24 +43,51 @@ class ActivityScreen extends StatefulWidget {
 
 class _ActivityScreenState extends State<ActivityScreen> {
   ActivityFilter _filter = ActivityFilter.all;
+  final TextEditingController _searchController = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final WalletController wallet = context.watch<WalletController>();
     final ContactsController contacts = context.watch<ContactsController>();
+    final TxNotesController notes = context.watch<TxNotesController>();
     final AppCurrency currency =
         context.select<SettingsController, AppCurrency>((s) => s.currency);
+    final bool hidden =
+        context.select<SettingsController, bool>((s) => s.hideBalance);
     final AccountSnapshot? snapshot = wallet.snapshot;
 
     final List<ChainTransaction> all =
         snapshot?.transactions ?? const <ChainTransaction>[];
-    final List<ChainTransaction> filtered = switch (_filter) {
+    final List<ChainTransaction> byDirection = switch (_filter) {
       ActivityFilter.all => all,
       ActivityFilter.sent =>
         all.where((t) => !t.isIncoming).toList(growable: false),
       ActivityFilter.received =>
         all.where((t) => t.isIncoming).toList(growable: false),
     };
+    final List<ChainTransaction> filtered = snapshot == null || _query.isEmpty
+        ? byDirection
+        : byDirection
+            .where(
+              (ChainTransaction tx) => matchesActivityQuery(
+                tx,
+                _query,
+                network: snapshot.network,
+                counterpartyLabel: contacts.labelFor(
+                  tx.displayCounterparty,
+                  snapshot.network.id,
+                ),
+                note: notes.noteFor(snapshot.network.id, tx.hash),
+              ),
+            )
+            .toList(growable: false);
     final List<Object> items = _groupedByDay(filtered);
 
     return Scaffold(
@@ -65,10 +95,20 @@ class _ActivityScreenState extends State<ActivityScreen> {
         title: const Text('Activity'),
         actions: <Widget>[
           IconButton(
+            tooltip: hidden ? 'Show amounts' : 'Hide amounts',
+            onPressed: () =>
+                context.read<SettingsController>().setHideBalance(!hidden),
+            icon: Icon(
+              hidden
+                  ? Icons.visibility_off_outlined
+                  : Icons.visibility_outlined,
+            ),
+          ),
+          IconButton(
             tooltip: 'Export CSV',
             onPressed: snapshot == null || snapshot.transactions.isEmpty
                 ? null
-                : () => _exportCsv(context, snapshot),
+                : () => _exportCsv(context, snapshot, notes),
             icon: const Icon(Icons.file_download_outlined),
           ),
           const SizedBox(width: 6),
@@ -95,7 +135,35 @@ class _ActivityScreenState extends State<ActivityScreen> {
             else ...<Widget>[
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                child: _FlowSummary(snapshot: snapshot, currency: currency),
+                child: _FlowSummary(
+                  snapshot: snapshot,
+                  currency: currency,
+                  hidden: hidden,
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                child: TextField(
+                  controller: _searchController,
+                  textInputAction: TextInputAction.search,
+                  onChanged: (String value) =>
+                      setState(() => _query = value.trim()),
+                  decoration: InputDecoration(
+                    hintText: 'Search address, label, hash, note or token',
+                    prefixIcon: const Icon(Icons.search_rounded),
+                    suffixIcon: _query.isEmpty
+                        ? null
+                        : IconButton(
+                            tooltip: 'Clear search',
+                            icon: const Icon(Icons.close_rounded),
+                            onPressed: () {
+                              _searchController.clear();
+                              setState(() => _query = '');
+                            },
+                          ),
+                    isDense: true,
+                  ),
+                ),
               ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
@@ -119,10 +187,19 @@ class _ActivityScreenState extends State<ActivityScreen> {
                 ),
               ),
               if (items.isEmpty)
-                const EmptyState(
-                  icon: Icons.receipt_long_outlined,
-                  title: 'No transactions yet',
-                  message: 'On-chain activity for this network shows up here.',
+                EmptyState(
+                  icon: _query.isEmpty
+                      ? Icons.receipt_long_outlined
+                      : Icons.search_off_rounded,
+                  title:
+                      _query.isEmpty ? 'No transactions yet' : 'No matches',
+                  message: _query.isEmpty
+                      ? 'On-chain activity for this network shows up here.'
+                      : wallet.canLoadMoreActivity
+                          ? 'Search covers the activity loaded so far. Load '
+                              'more to look further back.'
+                          : 'Nothing in this network\'s activity matches '
+                              '"$_query".',
                 )
               else
                 for (final Object item in items)
@@ -133,6 +210,13 @@ class _ActivityScreenState extends State<ActivityScreen> {
                       currency: currency,
                       price: snapshot.price,
                       tokenUsdRate: snapshot.tokenUsdRateFor(item),
+                      hidden: hidden,
+                      note: notes.noteFor(snapshot.network.id, item.hash),
+                      onEditNote: () => editTxNote(
+                        context,
+                        networkId: snapshot.network.id,
+                        hash: item.hash,
+                      ),
                       counterpartyLabel: contacts.labelFor(
                         item.displayCounterparty,
                         snapshot.network.id,
@@ -207,8 +291,12 @@ class _ActivityScreenState extends State<ActivityScreen> {
   Future<void> _exportCsv(
     BuildContext context,
     AccountSnapshot snapshot,
+    TxNotesController notes,
   ) async {
-    final String csv = buildActivityCsv(snapshot);
+    final String csv = buildActivityCsv(
+      snapshot,
+      noteFor: (ChainTransaction tx) => notes.noteFor(snapshot.network.id, tx.hash),
+    );
     try {
       await SharePlus.instance.share(
         ShareParams(
@@ -274,10 +362,15 @@ class _DayHeader extends StatelessWidget {
 
 /// Totals for the transactions currently loaded from the API.
 class _FlowSummary extends StatelessWidget {
-  const _FlowSummary({required this.snapshot, required this.currency});
+  const _FlowSummary({
+    required this.snapshot,
+    required this.currency,
+    required this.hidden,
+  });
 
   final AccountSnapshot snapshot;
   final AppCurrency currency;
+  final bool hidden;
 
   @override
   Widget build(BuildContext context) {
@@ -303,7 +396,7 @@ class _FlowSummary extends StatelessWidget {
             Expanded(
               child: _SummaryColumn(
                 label: 'Money in',
-                value: _label(inflow),
+                value: hidden ? '••••' : _label(inflow),
                 icon: Icons.south_west_rounded,
               ),
             ),
@@ -315,7 +408,7 @@ class _FlowSummary extends StatelessWidget {
             Expanded(
               child: _SummaryColumn(
                 label: 'Money out',
-                value: _label(outflow),
+                value: hidden ? '••••' : _label(outflow),
                 icon: Icons.north_east_rounded,
               ),
             ),

@@ -20,6 +20,7 @@ import 'features/shell/app_shell.dart';
 import 'state/confirmation_watcher.dart';
 import 'state/contacts_controller.dart';
 import 'state/settings_controller.dart';
+import 'state/tx_notes_controller.dart';
 import 'state/wallet_controller.dart';
 import 'state/wallet_identity_controller.dart';
 
@@ -60,6 +61,12 @@ class MaterialWalletApp extends StatelessWidget {
         ),
         ChangeNotifierProvider<WalletIdentityController>(
           create: (_) => WalletIdentityController(storage: storage)..load(),
+        ),
+        ChangeNotifierProvider<TxNotesController>(
+          create: (context) => TxNotesController(
+            storage: storage,
+            identity: context.read<WalletIdentityController>(),
+          )..load(),
         ),
         ChangeNotifierProvider<WalletController>(
           create: (context) => WalletController(

@@ -32,6 +32,9 @@ class WalletStorage {
   static const String _cachePrefix = 'nova.wallet.cache.';
   static const String _notificationsKey = 'nova.wallet.notificationsEnabled';
   static const String _watchedTxsKey = 'nova.wallet.watchedTxs';
+  static const String _hideBalanceKey = 'nova.wallet.hideBalance';
+  static const String _accountNamesKey = 'nova.wallet.accountNames';
+  static const String _txNotesKey = 'nova.wallet.txNotes';
   static const String _accountIndexKey = 'nova.wallet.accountIndex';
   static const String _accountCountKey = 'nova.wallet.accountCount';
 
@@ -145,6 +148,42 @@ class WalletStorage {
     await prefs.setBool(_notificationsKey, enabled);
   }
 
+  /// Whether privacy mode (amounts hidden) is on, or `null` when never chosen.
+  Future<bool?> readHideBalance() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_hideBalanceKey);
+  }
+
+  Future<void> writeHideBalance(bool hidden) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_hideBalanceKey, hidden);
+  }
+
+  /// Local account names as a JSON object `{"<index>": "<name>"}`. Removed with
+  /// the wallet: a name labels accounts of *this* seed.
+  Future<String?> readAccountNames() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_accountNamesKey);
+  }
+
+  Future<void> writeAccountNames(String value) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_accountNamesKey, value);
+  }
+
+  /// Local transaction notes as a JSON object `{"<network>|<hash>": "<text>"}`.
+  /// Removed with the wallet, unlike contacts: a note describes this wallet's
+  /// own history.
+  Future<String?> readTxNotes() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_txNotesKey);
+  }
+
+  Future<void> writeTxNotes(String value) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_txNotesKey, value);
+  }
+
   /// Hashes of outgoing transfers the app is still waiting to see confirm, so a
   /// confirmation that arrives after a restart still fires once.
   Future<List<String>> readWatchedTxs() async {
@@ -214,6 +253,8 @@ class WalletStorage {
     await prefs.remove(_watchedTxsKey);
     await prefs.remove(_accountIndexKey);
     await prefs.remove(_accountCountKey);
+    await prefs.remove(_accountNamesKey);
+    await prefs.remove(_txNotesKey);
     for (final String key in prefs.getKeys().toList()) {
       if (key.startsWith(_cachePrefix)) {
         await prefs.remove(key);

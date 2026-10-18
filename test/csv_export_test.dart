@@ -48,10 +48,10 @@ void main() {
     expect(
       lines.first,
       'date,network,direction,amount,ticker,fee,fee_ticker,counterparty,hash,'
-      'status',
+      'status,note',
     );
     expect(lines[1], startsWith('2026-03-04T05:06:07.000Z,Bitcoin,out,1.5,BTC,'));
-    expect(lines[1], endsWith(',bc1qrecipient,aa,confirmed'));
+    expect(lines[1], endsWith(',bc1qrecipient,aa,confirmed,'));
     expect(lines[2], contains(',in,0.25,BTC,'));
   });
 
@@ -91,8 +91,8 @@ void main() {
     );
 
     final List<String> lines = csv.trim().split('\n');
-    expect(lines[1], endsWith(',pending'));
-    expect(lines[2], endsWith(',failed'));
+    expect(lines[1], endsWith(',pending,'));
+    expect(lines[2], endsWith(',failed,'));
   });
 
   test('an empty history is just the header', () {

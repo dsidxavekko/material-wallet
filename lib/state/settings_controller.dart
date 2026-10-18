@@ -34,6 +34,7 @@ class SettingsController extends ChangeNotifier {
   NetworkConfig _network = NetworkCatalog.bitcoin;
   int? _autoLockSeconds = AutoLockDelay.minute1.seconds;
   bool _notificationsEnabled = false;
+  bool _hideBalance = false;
 
   ThemeMode get themeMode => _themeMode;
   AppCurrency get currency => _currency;
@@ -50,6 +51,10 @@ class SettingsController extends ChangeNotifier {
   /// Whether confirmation notifications are turned on.
   bool get notificationsEnabled => _notificationsEnabled;
 
+  /// Privacy mode: amounts across Home and Activity show as dots. Persists, so
+  /// a wallet opened in public stays private from the first frame.
+  bool get hideBalance => _hideBalance;
+
   /// Restores the persisted network and currency choices at app start.
   Future<void> load() async {
     try {
@@ -58,6 +63,7 @@ class SettingsController extends ChangeNotifier {
       final int? autoLock = await _storage.readAutoLockSeconds();
       final String? themeName = await _storage.readThemeMode();
       final bool? notifications = await _storage.readNotificationsEnabled();
+      final bool? hideBalance = await _storage.readHideBalance();
       bool changed = false;
 
       if (id != null) {
@@ -100,6 +106,11 @@ class SettingsController extends ChangeNotifier {
 
       if (notifications != null && notifications != _notificationsEnabled) {
         _notificationsEnabled = notifications;
+        changed = true;
+      }
+
+      if (hideBalance != null && hideBalance != _hideBalance) {
+        _hideBalance = hideBalance;
         changed = true;
       }
 
@@ -150,6 +161,16 @@ class SettingsController extends ChangeNotifier {
     _autoLockSeconds = delay.seconds;
     notifyListeners();
     unawaited(_storage.writeAutoLockSeconds(delay.seconds));
+  }
+
+  /// Turns privacy mode on or off and persists the choice.
+  void setHideBalance(bool hidden) {
+    if (_hideBalance == hidden) {
+      return;
+    }
+    _hideBalance = hidden;
+    notifyListeners();
+    unawaited(_storage.writeHideBalance(hidden));
   }
 
   /// Turns confirmation notifications on or off and persists the choice.

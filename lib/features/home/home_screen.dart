@@ -10,8 +10,10 @@ import '../../shared/widgets/quick_actions.dart';
 import '../../shared/widgets/section_header.dart';
 import '../../state/contacts_controller.dart';
 import '../../state/settings_controller.dart';
+import '../../state/tx_notes_controller.dart';
 import '../../state/wallet_controller.dart';
 import '../activity/activity_screen.dart';
+import '../activity/widgets/note_dialog.dart';
 import '../activity/widgets/transaction_tile.dart';
 import '../network/network_chip.dart';
 import '../receive/receive_screen.dart';
@@ -33,14 +35,15 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  bool _hideBalance = false;
-
   @override
   Widget build(BuildContext context) {
     final WalletController wallet = context.watch<WalletController>();
     final ContactsController contacts = context.watch<ContactsController>();
     final AppCurrency currency =
         context.select<SettingsController, AppCurrency>((s) => s.currency);
+    final bool hidden =
+        context.select<SettingsController, bool>((s) => s.hideBalance);
+    final TxNotesController notes = context.watch<TxNotesController>();
     final AccountSnapshot? snapshot = wallet.snapshot;
 
     return Scaffold(
@@ -80,7 +83,7 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 16),
             ],
             if (snapshot != null)
-              _content(snapshot, currency, wallet, contacts)
+              _content(snapshot, currency, wallet, contacts, hidden, notes)
             else
               const LoadingCard(),
           ],
@@ -94,6 +97,8 @@ class _HomeScreenState extends State<HomeScreen> {
     AppCurrency currency,
     WalletController wallet,
     ContactsController contacts,
+    bool hidden,
+    TxNotesController notes,
   ) {
     final List<ChainTransaction> recent =
         snapshot.transactions.take(5).toList(growable: false);
@@ -104,9 +109,9 @@ class _HomeScreenState extends State<HomeScreen> {
         AccountBalanceCard(
           snapshot: snapshot,
           currency: currency,
-          hidden: _hideBalance,
+          hidden: hidden,
           onToggleVisibility: () =>
-              setState(() => _hideBalance = !_hideBalance),
+              context.read<SettingsController>().setHideBalance(!hidden),
           onCurrencyTap: () => _pickCurrency(context),
           onRetryPrice: wallet.refresh,
         ),
@@ -115,7 +120,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _PortfolioCard(
             totalUsd: wallet.portfolioFiat!,
             currency: currency,
-            hidden: _hideBalance,
+            hidden: hidden,
           ),
           const SizedBox(height: 16),
         ],
@@ -135,6 +140,7 @@ class _HomeScreenState extends State<HomeScreen> {
           TokenList(
             tokens: snapshot.tokens,
             currency: currency,
+            hidden: hidden,
             onTokenTap: (TokenBalance token) =>
                 _push(context, SendScreen(token: token)),
           ),
@@ -173,6 +179,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     currency: currency,
                     price: snapshot.price,
                     tokenUsdRate: snapshot.tokenUsdRateFor(recent[i]),
+                    hidden: hidden,
+                    note: notes.noteFor(snapshot.network.id, recent[i].hash),
+                    onEditNote: () => editTxNote(
+                      context,
+                      networkId: snapshot.network.id,
+                      hash: recent[i].hash,
+                    ),
                     counterpartyLabel: contacts.labelFor(
                       recent[i].displayCounterparty,
                       snapshot.network.id,

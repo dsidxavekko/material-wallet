@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:bip39/bip39.dart' as bip39;
 import 'package:flutter/foundation.dart';
@@ -80,12 +81,73 @@ class WalletIdentityController extends ChangeNotifier {
   int _accountIndex = 0;
   int _accountCount = 1;
 
+  /// Local names by account index; an account without one is "Account N".
+  Map<int, String> _accountNames = <int, String>{};
+
   /// The BIP-44 account index currently active (0 = the default account).
   /// Non-secret; persisted so the wallet reopens where the user left it.
   int get accountIndex => _accountIndex;
 
   /// How many accounts exist. Accounts `0 .. accountCount - 1` are selectable.
   int get accountCount => _accountCount;
+
+  /// Longest account name accepted; keeps the picker and Settings on one line.
+  static const int maxAccountNameLength = 32;
+
+  /// The name shown for account [index]: the user's own, or "Account N".
+  String accountName(int index) => _accountNames[index] ?? 'Account ${index + 1}';
+
+  /// Whether account [index] carries a user-chosen name.
+  bool hasCustomAccountName(int index) => _accountNames.containsKey(index);
+
+  /// Names account [index]. A blank [name] restores the default "Account N".
+  ///
+  /// The name is a local label only: nothing derives from it and it is never
+  /// part of the vault.
+  Future<void> renameAccount(int index, String name) async {
+    if (index < 0 || index >= _accountCount) {
+      return;
+    }
+    final String trimmed = name.trim();
+    final Map<int, String> next = Map<int, String>.of(_accountNames);
+    if (trimmed.isEmpty) {
+      next.remove(index);
+    } else {
+      next[index] = trimmed.length > maxAccountNameLength
+          ? trimmed.substring(0, maxAccountNameLength)
+          : trimmed;
+    }
+    _accountNames = next;
+    notifyListeners();
+    await _storage.writeAccountNames(
+      jsonEncode(<String, String>{
+        for (final MapEntry<int, String> entry in next.entries)
+          '${entry.key}': entry.value,
+      }),
+    );
+  }
+
+  static Map<int, String> _decodeAccountNames(String? raw) {
+    if (raw == null || raw.isEmpty) {
+      return <int, String>{};
+    }
+    try {
+      final Object? decoded = jsonDecode(raw);
+      if (decoded is! Map) {
+        return <int, String>{};
+      }
+      return <int, String>{
+        for (final MapEntry<Object?, Object?> entry in decoded.entries)
+          if (int.tryParse('${entry.key}') != null &&
+              entry.value is String &&
+              (entry.value! as String).trim().isNotEmpty)
+            int.parse('${entry.key}'): entry.value! as String,
+      };
+    } catch (_) {
+      // A damaged name map is only labels; fall back to the defaults.
+      return <int, String>{};
+    }
+  }
 
   UnlockThrottle _throttle = UnlockThrottle.none;
 
@@ -172,6 +234,7 @@ class WalletIdentityController extends ChangeNotifier {
       _throttle = await _storage.readThrottle();
       _accountIndex = await _storage.readAccountIndex();
       _accountCount = await _storage.readAccountCount();
+      _accountNames = _decodeAccountNames(await _storage.readAccountNames());
       if (_accountIndex >= _accountCount) {
         // The stored index can only go stale if storage was edited or partially
         // cleared; an out-of-range index would derive a dead account.
@@ -285,9 +348,12 @@ class WalletIdentityController extends ChangeNotifier {
     _throttle = UnlockThrottle.none;
     _accountIndex = 0;
     _accountCount = 1;
+    // A different seed: the old seed's account names do not describe it.
+    _accountNames = <int, String>{};
     await _storage.writeThrottle(_throttle);
     await _storage.writeAccountIndex(_accountIndex);
     await _storage.writeAccountCount(_accountCount);
+    await _storage.writeAccountNames('{}');
     if (useBiometrics) {
       await enableBiometrics(pin);
     }
@@ -369,6 +435,7 @@ class WalletIdentityController extends ChangeNotifier {
     _throttle = UnlockThrottle.none;
     _accountIndex = 0;
     _accountCount = 1;
+    _accountNames = <int, String>{};
     _clearMemory();
     _status = WalletStatus.empty;
     notifyListeners();
