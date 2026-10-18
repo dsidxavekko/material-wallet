@@ -20,6 +20,7 @@ class TransactionTile extends StatelessWidget {
     this.price,
     this.onExplorer,
     this.counterpartyLabel,
+    this.tokenUsdRate,
     this.replacements = const <ReplacementKind>[],
     this.onReplace,
   });
@@ -32,6 +33,10 @@ class TransactionTile extends StatelessWidget {
 
   /// Address-book label for the counterparty, when one is saved.
   final String? counterpartyLabel;
+
+  /// USD price of one whole token, for a token row whose holding the explorer
+  /// prices. Without it a token row shows no fiat value rather than a guess.
+  final double? tokenUsdRate;
 
   /// Replacements offered for a stuck pending transfer. Empty for a settled or
   /// incoming one.
@@ -53,13 +58,21 @@ class TransactionTile extends StatelessWidget {
       _ => scheme.primary,
     };
 
-    final String? fiat = price == null
-        ? null
-        : AppFormat.fiat(
-            Units.toDouble(transaction.amount.abs(), network.decimals) *
-                price!.usd,
-            currency,
-          );
+    final TokenTransferInfo? moved = transaction.token;
+    final String? fiat = moved != null
+        ? (tokenUsdRate == null
+            ? null
+            : AppFormat.fiat(
+                Units.toDouble(moved.amount, moved.decimals) * tokenUsdRate!,
+                currency,
+              ))
+        : price == null
+            ? null
+            : AppFormat.fiat(
+                Units.toDouble(transaction.amount.abs(), network.decimals) *
+                    price!.usd,
+                currency,
+              );
 
     return InkWell(
       onTap: onExplorer,
@@ -92,7 +105,7 @@ class TransactionTile extends StatelessWidget {
                       Flexible(
                         child: Text(
                           '${transaction.isIncoming ? 'Received' : 'Sent'} '
-                          '${network.symbol}',
+                          '${transaction.ticker(network)}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: text.titleSmall
@@ -111,7 +124,7 @@ class TransactionTile extends StatelessWidget {
                   const SizedBox(height: 3),
                   Text(
                     '${AppFormat.relativeTime(transaction.timestamp)} · '
-                    '${counterpartyLabel ?? AppFormat.shortAddress(transaction.counterparty, head: 6, tail: 4)}',
+                    '${counterpartyLabel ?? AppFormat.shortAddress(transaction.displayCounterparty, head: 6, tail: 4)}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: text.bodySmall
@@ -128,9 +141,13 @@ class TransactionTile extends StatelessWidget {
                   transaction.amountLabel(network),
                   style: text.titleSmall?.copyWith(
                     fontWeight: FontWeight.w700,
-                    color: transaction.amount.isNegative
-                        ? scheme.onSurface
-                        : semantic.positive,
+                    color: transaction.isTokenTransfer
+                        ? (transaction.isIncoming
+                            ? semantic.positive
+                            : scheme.onSurface)
+                        : transaction.amount.isNegative
+                            ? scheme.onSurface
+                            : semantic.positive,
                   ),
                 ),
                 if (fiat != null) ...<Widget>[

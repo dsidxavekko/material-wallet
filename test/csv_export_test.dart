@@ -47,7 +47,8 @@ void main() {
     expect(lines.length, 3);
     expect(
       lines.first,
-      'date,network,direction,amount,ticker,fee,counterparty,hash,status',
+      'date,network,direction,amount,ticker,fee,fee_ticker,counterparty,hash,'
+      'status',
     );
     expect(lines[1], startsWith('2026-03-04T05:06:07.000Z,Bitcoin,out,1.5,BTC,'));
     expect(lines[1], endsWith(',bc1qrecipient,aa,confirmed'));

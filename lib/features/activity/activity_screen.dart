@@ -132,8 +132,9 @@ class _ActivityScreenState extends State<ActivityScreen> {
                       network: snapshot.network,
                       currency: currency,
                       price: snapshot.price,
+                      tokenUsdRate: snapshot.tokenUsdRateFor(item),
                       counterpartyLabel: contacts.labelFor(
-                        item.counterparty,
+                        item.displayCounterparty,
                         snapshot.network.id,
                       ),
                       onExplorer: () => openExplorer(
@@ -151,11 +152,40 @@ class _ActivityScreenState extends State<ActivityScreen> {
                     )
                   else if (item is String)
                     _DayHeader(label: item),
+              if (wallet.canLoadMoreActivity)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                  child: Center(
+                    child: wallet.loadingMoreActivity
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2.5),
+                          )
+                        : OutlinedButton.icon(
+                            onPressed: () => _loadMore(context, wallet),
+                            icon: const Icon(Icons.history_rounded),
+                            label: const Text('Load more'),
+                          ),
+                  ),
+                ),
             ],
           ],
         ),
       ),
     );
+  }
+
+  /// Loads an older page, telling the user when the network refuses.
+  Future<void> _loadMore(BuildContext context, WalletController wallet) async {
+    final String? error = await wallet.loadMoreActivity();
+    if (error != null && context.mounted) {
+      showAppSnackBar(
+        context,
+        error,
+        icon: Icons.cloud_off_rounded,
+      );
+    }
   }
 
   /// The replace actions offered for a still-pending outgoing transfer.

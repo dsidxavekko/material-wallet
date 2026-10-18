@@ -208,7 +208,7 @@ class _SendScreenState extends State<SendScreen> {
         for (final ChainTransaction tx
             in context.read<WalletController>().snapshot?.transactions ??
                 const <ChainTransaction>[])
-          if (!tx.isIncoming) tx.counterparty,
+          if (!tx.isIncoming) tx.displayCounterparty,
       ];
 
   bool get _isValid =>

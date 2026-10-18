@@ -2,6 +2,68 @@ import '../../core/utils/formatters.dart';
 import '../../core/utils/units.dart';
 import 'network_config.dart';
 
+/// The ERC-20 transfer a [ChainTransaction] row stands for.
+///
+/// A token transfer is invisible in the native history — the explorer lists
+/// the contract call as a zero-value transaction to the token contract — so the
+/// row carries this alongside the native fee.
+class TokenTransferInfo {
+  const TokenTransferInfo({
+    required this.symbol,
+    required this.contract,
+    required this.decimals,
+    required this.amount,
+    required this.counterparty,
+  });
+
+  final String symbol;
+
+  /// Contract of the token that moved.
+  final String contract;
+
+  final int decimals;
+
+  /// Raw amount in the token's smallest unit.
+  final BigInt amount;
+
+  /// The wallet's side-opposite: the recipient of an outgoing transfer, the
+  /// sender of an incoming one. Distinct from the transaction's own `to`, which
+  /// is the token contract.
+  final String counterparty;
+
+  /// Whole-token amount, capped at six decimals like token balances are.
+  String get amountLabel =>
+      Units.format(amount, decimals, maxDecimals: decimals > 6 ? 6 : decimals);
+
+  Map<String, Object?> toJson() => <String, Object?>{
+        'symbol': symbol,
+        'contract': contract,
+        'decimals': decimals,
+        'amount': amount.toString(),
+        'counterparty': counterparty,
+      };
+
+  static TokenTransferInfo? fromJson(Object? json) {
+    if (json is! Map<Object?, Object?>) {
+      return null;
+    }
+    final Map<String, Object?> map = json.cast<String, Object?>();
+    final BigInt? amount = BigInt.tryParse(map['amount'] as String? ?? '');
+    final String? contract = map['contract'] as String?;
+    final String? counterparty = map['counterparty'] as String?;
+    if (amount == null || contract == null || counterparty == null) {
+      return null;
+    }
+    return TokenTransferInfo(
+      symbol: map['symbol'] as String? ?? '?',
+      contract: contract,
+      decimals: (map['decimals'] as num?)?.toInt() ?? 0,
+      amount: amount,
+      counterparty: counterparty,
+    );
+  }
+}
+
 /// A single on-chain transaction, normalised across Bitcoin and EVM.
 ///
 /// [amount] is signed and expressed in the smallest unit of the chain
@@ -22,6 +84,7 @@ class ChainTransaction {
     this.gasLimit,
     this.rawInput,
     this.replaceable,
+    this.token,
   });
 
   final String hash;
@@ -66,10 +129,30 @@ class ChainTransaction {
   /// this is `true`, because the network rejects a replacement otherwise.
   final bool? replaceable;
 
+  /// The ERC-20 transfer this row represents, or `null` for a native one.
+  ///
+  /// [amount] and [fee] stay native: a token row keeps the fee the wallet paid
+  /// (so the totals and the CSV stay honest) while this carries what moved.
+  final TokenTransferInfo? token;
+
   bool get isPending => !confirmed && !failed;
 
-  /// Formatted amount including the coin ticker, e.g. `-0.015 BTC`.
+  bool get isTokenTransfer => token != null;
+
+  /// The party the user should recognise: the token's recipient or sender for a
+  /// token row, otherwise [counterparty]. [counterparty] itself stays the
+  /// transaction's own `to`/`from` — a replacement must resend to *that*.
+  String get displayCounterparty => token?.counterparty ?? counterparty;
+
+  /// Ticker the row's amount is expressed in.
+  String ticker(NetworkConfig network) => token?.symbol ?? network.symbol;
+
+  /// Formatted amount including the ticker, e.g. `-0.015 BTC` or `+100 USDC`.
   String amountLabel(NetworkConfig network) {
+    final TokenTransferInfo? moved = token;
+    if (moved != null) {
+      return '${isIncoming ? '+' : '−'}${moved.amountLabel} ${moved.symbol}';
+    }
     final String sign = amount.isNegative ? '−' : '+';
     return '$sign${Units.formatWithSymbol(amount.abs(), network.decimals, network.symbol)}';
   }
@@ -89,6 +172,7 @@ class ChainTransaction {
         'gasLimit': gasLimit?.toString(),
         'rawInput': rawInput,
         'replaceable': replaceable,
+        if (token != null) 'token': token!.toJson(),
       };
 
   factory ChainTransaction.fromJson(Map<String, Object?> json) =>
@@ -109,6 +193,8 @@ class ChainTransaction {
         gasLimit: BigInt.tryParse(json['gasLimit'] as String? ?? ''),
         rawInput: json['rawInput'] as String?,
         replaceable: json['replaceable'] as bool?,
+        // Absent in a cache written before token rows existed.
+        token: TokenTransferInfo.fromJson(json['token']),
       );
 }
 
@@ -374,6 +460,22 @@ class AccountSnapshot {
   /// Balance in USD, or `null` when the network has no market price.
   double? get fiatBalance =>
       price == null ? null : nativeBalance * price!.usd;
+
+  /// USD price per whole token for a token row, when this snapshot holds that
+  /// token and the explorer prices it. `null` for a native row or an unpriced
+  /// or since-sold token — the feed then shows no fiat value instead of a guess.
+  double? tokenUsdRateFor(ChainTransaction tx) {
+    final TokenTransferInfo? moved = tx.token;
+    if (moved == null) {
+      return null;
+    }
+    for (final TokenBalance held in tokens) {
+      if (held.contractAddress.toLowerCase() == moved.contract.toLowerCase()) {
+        return held.usdRate;
+      }
+    }
+    return null;
+  }
 
   /// Human readable native balance, e.g. `0.842`.
   String get nativeLabel => Units.format(balance, network.decimals);

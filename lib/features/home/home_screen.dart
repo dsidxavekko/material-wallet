@@ -172,8 +172,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     network: snapshot.network,
                     currency: currency,
                     price: snapshot.price,
+                    tokenUsdRate: snapshot.tokenUsdRateFor(recent[i]),
                     counterpartyLabel: contacts.labelFor(
-                      recent[i].counterparty,
+                      recent[i].displayCounterparty,
                       snapshot.network.id,
                     ),
                     onExplorer: () => openExplorer(

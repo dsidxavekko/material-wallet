@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto_wallet/core/utils/formatters.dart';
+import 'package:crypto_wallet/data/networks/activity.dart';
 import 'package:crypto_wallet/data/networks/chain_api.dart';
 import 'package:crypto_wallet/data/networks/chain_models.dart';
 import 'package:crypto_wallet/data/networks/network_config.dart';
@@ -89,23 +90,82 @@ class _PendingChainApi extends ChainApi {
   }
 
   @override
-  Future<List<ChainTransaction>> fetchTransactions(
+  Future<ActivityPage> fetchActivityPage(
+    NetworkConfig network,
+    String address, {
+    ActivityCursor? after,
+  }) async {
+    transactionReads++;
+    return ActivityPage(
+      transactions: <ChainTransaction>[
+        ChainTransaction(
+          hash: '0xpending',
+          timestamp: DateTime(2026),
+          amount: -BigInt.from(1000),
+          fee: BigInt.one,
+          counterparty: '0xdef',
+          isIncoming: false,
+          confirmed: pendingLoads == 0,
+          nonce: 3,
+        ),
+      ],
+    );
+  }
+
+  @override
+  Future<List<TokenBalance>> fetchTokenBalances(
     NetworkConfig network,
     String address,
-  ) async {
-    transactionReads++;
-    return <ChainTransaction>[
-      ChainTransaction(
-        hash: '0xpending',
-        timestamp: DateTime(2026),
-        amount: -BigInt.from(1000),
-        fee: BigInt.one,
+  ) async =>
+      const <TokenBalance>[];
+
+  @override
+  void dispose() {}
+}
+
+/// Chain with two pages of history: [pages] reads advance the cursor.
+class _PagedChainApi extends ChainApi {
+  int pageReads = 0;
+  bool failNext = false;
+
+  ChainTransaction _tx(String hash, int minute) => ChainTransaction(
+        hash: hash,
+        timestamp: DateTime.utc(2026, 1, 1, 0, minute),
+        amount: BigInt.from(5),
+        fee: BigInt.zero,
         counterparty: '0xdef',
-        isIncoming: false,
-        confirmed: pendingLoads == 0,
-        nonce: 3,
-      ),
-    ];
+        isIncoming: true,
+        confirmed: true,
+      );
+
+  @override
+  Future<BigInt> fetchBalance(NetworkConfig network, String address) async =>
+      BigInt.one;
+
+  @override
+  Future<ActivityPage> fetchActivityPage(
+    NetworkConfig network,
+    String address, {
+    ActivityCursor? after,
+  }) async {
+    pageReads++;
+    if (after == null) {
+      return ActivityPage(
+        transactions: <ChainTransaction>[_tx('0xnew', 10)],
+        next: ActivityCursor(
+          nativeRows: <ChainTransaction>[_tx('0xnew', 10)],
+          transferRows: const <TokenTransfer>[],
+          nativeNext: const <String, Object?>{'block_number': 1},
+        ),
+      );
+    }
+    if (failNext) {
+      failNext = false;
+      throw const ChainApiException('Could not reach the blockchain API.');
+    }
+    return ActivityPage(
+      transactions: <ChainTransaction>[_tx('0xnew', 10), _tx('0xold', 1)],
+    );
   }
 
   @override
@@ -592,6 +652,66 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 60));
       expect(historyReads, 1);
 
+      wallet.dispose();
+    });
+  });
+
+  group('Load more activity (A7)', () {
+    Future<WalletController> pagedWallet(_PagedChainApi api) async {
+      final WalletIdentityController identity = await storedWallet();
+      await identity.unlock(pin);
+      final WalletController wallet = WalletController(
+        identity: identity,
+        settings: SettingsController(),
+        chainApi: api,
+        priceApi: _FakePriceApi(),
+      );
+      await settle(wallet);
+      return wallet;
+    }
+
+    test('offers more only while a cursor is left, and appends the page',
+        () async {
+      final _PagedChainApi api = _PagedChainApi();
+      final WalletController wallet = await pagedWallet(api);
+
+      expect(wallet.canLoadMoreActivity, isTrue);
+      expect(wallet.snapshot!.transactions.map((t) => t.hash), <String>['0xnew']);
+
+      expect(await wallet.loadMoreActivity(), isNull);
+
+      expect(wallet.snapshot!.transactions.map((t) => t.hash),
+          <String>['0xnew', '0xold']);
+      expect(wallet.canLoadMoreActivity, isFalse,
+          reason: 'the last page has no cursor');
+      wallet.dispose();
+    });
+
+    test('a failed page reports the reason and keeps the list and the cursor',
+        () async {
+      final _PagedChainApi api = _PagedChainApi();
+      final WalletController wallet = await pagedWallet(api);
+
+      api.failNext = true;
+      expect(await wallet.loadMoreActivity(), contains('Could not reach'));
+
+      expect(wallet.snapshot!.transactions, hasLength(1));
+      expect(wallet.canLoadMoreActivity, isTrue, reason: 'it can be retried');
+      expect(await wallet.loadMoreActivity(), isNull);
+      expect(wallet.snapshot!.transactions, hasLength(2));
+      wallet.dispose();
+    });
+
+    test('a full reload goes back to the first page', () async {
+      final _PagedChainApi api = _PagedChainApi();
+      final WalletController wallet = await pagedWallet(api);
+      await wallet.loadMoreActivity();
+      expect(wallet.snapshot!.transactions, hasLength(2));
+
+      await wallet.refresh();
+
+      expect(wallet.snapshot!.transactions, hasLength(1));
+      expect(wallet.canLoadMoreActivity, isTrue);
       wallet.dispose();
     });
   });

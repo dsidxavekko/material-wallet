@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../core/utils/app_log.dart';
 import '../data/models/chain_kind.dart';
+import '../data/networks/activity.dart';
 import '../data/networks/chain_api.dart';
 import '../data/networks/chain_models.dart';
 import '../data/networks/network_config.dart';
@@ -65,6 +66,10 @@ class WalletController extends ChangeNotifier {
   static const Duration _evmPollInterval = Duration(seconds: 20);
   static const Duration _bitcoinPollInterval = Duration(seconds: 60);
 
+  /// Where "Load more" continues, set by the last full reload.
+  ActivityCursor? _activityCursor;
+  bool _loadingMore = false;
+
   /// Total USD value of the last cached snapshot of every network, when known.
   double? _portfolioFiat;
 
@@ -81,6 +86,11 @@ class WalletController extends ChangeNotifier {
   /// active network reloads.
   double? get portfolioFiat => _portfolioFiat;
 
+  /// Whether older activity can be loaded behind the list that is showing.
+  bool get canLoadMoreActivity => _activityCursor != null;
+
+  bool get loadingMoreActivity => _loadingMore;
+
   String? get error => _error;
 
   /// Whether the last [error] is worth retrying (network hiccups are, a
@@ -96,6 +106,53 @@ class WalletController extends ChangeNotifier {
   ///
   /// Bypasses the price cache so the user actually sees a fresh value.
   Future<void> refresh() => _load(force: true);
+
+  /// Loads the next page of older activity into the current snapshot.
+  ///
+  /// Returns a user-facing error, or `null` on success. The persisted cache is
+  /// untouched: it keeps only the first page, so a cold start stays small.
+  Future<String?> loadMoreActivity() async {
+    final ActivityCursor? cursor = _activityCursor;
+    final AccountSnapshot? current = _snapshot;
+    if (cursor == null || current == null || _loadingMore) {
+      return null;
+    }
+    _loadingMore = true;
+    _safeNotify();
+    try {
+      final ActivityPage page = await _chainApi.fetchActivityPage(
+        current.network,
+        current.address,
+        after: cursor,
+      );
+      // A reload, a network switch or a lock while the page was in flight makes
+      // this page belong to a list that is no longer showing.
+      if (_disposed || !identical(_snapshot, current)) {
+        return null;
+      }
+      _snapshot = AccountSnapshot(
+        network: current.network,
+        address: current.address,
+        balance: current.balance,
+        transactions: page.transactions,
+        chart: current.chart,
+        price: current.price,
+        tokens: current.tokens,
+        fetchedAt: current.fetchedAt,
+      );
+      _activityCursor = page.next;
+      return null;
+    } on ChainApiException catch (error) {
+      AppLog.warning('Could not load more activity', error);
+      return error.message;
+    } catch (error, stackTrace) {
+      AppLog.error('Unexpected failure loading more activity', error, stackTrace);
+      return 'Could not load older activity.';
+    } finally {
+      _loadingMore = false;
+      _safeNotify();
+    }
+  }
 
   /// Network fee estimate for a simple transfer on the active network.
   ///
@@ -190,6 +247,7 @@ class WalletController extends ChangeNotifier {
 
     if (address == null) {
       _snapshot = null;
+      _activityCursor = null;
       _loading = false;
       _error = null;
       _errorRetryable = true;
@@ -211,6 +269,9 @@ class WalletController extends ChangeNotifier {
               cached.address == address
           ? cached
           : null;
+      // The cache holds only the first page and no cursor; "Load more" returns
+      // with the network answer below.
+      _activityCursor = null;
       _safeNotify();
     }
 
@@ -230,7 +291,7 @@ class WalletController extends ChangeNotifier {
       final List<Object?> results =
           await Future.wait<Object?>(<Future<Object?>>[
         _chainApi.fetchBalance(network, address),
-        _chainApi.fetchTransactions(network, address),
+        _chainApi.fetchActivityPage(network, address),
         _chainApi.fetchTokenBalances(network, address),
         network.priceId == null
             ? Future<Object?>.value()
@@ -245,8 +306,7 @@ class WalletController extends ChangeNotifier {
       }
 
       final BigInt balance = results[0]! as BigInt;
-      final List<ChainTransaction> transactions =
-          results[1]! as List<ChainTransaction>;
+      final ActivityPage activity = results[1]! as ActivityPage;
       final List<TokenBalance> tokens = results[2]! as List<TokenBalance>;
       final CoinPrice? fetchedPrice = results[3] as CoinPrice?;
       final List<double> fetchedChart = results[4]! as List<double>;
@@ -268,12 +328,13 @@ class WalletController extends ChangeNotifier {
         network: network,
         address: address,
         balance: balance,
-        transactions: transactions,
+        transactions: activity.transactions,
         chart: chart,
         price: price,
         tokens: tokens,
         fetchedAt: DateTime.now(),
       );
+      _activityCursor = activity.next;
       unawaited(_cache.write(_snapshot!));
       unawaited(_refreshPortfolio());
     } on ChainApiException catch (error) {

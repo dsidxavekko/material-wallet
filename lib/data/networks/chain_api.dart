@@ -9,6 +9,7 @@ import '../../core/utils/app_log.dart';
 import '../models/chain_kind.dart';
 import '../wallet/bitcoin_signer.dart';
 import '../wallet/evm_signer.dart';
+import 'activity.dart';
 import 'chain_models.dart';
 import 'network_config.dart';
 
@@ -76,38 +77,260 @@ class ChainApi {
     return _parseEvmBalance(json);
   }
 
-  /// Most recent transactions for [address], newest first.
+  /// Most recent transactions for [address], newest first — the first page of
+  /// [fetchActivityPage].
   Future<List<ChainTransaction>> fetchTransactions(
     NetworkConfig network,
     String address,
-  ) async {
+  ) async =>
+      (await fetchActivityPage(network, address)).transactions;
+
+  /// One page of activity for [address], newest first, and where to continue.
+  ///
+  /// On Blockscout networks the native history and the ERC-20 transfers are two
+  /// separate feeds, merged here so a token send reads "Sent 100 USDC" and an
+  /// incoming transfer shows at all. On Bitcoin the page continues from the
+  /// oldest confirmed txid. Solana, Aptos and the JSON-RPC-only chains return a
+  /// single page.
+  ///
+  /// Pass the previous page's [ActivityPage.next] as [after] to load older
+  /// entries. The token feed is a bonus: if it cannot be read the native
+  /// history still loads, exactly as before.
+  Future<ActivityPage> fetchActivityPage(
+    NetworkConfig network,
+    String address, {
+    ActivityCursor? after,
+  }) async {
     if (network.chain == ChainKind.aptos) {
+      if (after != null) {
+        return const ActivityPage(transactions: <ChainTransaction>[]);
+      }
       final Object? json = await _get(
         '${network.apiBase}/accounts/$address/transactions'
         '?limit=$_aptosHistoryLimit',
       );
-      return _parseAptosTransactions(json, address);
+      return ActivityPage(
+        transactions: _parseAptosTransactions(json, address),
+      );
     }
 
     if (network.chain == ChainKind.solana) {
-      return _fetchSolanaTransactions(network, address);
+      if (after != null) {
+        return const ActivityPage(transactions: <ChainTransaction>[]);
+      }
+      return ActivityPage(
+        transactions: await _fetchSolanaTransactions(network, address),
+      );
     }
 
     if (network.rpcUrl != null) {
       // JSON-RPC has no address-history index, so this chain shows a balance
       // but no activity list (adding one needs an API key).
-      return const <ChainTransaction>[];
+      return const ActivityPage(transactions: <ChainTransaction>[]);
     }
 
     if (network.chain == ChainKind.bitcoin) {
-      final Object? json =
-          await _get('${network.apiBase}/address/$address/txs');
-      return _parseBitcoinTransactions(json, address);
+      return _fetchBitcoinActivityPage(network, address, after);
     }
 
-    final Object? json =
-        await _get('${network.apiBase}/addresses/$address/transactions');
-    return _parseEvmTransactions(json, address);
+    return _fetchEvmActivityPage(network, address, after);
+  }
+
+  /// mempool.space lists unconfirmed transactions plus the first 25 confirmed;
+  /// older ones come from `/txs/chain/{last_seen_txid}`, 25 at a time.
+  Future<ActivityPage> _fetchBitcoinActivityPage(
+    NetworkConfig network,
+    String address,
+    ActivityCursor? after,
+  ) async {
+    final String? last = after?.lastConfirmedTxid;
+    if (after != null && last == null) {
+      return ActivityPage(transactions: after.nativeRows);
+    }
+    final Object? json = await _get(
+      last == null
+          ? '${network.apiBase}/address/$address/txs'
+          : '${network.apiBase}/address/$address/txs/chain/$last',
+    );
+    final List<ChainTransaction> page = _parseBitcoinTransactions(json, address);
+
+    final List<ChainTransaction> rows = <ChainTransaction>[
+      ...?after?.nativeRows,
+      ...page,
+    ];
+    rows.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+
+    // A full page of 25 confirmed transactions means there may be more.
+    final List<ChainTransaction> confirmed =
+        page.where((ChainTransaction tx) => tx.confirmed).toList();
+    final String? next = confirmed.length >= _bitcoinConfirmedPageSize
+        ? confirmed.last.hash
+        : null;
+    return ActivityPage(
+      transactions: rows,
+      next: next == null
+          ? null
+          : ActivityCursor(
+              nativeRows: rows,
+              transferRows: const <TokenTransfer>[],
+              lastConfirmedTxid: next,
+            ),
+    );
+  }
+
+  static const int _bitcoinConfirmedPageSize = 25;
+
+  Future<ActivityPage> _fetchEvmActivityPage(
+    NetworkConfig network,
+    String address,
+    ActivityCursor? after,
+  ) async {
+    final bool fetchNative = after == null || after.nativeNext != null;
+    final bool fetchTransfers = after == null || after.transferNext != null;
+
+    final List<Object?> results = await Future.wait<Object?>(<Future<Object?>>[
+      fetchNative
+          ? _get(_pagedUrl(
+              '${network.apiBase}/addresses/$address/transactions',
+              after?.nativeNext,
+            ))
+          : Future<Object?>.value(),
+      fetchTransfers
+          ? _fetchTokenTransfersJson(network, address, after?.transferNext)
+          : Future<Object?>.value(),
+    ]);
+
+    final List<ChainTransaction> natives = <ChainTransaction>[
+      ...?after?.nativeRows,
+      if (fetchNative) ..._parseEvmTransactions(results[0], address),
+    ];
+    final List<TokenTransfer> transfers = <TokenTransfer>[
+      ...?after?.transferRows,
+      if (fetchTransfers) ..._parseTokenTransfers(results[1]),
+    ];
+    final Map<String, Object?>? nativeNext =
+        fetchNative ? _nextPageParams(results[0]) : after.nativeNext;
+    final Map<String, Object?>? transferNext =
+        fetchTransfers ? _nextPageParams(results[1]) : after.transferNext;
+
+    final ActivityCursor cursor = ActivityCursor(
+      nativeRows: natives,
+      transferRows: transfers,
+      nativeNext: nativeNext,
+      transferNext: transferNext,
+    );
+    return ActivityPage(
+      transactions: mergeTokenTransfers(
+        natives: natives,
+        transfers: transfers,
+        address: address,
+        nativeHasMore: nativeNext != null,
+        transfersHasMore: transferNext != null,
+      ),
+      next: cursor.hasMore ? cursor : null,
+    );
+  }
+
+  /// The ERC-20 transfer feed, or `null` when it cannot be read: token history
+  /// is a bonus and must never take the native history down with it.
+  Future<Object?> _fetchTokenTransfersJson(
+    NetworkConfig network,
+    String address,
+    Map<String, Object?>? params,
+  ) async {
+    try {
+      return await _get(
+        _pagedUrl(
+          '${network.apiBase}/addresses/$address/token-transfers',
+          <String, Object?>{'type': 'ERC-20', ...?params},
+        ),
+      );
+    } on ChainApiException catch (error) {
+      AppLog.warning('Token transfers unavailable on ${network.name}', error);
+      return null;
+    }
+  }
+
+  /// [base] with the Blockscout `next_page_params` appended as a query string.
+  static String _pagedUrl(String base, Map<String, Object?>? params) {
+    if (params == null || params.isEmpty) {
+      return base;
+    }
+    final Uri uri = Uri.parse(base).replace(
+      queryParameters: <String, String>{
+        for (final MapEntry<String, Object?> entry in params.entries)
+          if (entry.value != null) entry.key: '${entry.value}',
+      },
+    );
+    return uri.toString();
+  }
+
+  /// The cursor Blockscout hands back for the next page, or `null` on the last.
+  static Map<String, Object?>? _nextPageParams(Object? json) {
+    if (json is! Map<String, Object?>) {
+      return null;
+    }
+    final Object? next = json['next_page_params'];
+    return next is Map<String, Object?> && next.isNotEmpty ? next : null;
+  }
+
+  /// ERC-20 entries of a Blockscout `token-transfers` page. NFTs and anything
+  /// without an amount are skipped: the feed shows fungible money only.
+  static List<TokenTransfer> _parseTokenTransfers(Object? json) {
+    if (json is! Map<String, Object?>) {
+      return const <TokenTransfer>[];
+    }
+    final List<Object?> items =
+        (json['items'] as List<Object?>?) ?? const <Object?>[];
+    final List<TokenTransfer> transfers = <TokenTransfer>[];
+    for (final Object? raw in items) {
+      if (raw is! Map<String, Object?>) {
+        continue;
+      }
+      final Object? tokenRaw = raw['token'];
+      final Object? total = raw['total'];
+      if (tokenRaw is! Map<String, Object?> || total is! Map<String, Object?>) {
+        continue;
+      }
+      final Object? type = tokenRaw['type'];
+      if (type is String && type != 'ERC-20') {
+        continue;
+      }
+      final BigInt? amount = BigInt.tryParse('${total['value']}');
+      final String? hash = raw['transaction_hash'] as String?;
+      final String? from =
+          (raw['from'] as Map<String, Object?>?)?['hash'] as String?;
+      final String? to = (raw['to'] as Map<String, Object?>?)?['hash'] as String?;
+      final String? contract =
+          (tokenRaw['address_hash'] ?? tokenRaw['address']) as String?;
+      final DateTime? timestamp =
+          DateTime.tryParse(raw['timestamp'] as String? ?? '')?.toLocal();
+      if (amount == null ||
+          hash == null ||
+          from == null ||
+          to == null ||
+          contract == null ||
+          timestamp == null) {
+        continue;
+      }
+      final Object? decimals = total['decimals'] ?? tokenRaw['decimals'];
+      final String symbol = (tokenRaw['symbol'] as String? ?? '').trim();
+      transfers.add(
+        TokenTransfer(
+          hash: hash,
+          timestamp: timestamp,
+          from: from,
+          to: to,
+          symbol: symbol.isEmpty ? '?' : symbol,
+          contract: contract,
+          decimals: decimals is num
+              ? decimals.toInt()
+              : int.tryParse('$decimals') ?? 0,
+          amount: amount,
+        ),
+      );
+    }
+    return transfers;
   }
 
   /// What the explorer knows about [address], for the pre-signature recipient
