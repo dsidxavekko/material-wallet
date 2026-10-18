@@ -335,6 +335,98 @@ void main() {
     });
   });
 
+  group('Bitcoin replacement data', () {
+    Map<String, Object> vin(int sequence) => <String, Object>{
+          'txid': 'cc' * 32,
+          'vout': 1,
+          'sequence': sequence,
+          'prevout': <String, Object>{
+            'scriptpubkey_address': btcAddress,
+            'value': 100000,
+          },
+        };
+
+    test('marks a transfer replaceable only when an input signals BIP-125',
+        () async {
+      Future<bool?> replaceable(int sequence) async {
+        final ChainApi client = api(
+          () => json(<Object>[
+            <String, Object>{
+              'txid': 'aaa',
+              'fee': 500,
+              'status': <String, Object>{'confirmed': false},
+              'vin': <Object>[vin(sequence)],
+              'vout': <Object>[
+                <String, Object>{
+                  'scriptpubkey_address': otherBtc,
+                  'value': 60000,
+                },
+              ],
+            },
+          ]),
+        );
+        final List<ChainTransaction> txs =
+            await client.fetchTransactions(NetworkCatalog.bitcoin, btcAddress);
+        return txs.single.replaceable;
+      }
+
+      expect(await replaceable(0xfffffffd), isTrue);
+      expect(await replaceable(0xfffffffe), isFalse);
+      expect(await replaceable(0xffffffff), isFalse);
+    });
+
+    test('reads a transaction with prevouts, outputs and fee', () async {
+      final ChainApi client = api(
+        () => json(<String, Object>{
+          'txid': 'ab' * 32,
+          'fee': 1000,
+          'status': <String, Object>{'confirmed': false},
+          'vin': <Object>[vin(0xfffffffd)],
+          'vout': <Object>[
+            <String, Object>{
+              'scriptpubkey': '0014${'aa' * 20}',
+              'value': 60000,
+            },
+            <String, Object>{
+              'scriptpubkey': '0014${'bb' * 20}',
+              'value': 39000,
+            },
+          ],
+        }),
+      );
+
+      final tx = await client.fetchBitcoinTransaction(
+        NetworkCatalog.bitcoin,
+        'ab' * 32,
+      );
+      expect(tx.confirmed, isFalse);
+      expect(tx.fee, BigInt.from(1000));
+      expect(tx.signalsRbf, isTrue);
+      expect(tx.inputs.single.value, BigInt.from(100000));
+      expect(tx.inputs.single.address, btcAddress);
+      expect(tx.outputs.map((o) => o.value),
+          <BigInt>[BigInt.from(60000), BigInt.from(39000)]);
+      expect(tx.outputs.first.scriptPubKey.length, 22);
+    });
+
+    test('an unreadable transaction throws instead of being guessed', () async {
+      final ChainApi client = api(
+        () => json(<String, Object>{
+          'txid': 'ab' * 32,
+          'fee': 1000,
+          'vin': <Object>[
+            <String, Object>{'txid': 'cc' * 32, 'vout': 0, 'sequence': 1},
+          ],
+          'vout': <Object>[],
+        }),
+      );
+      expect(
+        () => client.fetchBitcoinTransaction(NetworkCatalog.bitcoin, 'ab' * 32),
+        throwsA(isA<ChainApiException>()),
+      );
+    });
+  });
+
   group('Bitcoin fee tiers', () {
     test('reads every published tier, not just one', () async {
       final ChainApi client = api(

@@ -188,7 +188,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     onReplace: (ReplacementKind kind) => showReplaceTransfer(
                       context,
                       network: snapshot.network,
-                      nonce: recent[i].nonce!,
+                      nonce: recent[i].nonce,
                       kind: kind,
                       original: recent[i],
                     ),

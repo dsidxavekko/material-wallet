@@ -321,6 +321,46 @@ class SendController extends ChangeNotifier {
     }
   }
 
+  /// Plans a BIP-125 fee bump of the pending transfer [txid].
+  ///
+  /// Reads the transaction fresh from the network, so the plan reflects what is
+  /// in the mempool now. [feeRate] defaults to the next-block tier; the plan
+  /// still pays whatever the replacement rules demand above the original.
+  /// Returns the plan, or a user-facing `refusal` — never both, and never a
+  /// guess.
+  Future<({BitcoinPlan? plan, String? refusal})> prepareBitcoinReplacement({
+    required String txid,
+    int? feeRate,
+  }) async {
+    if (network.chain != ChainKind.bitcoin || !network.canSign) {
+      return (plan: null, refusal: '${network.name} cannot replace transfers.');
+    }
+    try {
+      final BitcoinTxDetail original =
+          await _chainApi.fetchBitcoinTransaction(network, txid);
+      final int rate =
+          feeRate ?? (await _chainApi.fetchBitcoinFeeTiers(network)).fastestFee;
+      final BitcoinPlan plan = BitcoinSigner.planReplacement(
+        original: original,
+        ownAddress: address,
+        changeScript:
+            BitcoinSigner.scriptPubKeyForAddress(address, hrp: network.hrp),
+        feeRate: rate,
+      );
+      return (plan: plan, refusal: null);
+    } on BitcoinSigningException catch (error) {
+      return (plan: null, refusal: error.message);
+    } on ChainApiException catch (error) {
+      return (plan: null, refusal: error.message);
+    } catch (error, stackTrace) {
+      AppLog.warning('Could not plan a Bitcoin replacement', error, stackTrace);
+      return (
+        plan: null,
+        refusal: 'Could not prepare a faster copy. Nothing changed.',
+      );
+    }
+  }
+
   /// The most that can be sent in one transaction at [feeRate], or `null`.
   Future<BigInt?> maxBitcoinAmount({required int feeRate}) async {
     try {
@@ -346,16 +386,38 @@ class SendController extends ChangeNotifier {
     try {
       _notify(() => _stage = SendStage.preparing);
 
-      final Set<String> live = <String>{
-        for (final BitcoinUtxo utxo
-            in await _chainApi.fetchBitcoinUtxos(network, address))
-          utxo.outpoint,
-      };
-      for (final BitcoinUtxo input in plan.inputs) {
-        if (!live.contains(input.outpoint)) {
+      final String? replaces = plan.replacesTxid;
+      if (replaces != null) {
+        // The inputs of a replacement are already spent by the pending
+        // transaction, so the utxo set cannot vouch for them. What must still
+        // hold is that the original is unconfirmed and unchanged: if it was
+        // mined or already replaced, this signature would be rejected (or,
+        // worse, pay a second fee for nothing).
+        final BitcoinTxDetail current =
+            await _chainApi.fetchBitcoinTransaction(network, replaces);
+        if (current.confirmed) {
           return _fail(
-            'Your balance changed since the last refresh. Nothing was sent.',
+            'The original transfer has already confirmed. Nothing was sent.',
           );
+        }
+        if (current.fee != plan.originalFee) {
+          return _fail(
+            'The original transfer changed since you reviewed it. '
+            'Nothing was sent.',
+          );
+        }
+      } else {
+        final Set<String> live = <String>{
+          for (final BitcoinUtxo utxo
+              in await _chainApi.fetchBitcoinUtxos(network, address))
+            utxo.outpoint,
+        };
+        for (final BitcoinUtxo input in plan.inputs) {
+          if (!live.contains(input.outpoint)) {
+            return _fail(
+              'Your balance changed since the last refresh. Nothing was sent.',
+            );
+          }
         }
       }
 

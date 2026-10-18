@@ -21,6 +21,7 @@ class ChainTransaction {
     this.maxPriorityFeePerGas,
     this.gasLimit,
     this.rawInput,
+    this.replaceable,
   });
 
   final String hash;
@@ -59,6 +60,12 @@ class ChainTransaction {
   /// a token transfer or approval be replaced at all.
   final String? rawInput;
 
+  /// Bitcoin only: whether the transaction signalled BIP-125 replaceability
+  /// (some input sequence below `0xfffffffe`). `null` when unknown — EVM, or a
+  /// cache written before this field existed. A fee bump is only offered when
+  /// this is `true`, because the network rejects a replacement otherwise.
+  final bool? replaceable;
+
   bool get isPending => !confirmed && !failed;
 
   /// Formatted amount including the coin ticker, e.g. `-0.015 BTC`.
@@ -81,6 +88,7 @@ class ChainTransaction {
         'maxPriorityFeePerGas': maxPriorityFeePerGas?.toString(),
         'gasLimit': gasLimit?.toString(),
         'rawInput': rawInput,
+        'replaceable': replaceable,
       };
 
   factory ChainTransaction.fromJson(Map<String, Object?> json) =>
@@ -100,6 +108,7 @@ class ChainTransaction {
             BigInt.tryParse(json['maxPriorityFeePerGas'] as String? ?? ''),
         gasLimit: BigInt.tryParse(json['gasLimit'] as String? ?? ''),
         rawInput: json['rawInput'] as String?,
+        replaceable: json['replaceable'] as bool?,
       );
 }
 

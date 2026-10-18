@@ -99,6 +99,21 @@ void main() {
       expect(hex.encode(tx), contains(hex.encode(publicKey)));
     });
 
+    test('signals BIP-125 replaceability on every input', () {
+      final Uint8List tx = bytes(
+        BitcoinSigner.signP2wpkh(
+          privateKey: privateKey,
+          publicKey: publicKey,
+          utxos: utxos,
+          outputs: outputs,
+        ),
+      );
+      // version(4) marker/flag(2) count(1) outpoint(36) scriptSig(1) → sequence.
+      final Uint8List sequence = tx.sublist(7 + 36 + 1, 7 + 36 + 1 + 4);
+      expect(sequence, <int>[0xfd, 0xff, 0xff, 0xff]);
+      expect(BitcoinSigner.rbfSequence, 0xfffffffd);
+    });
+
     test('produces a canonical DER signature that verifies', () {
       final String raw = BitcoinSigner.signP2wpkh(
         privateKey: privateKey,
@@ -139,6 +154,152 @@ void main() {
         verifier.verifySignature(sighash, signature),
         isTrue,
       );
+    });
+  });
+
+  group('planReplacement (BIP-125)', () {
+    final Uint8List change = BitcoinSigner.p2wpkhScript(bytes('bb' * 20));
+
+    BitcoinPlan plan(BitcoinTxDetail tx, int rate) =>
+        BitcoinSigner.planReplacement(
+          original: tx,
+          ownAddress: 'bc1qown',
+          changeScript: change,
+          feeRate: rate,
+        );
+
+    test('keeps inputs and the recipient output, taking the fee from change', () {
+      final BitcoinTxDetail original = _pendingTx(); // fee 1000 sat
+      final BitcoinPlan bumped = plan(original, 20);
+
+      expect(bumped.replacesTxid, original.txid);
+      expect(bumped.originalFee, BigInt.from(1000));
+      expect(bumped.inputs.single.outpoint, '${'cd' * 32}:1');
+      expect(bumped.outputs, hasLength(2));
+      expect(bumped.outputs.first.value, BigInt.from(60000),
+          reason: 'the recipient must receive exactly what was agreed');
+      expect(
+        bumped.outputs.first.scriptPubKey,
+        original.outputs.first.scriptPubKey,
+      );
+      // Value is conserved: everything not paid out is fee.
+      expect(
+        bumped.outputs.fold<BigInt>(BigInt.zero, (a, o) => a + o.value) +
+            bumped.fee,
+        BigInt.from(100000),
+      );
+    });
+
+    test('pays at least the target rate and the BIP-125 minimum bump', () {
+      final BitcoinTxDetail original = _pendingTx();
+      final BitcoinPlan bumped = plan(original, 20);
+      final int vsize = BitcoinSigner.estimateVsize(1, 2);
+
+      expect(bumped.fee, BigInt.from(20 * vsize));
+      expect(bumped.fee >= original.fee + BigInt.from(vsize), isTrue);
+    });
+
+    test('a target at or below the original still outbids it by the relay fee',
+        () {
+      final BitcoinTxDetail original = _pendingTx(); // 1000 sat, ~7 sat/vB
+      final BitcoinPlan bumped = plan(original, 1);
+      final int vsize = BitcoinSigner.estimateVsize(1, 2);
+
+      expect(bumped.fee, original.fee + BigInt.from(vsize));
+      expect(bumped.fee > original.fee, isTrue);
+    });
+
+    test('drops change that would fall below dust and folds it into the fee', () {
+      // 61000 in, 60000 + 300 out: a 700 sat fee. Bumping needs 140 sat more,
+      // which would leave 160 sat of change — under the 294 dust limit.
+      final BitcoinTxDetail original =
+          _pendingTx(outputValues: <int>[60000, 300], inputValue: 61000);
+      final BitcoinPlan bumped = plan(original, 5);
+
+      expect(bumped.outputs, hasLength(1));
+      expect(bumped.change, BigInt.zero);
+      expect(bumped.fee, BigInt.from(700 + 300),
+          reason: 'the 700 sat fee plus all 300 sat of change');
+    });
+
+    test('refuses when the change cannot pay for the bump', () {
+      final BitcoinTxDetail original =
+          _pendingTx(outputValues: <int>[60000, 300], inputValue: 61000);
+      expect(
+        () => plan(original, 200),
+        throwsA(
+          isA<BitcoinSigningException>()
+              .having((e) => e.message, 'message', contains('too small')),
+        ),
+      );
+    });
+
+    test('refuses a transfer that never signalled RBF', () {
+      expect(
+        () => plan(_pendingTx(sequence: 0xffffffff), 20),
+        throwsA(
+          isA<BitcoinSigningException>()
+              .having((e) => e.message, 'message', contains('RBF')),
+        ),
+      );
+    });
+
+    test('refuses a confirmed transfer', () {
+      expect(
+        () => plan(_pendingTx(confirmed: true), 20),
+        throwsA(isA<BitcoinSigningException>()),
+      );
+    });
+
+    test('refuses a transfer with no change output', () {
+      final BitcoinTxDetail noChange = BitcoinTxDetail(
+        txid: 'ab' * 32,
+        confirmed: false,
+        fee: BigInt.from(1000),
+        inputs: <BitcoinTxInputDetail>[
+          BitcoinTxInputDetail(
+            txid: 'cd' * 32,
+            vout: 0,
+            value: BigInt.from(61000),
+            address: 'bc1qown',
+            sequence: 0xfffffffd,
+          ),
+        ],
+        outputs: <BitcoinTxOutputDetail>[
+          BitcoinTxOutputDetail(
+            value: BigInt.from(60000),
+            scriptPubKey: BitcoinSigner.p2wpkhScript(bytes('aa' * 20)),
+          ),
+        ],
+      );
+      expect(
+        () => plan(noChange, 20),
+        throwsA(
+          isA<BitcoinSigningException>()
+              .having((e) => e.message, 'message', contains('no change')),
+        ),
+      );
+    });
+
+    test('refuses inputs that belong to another address', () {
+      expect(
+        () => plan(_pendingTx(inputAddress: 'bc1qsomeoneelse'), 20),
+        throwsA(isA<BitcoinSigningException>()),
+      );
+    });
+
+    test('a bumped plan signs and still signals RBF', () {
+      final Uint8List privateKey =
+          Uint8List.fromList(List<int>.generate(32, (int i) => i + 1));
+      final BitcoinPlan bumped = plan(_pendingTx(), 20);
+      final String raw = BitcoinSigner.signP2wpkh(
+        privateKey: privateKey,
+        publicKey: _compressedPublicKey(privateKey),
+        utxos: bumped.inputs,
+        outputs: bumped.outputs,
+      );
+      expect(raw, isNotEmpty);
+      expect(bytes(raw).sublist(44, 48), <int>[0xfd, 0xff, 0xff, 0xff]);
     });
   });
 
@@ -244,6 +405,40 @@ void main() {
     });
   });
 }
+
+BitcoinTxDetail _pendingTx({
+  int sequence = 0xfffffffd,
+  bool confirmed = false,
+  int inputValue = 100000,
+  List<int> outputValues = const <int>[60000, 39000],
+  String? inputAddress = 'bc1qown',
+}) =>
+    BitcoinTxDetail(
+      txid: 'ab' * 32,
+      confirmed: confirmed,
+      fee: BigInt.from(
+        inputValue - outputValues.fold<int>(0, (int a, int b) => a + b),
+      ),
+      inputs: <BitcoinTxInputDetail>[
+        BitcoinTxInputDetail(
+          txid: 'cd' * 32,
+          vout: 1,
+          value: BigInt.from(inputValue),
+          address: inputAddress,
+          sequence: sequence,
+        ),
+      ],
+      outputs: <BitcoinTxOutputDetail>[
+        // First output pays someone else, the last one is our change.
+        for (int i = 0; i < outputValues.length; i++)
+          BitcoinTxOutputDetail(
+            value: BigInt.from(outputValues[i]),
+            scriptPubKey: i == outputValues.length - 1
+                ? BitcoinSigner.p2wpkhScript(bytes('bb' * 20))
+                : BitcoinSigner.p2wpkhScript(bytes('aa' * 20)),
+          ),
+      ],
+    );
 
 /// Compressed secp256k1 public key for [privateKey].
 Uint8List _compressedPublicKey(Uint8List privateKey) {

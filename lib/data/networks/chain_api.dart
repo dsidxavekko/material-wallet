@@ -386,6 +386,75 @@ class ChainApi {
     return utxos;
   }
 
+  /// One Bitcoin transaction with its inputs' prevouts, as a replacement is
+  /// built from. Throws when the transaction is unknown or unreadable — a
+  /// fee bump is never planned from a guess.
+  Future<BitcoinTxDetail> fetchBitcoinTransaction(
+    NetworkConfig network,
+    String txid,
+  ) async {
+    final Object? json = await _get('${network.apiBase}/tx/$txid');
+    final BitcoinTxDetail? detail = _parseBitcoinTxDetail(json);
+    if (detail == null) {
+      throw const ChainApiException(
+        'Could not read that transaction from the network.',
+      );
+    }
+    return detail;
+  }
+
+  static BitcoinTxDetail? _parseBitcoinTxDetail(Object? json) {
+    if (json is! Map<String, Object?>) {
+      return null;
+    }
+    final String? txid = json['txid'] as String?;
+    final num? fee = json['fee'] as num?;
+    final Object? status = json['status'];
+    final List<Object?>? vins = json['vin'] as List<Object?>?;
+    final List<Object?>? vouts = json['vout'] as List<Object?>?;
+    if (txid == null || fee == null || vins == null || vouts == null) {
+      return null;
+    }
+    try {
+      return BitcoinTxDetail(
+        txid: txid,
+        fee: BigInt.from(fee.toInt()),
+        confirmed: status is Map<String, Object?> && status['confirmed'] == true,
+        inputs: <BitcoinTxInputDetail>[
+          for (final Object? raw in vins)
+            () {
+              final Map<String, Object?> input = raw! as Map<String, Object?>;
+              final Map<String, Object?> prev =
+                  input['prevout']! as Map<String, Object?>;
+              return BitcoinTxInputDetail(
+                txid: input['txid']! as String,
+                vout: (input['vout']! as num).toInt(),
+                value: BigInt.from((prev['value']! as num).toInt()),
+                address: prev['scriptpubkey_address'] as String?,
+                sequence: (input['sequence']! as num).toInt(),
+              );
+            }(),
+        ],
+        outputs: <BitcoinTxOutputDetail>[
+          for (final Object? raw in vouts)
+            () {
+              final Map<String, Object?> output = raw! as Map<String, Object?>;
+              return BitcoinTxOutputDetail(
+                value: BigInt.from((output['value']! as num).toInt()),
+                scriptPubKey: Uint8List.fromList(
+                  hex.decode(output['scriptpubkey']! as String),
+                ),
+              );
+            }(),
+        ],
+      );
+    } catch (_) {
+      // A transaction missing a prevout (coinbase, truncated response) cannot
+      // be re-signed; treat it as unreadable.
+      return null;
+    }
+  }
+
   /// The network's ready-made confirmation tiers from mempool.space.
   ///
   /// Throws rather than guessing, so a transfer is never signed with a fee the
@@ -868,6 +937,7 @@ class ChainApi {
           counterparty: _bitcoinCounterparty(vins, vouts, needle, incoming),
           isIncoming: incoming,
           confirmed: confirmed,
+          replaceable: _signalsRbf(vins),
         ),
       );
     }
@@ -875,6 +945,14 @@ class ChainApi {
     result.sort((a, b) => b.timestamp.compareTo(a.timestamp));
     return result;
   }
+
+  /// BIP-125: any input with a sequence below `0xfffffffe` opts the whole
+  /// transaction into replacement.
+  static bool _signalsRbf(List<Object?> vins) => vins.any((Object? input) {
+        final num? sequence =
+            input is Map<String, Object?> ? input['sequence'] as num? : null;
+        return sequence != null && sequence < 0xfffffffe;
+      });
 
   String _bitcoinCounterparty(
     List<Object?> vins,

@@ -1,4 +1,5 @@
 import 'package:crypto_wallet/data/networks/chain_api.dart';
+import 'package:crypto_wallet/data/networks/chain_models.dart';
 import 'package:crypto_wallet/data/networks/network_config.dart';
 import 'package:crypto_wallet/data/wallet/bitcoin_signer.dart';
 import 'package:crypto_wallet/data/wallet/secure_pin_store.dart';
@@ -50,6 +51,9 @@ class _FakeChainApi extends ChainApi {
   List<BitcoinUtxo> utxos;
   int broadcasts = 0;
 
+  /// What `/tx/{txid}` returns for the pending transfer being replaced.
+  BitcoinTxDetail? pending;
+
   @override
   Future<List<BitcoinUtxo>> fetchBitcoinUtxos(
     NetworkConfig network,
@@ -59,6 +63,17 @@ class _FakeChainApi extends ChainApi {
 
   @override
   Future<int> fetchBitcoinFeeRate(NetworkConfig network) async => 1;
+
+  @override
+  Future<BitcoinFeeTiers> fetchBitcoinFeeTiers(NetworkConfig network) async =>
+      const BitcoinFeeTiers(fastestFee: 20, halfHourFee: 10, hourFee: 5);
+
+  @override
+  Future<BitcoinTxDetail> fetchBitcoinTransaction(
+    NetworkConfig network,
+    String txid,
+  ) async =>
+      pending ?? (throw const ChainApiException('unknown transaction'));
 
   @override
   Future<String> broadcastBitcoinTransaction(
@@ -191,6 +206,114 @@ void main() {
       expect(await send.sendBitcoin(plan: plan), isFalse);
       expect(api.broadcasts, 0, reason: 'nothing may reach the network');
       expect(send.error, contains('balance changed'));
+      send.dispose();
+    });
+  });
+
+  group('Bitcoin replacement', () {
+    BitcoinTxDetail pendingFrom(
+      WalletIdentityController identity, {
+      bool confirmed = false,
+      int sequence = 0xfffffffd,
+    }) {
+      final String own = identity.addressFor(network)!;
+      return BitcoinTxDetail(
+        txid: 'ab' * 32,
+        confirmed: confirmed,
+        fee: BigInt.from(1000),
+        inputs: <BitcoinTxInputDetail>[
+          BitcoinTxInputDetail(
+            txid: 'a' * 64,
+            vout: 0,
+            value: BigInt.from(100000),
+            address: own,
+            sequence: sequence,
+          ),
+        ],
+        outputs: <BitcoinTxOutputDetail>[
+          BitcoinTxOutputDetail(
+            value: BigInt.from(60000),
+            scriptPubKey: BitcoinSigner.scriptPubKeyForAddress(
+              recipient,
+              hrp: network.hrp,
+            ),
+          ),
+          BitcoinTxOutputDetail(
+            value: BigInt.from(39000),
+            scriptPubKey:
+                BitcoinSigner.scriptPubKeyForAddress(own, hrp: network.hrp),
+          ),
+        ],
+      );
+    }
+
+    test('plans a bump at the next-block tier and broadcasts it', () async {
+      final WalletIdentityController identity = await unlockedWallet();
+      // The pending transfer already spends the coin, so the utxo set is empty:
+      // a replacement must not be refused on that account.
+      final _FakeChainApi api = _FakeChainApi(utxos: <BitcoinUtxo>[])
+        ..pending = pendingFrom(identity);
+      final SendController send = controller(identity, api);
+
+      final prepared = await send.prepareBitcoinReplacement(txid: 'ab' * 32);
+      expect(prepared.refusal, isNull);
+      final BitcoinPlan plan = prepared.plan!;
+      expect(plan.fee, BigInt.from(20 * BitcoinSigner.estimateVsize(1, 2)));
+
+      expect(await send.sendBitcoin(plan: plan), isTrue);
+      expect(api.broadcasts, 1);
+      send.dispose();
+    });
+
+    test('refuses with the reason when the original did not signal RBF',
+        () async {
+      final WalletIdentityController identity = await unlockedWallet();
+      final _FakeChainApi api = _FakeChainApi(utxos: <BitcoinUtxo>[])
+        ..pending = pendingFrom(identity, sequence: 0xffffffff);
+      final SendController send = controller(identity, api);
+
+      final prepared = await send.prepareBitcoinReplacement(txid: 'ab' * 32);
+      expect(prepared.plan, isNull);
+      expect(prepared.refusal, contains('RBF'));
+      send.dispose();
+    });
+
+    test('does not sign when the original confirmed in the meantime', () async {
+      final WalletIdentityController identity = await unlockedWallet();
+      final _FakeChainApi api = _FakeChainApi(utxos: <BitcoinUtxo>[])
+        ..pending = pendingFrom(identity);
+      final SendController send = controller(identity, api);
+      final BitcoinPlan plan =
+          (await send.prepareBitcoinReplacement(txid: 'ab' * 32)).plan!;
+
+      api.pending = pendingFrom(identity, confirmed: true);
+
+      expect(await send.sendBitcoin(plan: plan), isFalse);
+      expect(api.broadcasts, 0, reason: 'nothing may reach the network');
+      expect(send.error, contains('already confirmed'));
+      send.dispose();
+    });
+
+    test('does not sign when the original was already replaced', () async {
+      final WalletIdentityController identity = await unlockedWallet();
+      final _FakeChainApi api = _FakeChainApi(utxos: <BitcoinUtxo>[])
+        ..pending = pendingFrom(identity);
+      final SendController send = controller(identity, api);
+      final BitcoinPlan plan =
+          (await send.prepareBitcoinReplacement(txid: 'ab' * 32)).plan!;
+
+      // Someone (another device) already bumped it: the fee differs now.
+      api.pending = BitcoinTxDetail(
+        txid: 'ab' * 32,
+        confirmed: false,
+        fee: BigInt.from(5000),
+        inputs: api.pending!.inputs,
+        outputs: api.pending!.outputs,
+      );
+
+      expect(await send.sendBitcoin(plan: plan), isFalse);
+      expect(api.broadcasts, 0);
+      expect(send.error, contains('changed'));
       send.dispose();
     });
   });

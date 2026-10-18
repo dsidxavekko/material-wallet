@@ -13,6 +13,7 @@ import '../../state/send_controller.dart';
 import '../../state/wallet_controller.dart';
 import '../../state/wallet_identity_controller.dart';
 import '../lock/sensitive_auth.dart';
+import 'bitcoin_speed_up.dart';
 import 'widgets/transfer_progress_dialog.dart';
 
 /// What a stuck pending transaction should be replaced with.
@@ -44,10 +45,16 @@ enum ReplacementKind {
 Future<void> showReplaceTransfer(
   BuildContext context, {
   required NetworkConfig network,
-  required int nonce,
+  required int? nonce,
   required ReplacementKind kind,
   required ChainTransaction original,
 }) async {
+  if (network.chain == ChainKind.bitcoin) {
+    return showBitcoinSpeedUp(context, network: network, original: original);
+  }
+  if (nonce == null) {
+    return;
+  }
   final bool cancelling = kind == ReplacementKind.cancel;
   final WalletIdentityController identity =
       context.read<WalletIdentityController>();
@@ -191,7 +198,7 @@ Future<void> showReplaceTransfer(
 
 /// The replacements offered for [original] on [network].
 ///
-/// Both need a known nonce on a chain the wallet can sign for. A speed-up is
+/// On EVM both need a known nonce on a chain the wallet can sign for. A speed-up is
 /// offered for a plain native transfer always, and for a token transfer or
 /// approval only when the API exposed the original's calldata — a replacement
 /// that cannot reproduce the payload byte for byte is rejected by the node
@@ -204,10 +211,17 @@ List<ReplacementKind> replacementKindsFor({
   if (original.isIncoming || original.confirmed || original.failed) {
     return const <ReplacementKind>[];
   }
+  // Bitcoin's RBF rebuilds the transaction from its own inputs rather than a
+  // nonce: a speed-up (never a cancel) is offered only when the transaction
+  // signalled BIP-125, since the network rejects a replacement otherwise.
+  if (network.chain == ChainKind.bitcoin) {
+    return network.canSign && original.replaceable == true
+        ? const <ReplacementKind>[ReplacementKind.speedUp]
+        : const <ReplacementKind>[];
+  }
   final int? nonce = original.nonce;
-  // A nonce-based replacement is an EVM-only mechanic: Bitcoin's RBF rebuilds
-  // the whole transaction from a fresh utxo set and Solana has no nonces here,
-  // so a `canSign` chain would still get a dead action offered.
+  // A nonce-based replacement is an EVM-only mechanic and Solana has no nonces
+  // here, so a `canSign` chain would still get a dead action offered.
   if (nonce == null ||
       network.chain != ChainKind.evm ||
       !network.canSign) {
