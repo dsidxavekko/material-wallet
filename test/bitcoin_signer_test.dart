@@ -127,6 +127,8 @@ void main() {
           const BitcoinInput(
             txid: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
             vout: 0,
+            // The signer commits to the RBF sequence it serialises.
+            sequence: BitcoinSigner.rbfSequence,
           ),
         ],
         outputs: outputs,

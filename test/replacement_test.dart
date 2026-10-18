@@ -114,10 +114,11 @@ void main() {
     expect(kindsFor(pending(counterparty: '0xabc', nonce: null)), isEmpty);
   });
 
-  test('offers nothing on a chain the wallet cannot sign for', () {
+  test('offers only a speed-up on Bitcoin, and nothing where it cannot sign', () {
+    // Bitcoin replaces by rebuilding the transfer (RBF); there is no cancel.
     expect(
       kindsFor(pending(counterparty: 'bc1q'), network: NetworkCatalog.bitcoin),
-      isEmpty,
+      <ReplacementKind>[ReplacementKind.speedUp],
     );
     expect(
       kindsFor(pending(counterparty: 'So111'), network: NetworkCatalog.solana),

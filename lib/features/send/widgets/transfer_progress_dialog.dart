@@ -25,6 +25,7 @@ class TransferProgressDialog extends StatefulWidget {
     this.tokenContract,
     this.tokenAmount,
     this.bitcoinPlan,
+    this.replacesTxid,
   }) : assert(
           bitcoinPlan != null ||
               (maxPriorityFeePerGas != null &&
@@ -60,6 +61,9 @@ class TransferProgressDialog extends StatefulWidget {
   /// transaction.
   final BitcoinPlan? bitcoinPlan;
 
+  /// With [bitcoinPlan]: the pending transfer this one replaces (RBF).
+  final String? replacesTxid;
+
   @override
   State<TransferProgressDialog> createState() => _TransferProgressDialogState();
 }
@@ -77,7 +81,12 @@ class _TransferProgressDialogState extends State<TransferProgressDialog> {
       final SendController controller = context.read<SendController>();
       final BitcoinPlan? plan = widget.bitcoinPlan;
       if (plan != null) {
-        controller.sendBitcoin(plan: plan);
+        final String? replaces = widget.replacesTxid;
+        if (replaces != null) {
+          controller.sendBitcoinReplacement(originalTxid: replaces, plan: plan);
+        } else {
+          controller.sendBitcoin(plan: plan);
+        }
         return;
       }
       controller.send(

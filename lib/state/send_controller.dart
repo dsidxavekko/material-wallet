@@ -414,6 +414,155 @@ class SendController extends ChangeNotifier {
     }
   }
 
+  /// Plans a replace-by-fee version of the pending Bitcoin transfer
+  /// [txid]: the same payment, a larger fee taken from the change.
+  ///
+  /// The reason a replacement is impossible comes back as text, because the
+  /// user needs to know *why* a stuck transfer cannot be rescued.
+  Future<({BitcoinPlan? plan, BigInt? oldFee, String? reason})>
+      prepareBitcoinSpeedUp(String txid) async {
+    if (network.chain != ChainKind.bitcoin || !network.canSign) {
+      return (
+        plan: null,
+        oldFee: null,
+        reason: '${network.name} does not support sending yet.',
+      );
+    }
+    try {
+      final BitcoinPriorTx? original =
+          await _chainApi.fetchBitcoinTransaction(network, txid);
+      if (original == null) {
+        return (
+          plan: null,
+          oldFee: null,
+          reason: 'The network no longer knows this transfer.',
+        );
+      }
+      final BitcoinFeeTiers tiers =
+          await _chainApi.fetchBitcoinFeeTiers(network);
+      final BitcoinPlan plan = BitcoinSigner.planReplacement(
+        original: original,
+        ownAddress: address,
+        targetFeeRate: tiers.fastestFee,
+      );
+      BigInt oldFee = BigInt.zero;
+      for (final BitcoinPriorInput i in original.inputs) {
+        oldFee += i.utxo.value;
+      }
+      for (final BitcoinPriorOutput o in original.outputs) {
+        oldFee -= o.output.value;
+      }
+      return (plan: plan, oldFee: oldFee, reason: null);
+    } on BitcoinSigningException catch (error) {
+      return (plan: null, oldFee: null, reason: error.message);
+    } on ChainApiException catch (error) {
+      return (plan: null, oldFee: null, reason: error.message);
+    } catch (error, stackTrace) {
+      AppLog.warning('Could not plan a Bitcoin speed-up', error, stackTrace);
+      return (
+        plan: null,
+        oldFee: null,
+        reason: 'Could not prepare a faster version. Nothing was changed.',
+      );
+    }
+  }
+
+  /// Signs and broadcasts [plan] as a replacement of the pending transfer
+  /// [originalTxid].
+  ///
+  /// Re-reads the original first: a transfer that confirmed in the meantime
+  /// needs no replacement (and a second payment would just be rejected), and
+  /// inputs that no longer match mean the plan was built from stale data. Both
+  /// refuse rather than sign.
+  Future<bool> sendBitcoinReplacement({
+    required String originalTxid,
+    required BitcoinPlan plan,
+  }) async {
+    if (network.chain != ChainKind.bitcoin || !network.canSign) {
+      return _fail('${network.name} does not support sending yet.');
+    }
+
+    try {
+      _notify(() => _stage = SendStage.preparing);
+
+      final BitcoinPriorTx? live =
+          await _chainApi.fetchBitcoinTransaction(network, originalTxid);
+      if (live == null) {
+        return _fail(
+          'The network no longer knows the original transfer. Nothing was sent.',
+        );
+      }
+      if (live.confirmed) {
+        return _fail(
+          'The original transfer has just confirmed. Nothing was sent.',
+        );
+      }
+      final Set<String> liveInputs = <String>{
+        for (final BitcoinPriorInput i in live.inputs) i.utxo.outpoint,
+      };
+      final Set<String> planned = <String>{
+        for (final BitcoinUtxo i in plan.inputs) i.outpoint,
+      };
+      if (liveInputs.length != planned.length ||
+          !liveInputs.containsAll(planned)) {
+        return _fail(
+          'The original transfer changed since it was reviewed. Nothing was sent.',
+        );
+      }
+
+      _notify(() => _stage = SendStage.signing);
+
+      final Uint8List seed = await _requireSeed();
+      final ({Uint8List privateKey, Uint8List publicKey}) keys =
+          AddressDeriver.bitcoinKeyPairFromSeed(
+        seed,
+        account: identity.accountIndex,
+      );
+      final String raw;
+      try {
+        raw = BitcoinSigner.signP2wpkh(
+          privateKey: keys.privateKey,
+          publicKey: keys.publicKey,
+          utxos: plan.inputs,
+          outputs: plan.outputs,
+        );
+      } finally {
+        keys.privateKey.fillRange(0, keys.privateKey.length, 0);
+      }
+
+      _notify(() => _stage = SendStage.broadcasting);
+      final String hash =
+          await _chainApi.broadcastBitcoinTransaction(network, raw);
+
+      _notify(() {
+        _txHash = hash;
+        _stage = SendStage.broadcast;
+      });
+
+      final bool? ok =
+          await _chainApi.waitForBitcoinConfirmation(network, hash);
+      _notify(() {
+        _stage = ok == null
+            ? SendStage.broadcast
+            : ok
+                ? SendStage.confirmed
+                : SendStage.failed;
+      });
+      return ok != false;
+    } on ChainApiException catch (error, stackTrace) {
+      AppLog.warning('Bitcoin replacement failed', error, stackTrace);
+      return _fail(error.message);
+    } on BitcoinSigningException catch (error, stackTrace) {
+      AppLog.warning('Bitcoin signing failed', error, stackTrace);
+      return _fail(error.message);
+    } on EvmSigningException catch (error) {
+      return _fail(error.message);
+    } catch (error, stackTrace) {
+      AppLog.error('Unexpected Bitcoin replacement failure', error, stackTrace);
+      return _fail('Something went wrong while sending. Nothing was sent.');
+    }
+  }
+
   Future<Uint8List> _requireSeed() async {
     if (!identity.unlocked) {
       throw const EvmSigningException(

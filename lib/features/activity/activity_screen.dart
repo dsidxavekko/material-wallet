@@ -144,7 +144,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
                       onReplace: (ReplacementKind kind) => showReplaceTransfer(
                         context,
                         network: snapshot.network,
-                        nonce: item.nonce!,
+                        nonce: item.nonce,
                         kind: kind,
                         original: item,
                       ),

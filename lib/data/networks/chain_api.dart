@@ -567,6 +567,92 @@ class ChainApi {
     return utxos;
   }
 
+  /// A Bitcoin transaction as the explorer reports it, or `null` when the
+  /// explorer does not know the txid.
+  ///
+  /// The whole transaction is read — every input with the coin it spent and
+  /// every output with its script — because replacing it means rebuilding the
+  /// same transfer with a larger fee.
+  Future<BitcoinPriorTx?> fetchBitcoinTransaction(
+    NetworkConfig network,
+    String txid,
+  ) async {
+    if (network.chain != ChainKind.bitcoin) {
+      return null;
+    }
+    final Object? json = await _get('${network.apiBase}/tx/$txid');
+    return json is Map<String, Object?> ? _parseBitcoinPriorTx(json) : null;
+  }
+
+  static BitcoinPriorTx? _parseBitcoinPriorTx(Map<String, Object?> json) {
+    final String? txid = json['txid'] as String?;
+    final Object? vin = json['vin'];
+    final Object? vout = json['vout'];
+    if (txid == null || vin is! List || vout is! List) {
+      return null;
+    }
+
+    final List<BitcoinPriorInput> inputs = <BitcoinPriorInput>[];
+    for (final Object? raw in vin) {
+      if (raw is! Map<String, Object?> || raw['is_coinbase'] == true) {
+        return null;
+      }
+      final Object? prevout = raw['prevout'];
+      final String? prevTxid = raw['txid'] as String?;
+      final int? prevVout = (raw['vout'] as num?)?.toInt();
+      if (prevout is! Map<String, Object?> ||
+          prevTxid == null ||
+          prevVout == null) {
+        return null;
+      }
+      final num? value = prevout['value'] as num?;
+      if (value == null) {
+        return null;
+      }
+      inputs.add(
+        BitcoinPriorInput(
+          utxo: BitcoinUtxo(
+            txid: prevTxid,
+            vout: prevVout,
+            value: BigInt.from(value.toInt()),
+          ),
+          sequence: (raw['sequence'] as num?)?.toInt() ?? 0xffffffff,
+          address: prevout['scriptpubkey_address'] as String?,
+          scriptType: prevout['scriptpubkey_type'] as String?,
+        ),
+      );
+    }
+
+    final List<BitcoinPriorOutput> outputs = <BitcoinPriorOutput>[];
+    for (final Object? raw in vout) {
+      if (raw is! Map<String, Object?>) {
+        return null;
+      }
+      final String? script = raw['scriptpubkey'] as String?;
+      final num? value = raw['value'] as num?;
+      if (script == null || value == null) {
+        return null;
+      }
+      outputs.add(
+        BitcoinPriorOutput(
+          output: BitcoinOutput(
+            value: BigInt.from(value.toInt()),
+            scriptPubKey: Uint8List.fromList(hex.decode(script)),
+          ),
+          address: raw['scriptpubkey_address'] as String?,
+        ),
+      );
+    }
+
+    final Object? status = json['status'];
+    return BitcoinPriorTx(
+      txid: txid,
+      confirmed: status is Map<String, Object?> && status['confirmed'] == true,
+      inputs: inputs,
+      outputs: outputs,
+    );
+  }
+
   /// The network's ready-made confirmation tiers from mempool.space.
   ///
   /// Throws rather than guessing, so a transfer is never signed with a fee the

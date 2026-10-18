@@ -52,6 +52,48 @@ class BitcoinInput {
   final int sequence;
 }
 
+/// A transaction that is already on the network, as the explorer reports it —
+/// the raw material for replacing it.
+class BitcoinPriorTx {
+  const BitcoinPriorTx({
+    required this.txid,
+    required this.confirmed,
+    required this.inputs,
+    required this.outputs,
+  });
+
+  final String txid;
+  final bool confirmed;
+  final List<BitcoinPriorInput> inputs;
+  final List<BitcoinPriorOutput> outputs;
+}
+
+class BitcoinPriorInput {
+  const BitcoinPriorInput({
+    required this.utxo,
+    required this.sequence,
+    required this.address,
+    required this.scriptType,
+  });
+
+  /// The coin this input spends, with the value it carried.
+  final BitcoinUtxo utxo;
+  final int sequence;
+
+  /// Address that owned the spent coin, when the explorer knows it.
+  final String? address;
+
+  /// Explorer's script type, e.g. `v0_p2wpkh`.
+  final String? scriptType;
+}
+
+class BitcoinPriorOutput {
+  const BitcoinPriorOutput({required this.output, required this.address});
+
+  final BitcoinOutput output;
+  final String? address;
+}
+
 /// One transaction output: a value and the raw script that locks it.
 class BitcoinOutput {
   const BitcoinOutput({required this.value, required this.scriptPubKey});
@@ -116,6 +158,14 @@ class BitcoinSigner {
 
   static const int _sighashAll = 1;
   static const int _txVersion = 2;
+
+  /// Input sequence that signals replace-by-fee (BIP-125: anything below
+  /// `0xfffffffe`). Also keeps `nLockTime` enforceable like the final value
+  /// does, so nothing else about the transaction changes.
+  static const int rbfSequence = 0xfffffffd;
+
+  /// Opt-out sequence of transactions signed before RBF signalling existed.
+  static const int finalSequence = 0xffffffff;
 
   /// P2WPKH scriptPubKey (`OP_0 <20-byte hash160>`) for [publicKey].
   static Uint8List p2wpkhScript(Uint8List publicKey) =>
@@ -242,6 +292,149 @@ class BitcoinSigner {
     return null;
   }
 
+  /// Plans a replace-by-fee version of the unconfirmed [original]: same
+  /// inputs, same recipients, a larger fee paid out of the change output.
+  ///
+  /// Follows [BIP-125](https://github.com/bitcoin/bips/blob/master/bip-0125.mediawiki):
+  /// the replacement pays a higher absolute fee than the original, plus at
+  /// least 1 sat/vB for its own size. The new fee targets [targetFeeRate]
+  /// sat/vB but is never below that floor. Only the change shrinks — a
+  /// recipient is never asked to pay more, and no new input is pulled in, so
+  /// the replacement cannot depend on anything unconfirmed.
+  ///
+  /// Throws [BitcoinSigningException] with a plain-language reason whenever the
+  /// transaction cannot honestly be replaced (already confirmed, not ours,
+  /// sent without RBF signalling, or too little change to pay for the bump).
+  static BitcoinPlan planReplacement({
+    required BitcoinPriorTx original,
+    required String ownAddress,
+    required int targetFeeRate,
+    int dust = dustLimit,
+  }) {
+    if (original.confirmed) {
+      throw const BitcoinSigningException(
+        'This transfer is already confirmed — there is nothing to speed up.',
+      );
+    }
+    final String own = ownAddress.toLowerCase();
+    for (final BitcoinPriorInput input in original.inputs) {
+      if (input.address?.toLowerCase() != own) {
+        throw const BitcoinSigningException(
+          'This transfer spends coins that are not all yours, so it cannot '
+          'be replaced from this wallet.',
+        );
+      }
+      if (input.scriptType != 'v0_p2wpkh') {
+        throw const BitcoinSigningException(
+          'Only native SegWit transfers can be replaced.',
+        );
+      }
+    }
+    if (!original.inputs
+        .any((BitcoinPriorInput i) => i.sequence < 0xfffffffe)) {
+      throw const BitcoinSigningException(
+        'This transfer was sent without replace-by-fee, so the network will '
+        'not accept a faster version of it.',
+      );
+    }
+
+    final List<int> changeAt = <int>[
+      for (int i = 0; i < original.outputs.length; i++)
+        if (original.outputs[i].address?.toLowerCase() == own) i,
+    ];
+    if (changeAt.length != 1 || original.outputs.length < 2) {
+      throw const BitcoinSigningException(
+        'This transfer has no change to take the extra fee from.',
+      );
+    }
+    final int changeIndex = changeAt.single;
+
+    BigInt inputTotal = BigInt.zero;
+    for (final BitcoinPriorInput input in original.inputs) {
+      inputTotal += input.utxo.value;
+    }
+    BigInt outputTotal = BigInt.zero;
+    for (final BitcoinPriorOutput out in original.outputs) {
+      outputTotal += out.output.value;
+    }
+    final BigInt oldFee = inputTotal - outputTotal;
+    if (oldFee < BigInt.zero) {
+      throw const BitcoinSigningException(
+        'The transfer\'s amounts do not add up. Nothing was changed.',
+      );
+    }
+
+    final BigInt change = original.outputs[changeIndex].output.value;
+    final int inputCount = original.inputs.length;
+
+    // Keep the change output first; fall back to folding it into the fee.
+    final int sizeWithChange =
+        estimateVsize(inputCount, original.outputs.length);
+    BigInt newFee = BigInt.from(sizeWithChange * targetFeeRate);
+    final BigInt floorFee = oldFee + BigInt.from(sizeWithChange);
+    if (newFee < floorFee) {
+      newFee = floorFee;
+    }
+    final BigInt newChange = change - (newFee - oldFee);
+
+    final List<BitcoinOutput> outputs;
+    final BigInt finalFee;
+    final BigInt finalChange;
+    final int vsize;
+    if (newChange >= BigInt.from(dust)) {
+      outputs = <BitcoinOutput>[
+        for (int i = 0; i < original.outputs.length; i++)
+          i == changeIndex
+              ? BitcoinOutput(
+                  value: newChange,
+                  scriptPubKey: original.outputs[i].output.scriptPubKey,
+                )
+              : original.outputs[i].output,
+      ];
+      finalFee = newFee;
+      finalChange = newChange;
+      vsize = sizeWithChange;
+    } else {
+      // Not enough change to stay above dust: it all goes to the fee, which
+      // must still beat the original by the relay increment.
+      final int sizeWithout =
+          estimateVsize(inputCount, original.outputs.length - 1);
+      final BigInt swept = oldFee + change;
+      if (swept < oldFee + BigInt.from(sizeWithout) || change <= BigInt.zero) {
+        throw const BitcoinSigningException(
+          'The change is too small to pay for a faster version. '
+          'Nothing was changed.',
+        );
+      }
+      outputs = <BitcoinOutput>[
+        for (int i = 0; i < original.outputs.length; i++)
+          if (i != changeIndex) original.outputs[i].output,
+      ];
+      finalFee = swept;
+      finalChange = BigInt.zero;
+      vsize = sizeWithout;
+    }
+
+    BigInt recipients = BigInt.zero;
+    for (int i = 0; i < original.outputs.length; i++) {
+      if (i != changeIndex) {
+        recipients += original.outputs[i].output.value;
+      }
+    }
+
+    return BitcoinPlan(
+      amount: recipients,
+      inputs: <BitcoinUtxo>[
+        for (final BitcoinPriorInput i in original.inputs) i.utxo,
+      ],
+      outputs: outputs,
+      fee: finalFee,
+      change: finalChange,
+      vsize: vsize,
+      feeRate: (finalFee ~/ BigInt.from(vsize)).toInt(),
+    );
+  }
+
   /// The most that can be sent in one transaction from [utxos] at [feeRate],
   /// sweeping every input into a single output.
   static BigInt? maxSpendable({
@@ -329,7 +522,11 @@ class BitcoinSigner {
 
     final List<BitcoinInput> inputs = <BitcoinInput>[
       for (final BitcoinUtxo utxo in utxos)
-        BitcoinInput(txid: utxo.txid, vout: utxo.vout),
+        BitcoinInput(
+          txid: utxo.txid,
+          vout: utxo.vout,
+          sequence: rbfSequence,
+        ),
     ];
 
     final BytesBuilder witness = BytesBuilder();

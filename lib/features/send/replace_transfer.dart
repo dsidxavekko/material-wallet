@@ -9,6 +9,7 @@ import '../../core/utils/units.dart';
 import '../../data/models/chain_kind.dart';
 import '../../data/networks/chain_models.dart';
 import '../../data/networks/network_config.dart';
+import '../../data/wallet/bitcoin_signer.dart';
 import '../../state/send_controller.dart';
 import '../../state/wallet_controller.dart';
 import '../../state/wallet_identity_controller.dart';
@@ -44,10 +45,16 @@ enum ReplacementKind {
 Future<void> showReplaceTransfer(
   BuildContext context, {
   required NetworkConfig network,
-  required int nonce,
+  required int? nonce,
   required ReplacementKind kind,
   required ChainTransaction original,
 }) async {
+  if (network.chain == ChainKind.bitcoin) {
+    return _showBitcoinSpeedUp(context, network: network, original: original);
+  }
+  if (nonce == null) {
+    return;
+  }
   final bool cancelling = kind == ReplacementKind.cancel;
   final WalletIdentityController identity =
       context.read<WalletIdentityController>();
@@ -189,6 +196,126 @@ Future<void> showReplaceTransfer(
   }
 }
 
+/// Speeds a pending Bitcoin transfer up with replace-by-fee.
+///
+/// Rebuilds the same payment from the same coins with a larger fee taken out
+/// of the change (BIP-125). The review step shows the old and the new fee, and
+/// a transfer that cannot be replaced says why instead of failing quietly.
+Future<void> _showBitcoinSpeedUp(
+  BuildContext context, {
+  required NetworkConfig network,
+  required ChainTransaction original,
+}) async {
+  final WalletIdentityController identity =
+      context.read<WalletIdentityController>();
+  final String? ownAddress = identity.addressFor(network);
+  if (ownAddress == null) {
+    return;
+  }
+
+  final SendController controller = SendController(
+    identity: identity,
+    network: network,
+    address: ownAddress,
+  );
+
+  final ({BitcoinPlan? plan, BigInt? oldFee, String? reason}) prepared =
+      await controller.prepareBitcoinSpeedUp(original.hash);
+  final BitcoinPlan? plan = prepared.plan;
+  if (plan == null || !context.mounted) {
+    controller.dispose();
+    if (context.mounted) {
+      showAppSnackBar(
+        context,
+        prepared.reason ?? 'This transfer cannot be sped up.',
+        icon: Icons.error_outline_rounded,
+      );
+    }
+    return;
+  }
+
+  String sats(BigInt value) =>
+      Units.formatWithSymbol(value, network.decimals, network.symbol);
+
+  final bool? confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      icon: const Icon(Icons.rocket_launch_rounded),
+      title: const Text('Speed this transfer up?'),
+      content: Text(
+        'The same payment is sent again with a higher fee, paid out of your '
+        'change: ${sats(prepared.oldFee ?? BigInt.zero)} → ${sats(plan.fee)} '
+        '(${plan.feeRate} sat/vB). The recipient still gets the same amount; '
+        'exactly one of the two transfers will confirm.',
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(false),
+          child: const Text('Keep it'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(dialogContext).pop(true),
+          child: const Text('Speed up'),
+        ),
+      ],
+    ),
+  );
+  if (!(confirmed ?? false) || !context.mounted) {
+    controller.dispose();
+    return;
+  }
+
+  final bool authorized = await authorizeSensitiveAction(
+    context,
+    reason: 'Confirm speed up',
+    title: 'Confirm speed up',
+    confirmLabel: 'Speed up',
+    icon: Icons.rocket_launch_rounded,
+  );
+  if (!authorized || !context.mounted) {
+    controller.dispose();
+    return;
+  }
+
+  await showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => ChangeNotifierProvider<SendController>.value(
+      value: controller,
+      child: TransferProgressDialog(
+        to: original.counterparty,
+        value: plan.amount,
+        bitcoinPlan: plan,
+        replacesTxid: original.hash,
+      ),
+    ),
+  );
+
+  final bool replaced = controller.txHash != null;
+  final String? error = controller.error;
+  controller.dispose();
+
+  if (!context.mounted) {
+    return;
+  }
+  if (replaced) {
+    await context.read<WalletController>().refresh();
+    if (context.mounted) {
+      showAppSnackBar(
+        context,
+        'Faster replacement submitted.',
+        icon: Icons.check_circle_outline_rounded,
+      );
+    }
+  } else {
+    showAppSnackBar(
+      context,
+      error ?? 'The replacement could not be sent. Nothing changed.',
+      icon: Icons.error_outline_rounded,
+    );
+  }
+}
+
 /// The replacements offered for [original] on [network].
 ///
 /// Both need a known nonce on a chain the wallet can sign for. A speed-up is
@@ -204,10 +331,18 @@ List<ReplacementKind> replacementKindsFor({
   if (original.isIncoming || original.confirmed || original.failed) {
     return const <ReplacementKind>[];
   }
+  // Bitcoin replaces by rebuilding the same transfer with a larger fee (RBF).
+  // Only speed-up exists there: a cancel would need a fresh coin to pay itself.
+  // The planner explains on tap why a transfer that did not signal RBF cannot
+  // be replaced.
+  if (network.chain == ChainKind.bitcoin) {
+    return network.canSign
+        ? const <ReplacementKind>[ReplacementKind.speedUp]
+        : const <ReplacementKind>[];
+  }
   final int? nonce = original.nonce;
-  // A nonce-based replacement is an EVM-only mechanic: Bitcoin's RBF rebuilds
-  // the whole transaction from a fresh utxo set and Solana has no nonces here,
-  // so a `canSign` chain would still get a dead action offered.
+  // A nonce-based replacement is an EVM-only mechanic and Solana has no nonces
+  // here, so a `canSign` chain would still get a dead action offered.
   if (nonce == null ||
       network.chain != ChainKind.evm ||
       !network.canSign) {
