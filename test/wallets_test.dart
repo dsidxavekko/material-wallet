@@ -377,6 +377,38 @@ void main() {
       expect(identity.canSign, isTrue);
     });
 
+    test('their name and addresses can be changed afterwards', () async {
+      final _FakeWalletStorage storage = _FakeWalletStorage();
+      final WalletIdentityController identity = build(storage);
+      await identity.load();
+      final WalletEntry watch = await identity.addWatchWallet(
+        name: 'Friend',
+        addresses: <String, String>{'evm': evmWatch},
+      );
+
+      await identity.updateWatchWallet(
+        id: watch.id,
+        name: 'Cold storage',
+        addresses: <String, String>{'evm': evmWatch, 'btc': btcWatch},
+      );
+      expect(identity.activeWallet!.name, 'Cold storage');
+      expect(identity.addressFor(NetworkCatalog.bitcoin), btcWatch);
+
+      final WalletIdentityController reopened = build(storage);
+      await reopened.load();
+      expect(reopened.activeWallet!.name, 'Cold storage');
+      expect(reopened.addressFor(NetworkCatalog.bitcoin), btcWatch);
+
+      await expectLater(
+        identity.updateWatchWallet(
+          id: watch.id,
+          name: 'x',
+          addresses: const <String, String>{},
+        ),
+        throwsA(isA<SeedVaultException>()),
+      );
+    });
+
     test('refuse an empty address list', () async {
       final WalletIdentityController identity = build(_FakeWalletStorage());
       await identity.load();

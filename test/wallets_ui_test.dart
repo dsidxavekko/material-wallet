@@ -1,6 +1,7 @@
 import 'package:crypto_wallet/data/networks/chain_api.dart';
 import 'package:crypto_wallet/data/networks/network_config.dart';
 import 'package:crypto_wallet/data/networks/price_api.dart';
+import 'package:crypto_wallet/data/wallet/wallet_entry.dart';
 import 'package:crypto_wallet/data/wallet/wallet_storage.dart';
 import 'package:crypto_wallet/data/wallet/watch_address.dart';
 import 'package:crypto_wallet/features/send/send_screen.dart';
@@ -34,6 +35,19 @@ class _FakeWalletStorage extends WalletStorage {
   Future<void> clear() async {
     vault = null;
   }
+}
+
+/// A chain that resolves a fixed set of ENS names.
+class _EnsChain extends ChainApi {
+  _EnsChain(this.names);
+
+  final Map<String, String> names;
+
+  @override
+  Future<String?> resolveEnsName(String name) async => names[name];
+
+  @override
+  void dispose() {}
 }
 
 void main() {
@@ -105,6 +119,91 @@ void main() {
     await tester.pump();
 
     expect(identity.isWatchOnly, isTrue);
+  });
+
+  testWidgets('an ENS name is resolved and only its address is kept',
+      (tester) async {
+    final WalletIdentityController identity =
+        WalletIdentityController(storage: _FakeWalletStorage(), kdfRounds: 1000);
+    await tester.runAsync(identity.load);
+    final SettingsController settings = SettingsController();
+    final WalletController wallet = WalletController(
+      identity: identity,
+      settings: settings,
+      chainApi: _EnsChain(<String, String>{'vitalik.eth': evmWatch}),
+      priceApi: PriceApi(client: MockClient((_) async => http.Response('{}', 404))),
+    );
+    await tester.pumpWidget(
+      host(identity, settings, wallet, const WatchWalletScreen()),
+    );
+
+    await tester.enterText(find.widgetWithText(TextField, 'Address'), 'vitalik.eth');
+    await tester.tap(find.text('Add address'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('vitalik.eth → $evmWatch'), findsOneWidget);
+
+    await tester.tap(find.text('Follow'));
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await tester.pump();
+    expect(identity.addressFor(NetworkCatalog.ethereum), evmWatch);
+    wallet.dispose();
+  });
+
+  testWidgets('a name that points nowhere is refused', (tester) async {
+    final WalletIdentityController identity =
+        WalletIdentityController(storage: _FakeWalletStorage(), kdfRounds: 1000);
+    await tester.runAsync(identity.load);
+    final SettingsController settings = SettingsController();
+    final WalletController wallet = WalletController(
+      identity: identity,
+      settings: settings,
+      chainApi: _EnsChain(const <String, String>{}),
+      priceApi: PriceApi(client: MockClient((_) async => http.Response('{}', 404))),
+    );
+    await tester.pumpWidget(
+      host(identity, settings, wallet, const WatchWalletScreen()),
+    );
+
+    await tester.enterText(find.widgetWithText(TextField, 'Address'), 'nobody.eth');
+    await tester.tap(find.text('Add address'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('nobody.eth points to no address'), findsOneWidget);
+    wallet.dispose();
+  });
+
+  testWidgets('editing a watch-only wallet changes it in place', (tester) async {
+    final WalletIdentityController identity =
+        WalletIdentityController(storage: _FakeWalletStorage(), kdfRounds: 1000);
+    late final WalletEntry watch;
+    await tester.runAsync(() async {
+      await identity.load();
+      watch = await identity.addWatchWallet(
+        name: 'Friend',
+        addresses: <String, String>{'evm': evmWatch},
+      );
+    });
+    await tester.pumpWidget(
+      host(identity, SettingsController(), null, WatchWalletScreen(editing: watch)),
+    );
+
+    expect(find.text('Edit watch-only wallet'), findsOneWidget);
+    expect(find.text(evmWatch), findsOneWidget);
+    await tester.enterText(find.widgetWithText(TextField, 'Name (optional)'), 'Mum');
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Address'),
+      'bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq',
+    );
+    await tester.tap(find.text('Save'));
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await tester.pump();
+
+    expect(identity.wallets.length, 1);
+    expect(identity.activeWallet!.name, 'Mum');
+    expect(identity.addressFor(NetworkCatalog.bitcoin),
+        'bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq');
+    expect(identity.addressFor(NetworkCatalog.ethereum), evmWatch);
   });
 
   testWidgets('a bad address shows why and follows nothing', (tester) async {

@@ -114,13 +114,20 @@ class WalletsScreen extends StatelessWidget {
       onSelected: (String action) {
         if (action == 'rename') {
           _rename(context, identity, wallet);
+        } else if (action == 'edit') {
+          _open(context, WatchWalletScreen(editing: wallet));
         } else {
           _remove(context, identity, wallet);
         }
       },
-      itemBuilder: (_) => const <PopupMenuEntry<String>>[
-        PopupMenuItem<String>(value: 'rename', child: Text('Rename')),
-        PopupMenuItem<String>(value: 'remove', child: Text('Remove')),
+      itemBuilder: (_) => <PopupMenuEntry<String>>[
+        const PopupMenuItem<String>(value: 'rename', child: Text('Rename')),
+        if (wallet.isWatchOnly)
+          const PopupMenuItem<String>(
+            value: 'edit',
+            child: Text('Edit addresses'),
+          ),
+        const PopupMenuItem<String>(value: 'remove', child: Text('Remove')),
       ],
     );
   }

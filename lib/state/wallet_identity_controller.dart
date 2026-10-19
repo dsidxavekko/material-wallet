@@ -611,6 +611,33 @@ class WalletIdentityController extends ChangeNotifier {
     return entry;
   }
 
+  /// Replaces the name and the followed addresses of watch-only wallet [id].
+  Future<void> updateWatchWallet({
+    required String id,
+    required String name,
+    required Map<String, String> addresses,
+  }) async {
+    if (addresses.isEmpty) {
+      throw const SeedVaultException('Keep at least one address to follow.');
+    }
+    final int at = _book.watch.indexWhere((WalletEntry w) => w.id == id);
+    if (at < 0) {
+      return;
+    }
+    final String label = _clip(name.trim());
+    final List<WalletEntry> watch = List<WalletEntry>.of(_book.watch);
+    watch[at] = WalletEntry(
+      id: id,
+      name: label.isEmpty ? 'Watch-only' : label,
+      kind: WalletKind.watchOnly,
+      watched: Map<String, String>.unmodifiable(addresses),
+    );
+    final Map<String, String> names = Map<String, String>.of(_book.names)
+      ..remove(id);
+    await _saveBook(_book.copyWith(watch: watch, names: names));
+    notifyListeners();
+  }
+
   /// Renames wallet [id]; an empty [name] restores the default.
   Future<void> renameWallet(String id, String name) async {
     final String clean = _clip(name.trim());
