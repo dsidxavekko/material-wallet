@@ -25,6 +25,8 @@ jobs:
         run: dart run tool/verify_solana.dart
       - name: SPL token transfer simulation on Solana mainnet
         run: dart run tool/verify_spl.dart
+      - name: Aptos token transfer simulation on mainnet
+        run: dart run tool/verify_aptos_token.dart
       - name: Aptos testnet simulation
         run: dart run tool/verify_aptos.dart
       - name: ENS resolution on mainnet

@@ -195,9 +195,10 @@ class _HomeScreenState extends State<HomeScreen> {
               tokens: visibleTokens,
               currency: currency,
               hidden: _hideBalance,
-              // ERC-20 and SPL tokens can be sent; a watch-only wallet cannot.
-              onTokenTap: (snapshot.network.chain == ChainKind.evm ||
-                          snapshot.network.chain == ChainKind.solana) &&
+              // Tokens on every signing chain can be sent; a watch-only wallet
+              // cannot, and neither can a chain the wallet does not sign for.
+              onTokenTap: snapshot.network.canSign &&
+                      snapshot.network.chain != ChainKind.bitcoin &&
                       context.read<WalletIdentityController>().canSign
                   ? (TokenBalance token) =>
                       _push(context, SendScreen(token: token))

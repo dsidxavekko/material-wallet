@@ -73,8 +73,8 @@ class TransferProgressDialog extends StatefulWidget {
   /// and the rest are read from the chain at signing time.
   final BigInt? nativeAmount;
 
-  /// With [nativeAmount] on Solana: the SPL token being sent (the amount is in
-  /// that token's smallest unit, not lamports).
+  /// With [nativeAmount] on Solana or Aptos: the token being sent instead of
+  /// the chain's coin (the amount is in that token's smallest unit).
   final TokenBalance? splToken;
 
   @override
@@ -94,16 +94,11 @@ class _TransferProgressDialogState extends State<TransferProgressDialog> {
       final SendController controller = context.read<SendController>();
       final BigInt? nativeAmount = widget.nativeAmount;
       if (nativeAmount != null) {
-        final TokenBalance? token = widget.splToken;
-        if (token != null) {
-          controller.sendSplToken(
-            token: token,
-            to: widget.to,
-            amount: nativeAmount,
-          );
-        } else {
-          controller.sendNative(to: widget.to, amount: nativeAmount);
-        }
+        controller.sendNative(
+          to: widget.to,
+          amount: nativeAmount,
+          token: widget.splToken,
+        );
         return;
       }
       final BitcoinPlan? plan = widget.bitcoinPlan;

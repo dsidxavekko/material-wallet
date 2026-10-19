@@ -589,11 +589,17 @@ class SendController extends ChangeNotifier {
   Future<({BigInt? fee, String? problem})> prepareNative({
     required String to,
     required BigInt amount,
+    TokenBalance? token,
   }) async {
     try {
       return switch (network.chain) {
+        ChainKind.solana when token != null => await () async {
+            final q = await prepareSplToken(token: token, to: to, amount: amount);
+            return (fee: q.fee, problem: q.problem);
+          }(),
         ChainKind.solana => await _planSolana(to: to, amount: amount),
-        ChainKind.aptos => await _planAptos(to: to, amount: amount),
+        ChainKind.aptos =>
+          await _planAptos(to: to, amount: amount, token: token),
         _ => (fee: null, problem: '${network.name} does not support sending.'),
       };
     } on _NativeRefusal catch (refusal) {
@@ -618,7 +624,11 @@ class SendController extends ChangeNotifier {
   /// recipient's rent state, the blockhash or sequence number — so a stale
   /// review can never be signed. Returns `true` when the transfer went out and
   /// was not rejected; a `false` return means [error] is set.
-  Future<bool> sendNative({required String to, required BigInt amount}) async {
+  Future<bool> sendNative({
+    required String to,
+    required BigInt amount,
+    TokenBalance? token,
+  }) async {
     if (identity.isWatchOnly) {
       return _fail(_watchOnlyMessage);
     }
@@ -626,11 +636,14 @@ class SendController extends ChangeNotifier {
         (network.chain != ChainKind.solana && network.chain != ChainKind.aptos)) {
       return _fail('${network.name} does not support sending yet.');
     }
+    if (token != null && network.chain == ChainKind.solana) {
+      return sendSplToken(token: token, to: to, amount: amount);
+    }
     try {
       _notify(() => _stage = SendStage.preparing);
       final (String, bool?) result = network.chain == ChainKind.solana
           ? await _sendSolana(to: to, amount: amount)
-          : await _sendAptos(to: to, amount: amount);
+          : await _sendAptos(to: to, amount: amount, token: token);
       final bool? ok = result.$2;
       _notify(() {
         _stage = ok == null
@@ -1090,6 +1103,7 @@ class SendController extends ChangeNotifier {
     required String to,
     required BigInt amount,
     required bool keepKey,
+    TokenBalance? token,
   }) async {
     final Uint8List sender = AptosSigner.addressBytes(address);
     final Uint8List recipient = AptosSigner.addressBytes(to);
@@ -1113,17 +1127,31 @@ class SendController extends ChangeNotifier {
     final ({Uint8List privateSeed, Uint8List publicKey}) keys =
         AddressDeriver.aptosKeyPairFromSeed(seed, account: identity.accountIndex);
     try {
+      Uint8List build(int maxGasAmount) => token == null
+          ? AptosSigner.rawTransfer(
+              sender: sender,
+              sequenceNumber: sequence,
+              to: recipient,
+              amount: amount,
+              maxGasAmount: maxGasAmount,
+              gasUnitPrice: gasPrice,
+              expirationTimestampSecs: expiry,
+              chainId: ledger.chainId,
+            )
+          : AptosSigner.rawTokenTransfer(
+              sender: sender,
+              sequenceNumber: sequence,
+              assetType: token.contractAddress,
+              to: recipient,
+              amount: amount,
+              maxGasAmount: maxGasAmount,
+              gasUnitPrice: gasPrice,
+              expirationTimestampSecs: expiry,
+              chainId: ledger.chainId,
+            );
+
       // Dry run first: the exact gas, and a refusal before anything is signed.
-      Uint8List raw = AptosSigner.rawTransfer(
-        sender: sender,
-        sequenceNumber: sequence,
-        to: recipient,
-        amount: amount,
-        maxGasAmount: 100000,
-        gasUnitPrice: gasPrice,
-        expirationTimestampSecs: expiry,
-        chainId: ledger.chainId,
-      );
+      Uint8List raw = build(100000);
       final ({bool success, String vmStatus, int gasUsed}) simulation =
           await _chainApi.simulateAptos(
         network,
@@ -1139,16 +1167,7 @@ class SendController extends ChangeNotifier {
         );
       }
       final int maxGas = _aptosMaxGas(simulation.gasUsed);
-      raw = AptosSigner.rawTransfer(
-        sender: sender,
-        sequenceNumber: sequence,
-        to: recipient,
-        amount: amount,
-        maxGasAmount: maxGas,
-        gasUnitPrice: gasPrice,
-        expirationTimestampSecs: expiry,
-        chainId: ledger.chainId,
-      );
+      raw = build(maxGas);
       return (
         rawTransaction: raw,
         gasUsed: simulation.gasUsed,
@@ -1167,15 +1186,28 @@ class SendController extends ChangeNotifier {
   Future<({BigInt? fee, String? problem})> _planAptos({
     required String to,
     required BigInt amount,
+    TokenBalance? token,
   }) async {
-    final built = await _aptosBuild(to: to, amount: amount, keepKey: false);
+    final built =
+        await _aptosBuild(to: to, amount: amount, keepKey: false, token: token);
     final BigInt fee = BigInt.from(built.gasUsed) * BigInt.from(built.gasPrice);
     final BigInt reserve = BigInt.from(built.maxGas) * BigInt.from(built.gasPrice);
     final BigInt balance = await _chainApi.fetchBalance(network, address);
     String apt(BigInt v) => Units.formatWithSymbol(v, 8, 'APT', maxDecimals: 8);
     String? problem;
-    if (amount + fee > balance) {
-      problem = 'Not enough APT for the amount and the network fee.';
+    // A token transfer moves no APT: only the fee comes out of the balance.
+    final BigInt aptOut = token == null ? amount : BigInt.zero;
+    if (token != null &&
+        amount > await _chainApi.fetchAptosTokenBalance(
+          network,
+          address,
+          token.contractAddress,
+        )) {
+      problem = 'Your ${token.symbol} balance is lower than this amount.';
+    } else if (aptOut + fee > balance) {
+      problem = token == null
+          ? 'Not enough APT for the amount and the network fee.'
+          : 'Not enough APT for the network fee.';
     } else if (balance < reserve) {
       problem = 'Aptos needs ${apt(reserve)} available to cover the gas limit '
           'before it runs the transfer.';
@@ -1186,8 +1218,10 @@ class SendController extends ChangeNotifier {
   Future<(String, bool?)> _sendAptos({
     required String to,
     required BigInt amount,
+    TokenBalance? token,
   }) async {
-    final built = await _aptosBuild(to: to, amount: amount, keepKey: true);
+    final built =
+        await _aptosBuild(to: to, amount: amount, keepKey: true, token: token);
     final Uint8List privateSeed = built.privateSeed;
     final Uint8List signed;
     try {
@@ -1195,9 +1229,21 @@ class SendController extends ChangeNotifier {
       final BigInt reserve =
           BigInt.from(built.maxGas) * BigInt.from(built.gasPrice);
       final BigInt balance = await _chainApi.fetchBalance(network, address);
-      if (amount + fee > balance || balance < reserve) {
+      final BigInt aptOut = token == null ? amount : BigInt.zero;
+      if (aptOut + fee > balance || balance < reserve) {
         throw const _NativeRefusal(
           'Your balance dropped since the last refresh. Nothing was sent.',
+        );
+      }
+      if (token != null &&
+          amount > await _chainApi.fetchAptosTokenBalance(
+            network,
+            address,
+            token.contractAddress,
+          )) {
+        throw _NativeRefusal(
+          'Your ${token.symbol} balance dropped since the last refresh. '
+          'Nothing was sent.',
         );
       }
       _notify(() => _stage = SendStage.signing);

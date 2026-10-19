@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:convert/convert.dart';
 import 'package:crypto_wallet/core/crypto/base58.dart';
 import 'package:crypto_wallet/data/networks/chain_api.dart';
+import 'package:crypto_wallet/data/networks/chain_models.dart';
 import 'package:crypto_wallet/data/networks/network_config.dart';
 import 'package:crypto_wallet/data/wallet/address_deriver.dart';
 import 'package:crypto_wallet/data/wallet/aptos_signer.dart';
@@ -129,6 +130,17 @@ class _FakeChain extends ChainApi {
       gasUsed: gasUsed,
     );
   }
+
+  /// Aptos token holdings by asset type.
+  final Map<String, BigInt> aptosTokens = <String, BigInt>{};
+
+  @override
+  Future<BigInt> fetchAptosTokenBalance(
+    NetworkConfig network,
+    String address,
+    String assetType,
+  ) async =>
+      aptosTokens[assetType] ?? BigInt.zero;
 
   @override
   Future<String> submitAptos(
@@ -408,6 +420,129 @@ void main() {
       expect(ok, isFalse);
       expect(chain.broadcasts, 0);
       send.dispose();
+    });
+    group('tokens', () {
+      final String fa = '0x${'0a' * 32}';
+      final TokenBalance usdc = TokenBalance(
+        symbol: 'USDC',
+        name: 'USD Coin',
+        decimals: 6,
+        balance: BigInt.from(9000000),
+        contractAddress: fa,
+      );
+
+      test('prices a token transfer: only gas comes out of the APT', () async {
+        final (SendController send, _FakeChain chain, _, _) = await setup();
+        chain.aptosTokens[fa] = BigInt.from(9000000);
+
+        final quote = await send.prepareNative(
+          to: aptRecipient,
+          amount: BigInt.from(2000000),
+          token: usdc,
+        );
+
+        expect(quote.problem, isNull);
+        expect(quote.fee, BigInt.from(9 * 100));
+        send.dispose();
+      });
+
+      test('more than the token balance is refused', () async {
+        final (SendController send, _FakeChain chain, _, _) = await setup();
+        chain.aptosTokens[fa] = BigInt.from(1000000);
+
+        final quote = await send.prepareNative(
+          to: aptRecipient,
+          amount: BigInt.from(2000000),
+          token: usdc,
+        );
+        expect(quote.problem, contains('USDC balance is lower'));
+
+        final bool ok = await send.sendNative(
+          to: aptRecipient,
+          amount: BigInt.from(2000000),
+          token: usdc,
+        );
+        expect(ok, isFalse);
+        expect(chain.broadcasts, 0);
+        expect(send.error, contains('Nothing was sent'));
+        send.dispose();
+      });
+
+      test('with no APT for gas a token cannot move', () async {
+        final (SendController send, _FakeChain chain, String address, _) =
+            await setup();
+        chain.aptosTokens[fa] = BigInt.from(9000000);
+        chain.balances[address] = BigInt.zero;
+
+        final bool ok = await send.sendNative(
+          to: aptRecipient,
+          amount: BigInt.from(1000000),
+          token: usdc,
+        );
+        expect(ok, isFalse);
+        expect(chain.broadcasts, 0);
+        send.dispose();
+      });
+
+      test('submits exactly the token transaction the signer produces', () async {
+        final (SendController send, _FakeChain chain, String address, _) =
+            await setup();
+        chain.aptosTokens[fa] = BigInt.from(9000000);
+
+        final bool ok = await send.sendNative(
+          to: aptRecipient,
+          amount: BigInt.from(2000000),
+          token: usdc,
+        );
+        expect(ok, isTrue, reason: send.error);
+        expect(chain.broadcasts, 1);
+
+        final Uint8List seed = AddressDeriver.seedFromMnemonic(mnemonic);
+        final keys = AddressDeriver.aptosKeyPairFromSeed(seed);
+        final Uint8List raw = AptosSigner.rawTokenTransfer(
+          sender: AptosSigner.addressBytes(address),
+          sequenceNumber: 7,
+          assetType: fa,
+          to: AptosSigner.addressBytes(aptRecipient),
+          amount: BigInt.from(2000000),
+          maxGasAmount: AptosSigner.maxGasFloor,
+          gasUnitPrice: 100,
+          expirationTimestampSecs: 1700000600,
+          chainId: 1,
+        );
+        expect(
+          hex.encode(chain.lastTransaction!),
+          hex.encode(
+            AptosSigner.sign(privateSeed: keys.privateSeed, rawTransaction: raw),
+          ),
+        );
+        send.dispose();
+      });
+
+      test('a legacy coin is sent with transfer_coins', () async {
+        final (SendController send, _FakeChain chain, String address, _) =
+            await setup();
+        final String coin = '0x${'0b' * 32}::asset::USDC';
+        chain.aptosTokens[coin] = BigInt.from(9000000);
+
+        final bool ok = await send.sendNative(
+          to: aptRecipient,
+          amount: BigInt.from(1000000),
+          token: TokenBalance(
+            symbol: 'USDC',
+            name: 'USDC',
+            decimals: 6,
+            balance: BigInt.from(9000000),
+            contractAddress: coin,
+          ),
+        );
+        expect(ok, isTrue, reason: send.error);
+        expect(
+          hex.encode(chain.lastTransaction!),
+          contains(hex.encode('transfer_coins'.codeUnits)),
+        );
+        send.dispose();
+      });
     });
   });
 }

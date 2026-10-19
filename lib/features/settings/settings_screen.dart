@@ -1190,7 +1190,8 @@ class _AboutCard extends StatelessWidget {
               title: const Text('Data sources'),
               subtitle: const Text(
                 'mempool.space · Blockscout · CoinGecko · PublicNode · dRPC · 1RPC · '
-                'official chain RPCs (Base, Arbitrum, Polygon, BNB) · Solana RPC · Aptos fullnode',
+                'official chain RPCs (Base, Arbitrum, Polygon, BNB) · Solana RPC · Aptos fullnode · '
+                'Aptos Labs indexer (Aptos token balances)',
               ),
               isThreeLine: true,
             ),

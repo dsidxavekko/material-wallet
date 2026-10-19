@@ -194,4 +194,96 @@ void main() {
       expect(AptosSigner.uleb128(300), <int>[0xac, 0x02]);
     });
   });
+  group('AptosSigner tokens', () {
+    const String senderHex =
+        '1985ca180559f52d8d37809fa63a3dc89870507ff5e9340aa8360d7322bb23b0';
+    final Uint8List sender = AptosSigner.addressBytes('0x$senderHex');
+    final Uint8List to = AptosSigner.addressBytes('0x${'11' * 32}');
+
+    Uint8List fa() => AptosSigner.rawTokenTransfer(
+          sender: sender,
+          sequenceNumber: 7,
+          assetType: '0x${'0a' * 32}',
+          to: to,
+          amount: BigInt.from(5000000),
+          maxGasAmount: 2000,
+          gasUnitPrice: 100,
+          expirationTimestampSecs: 1700000000,
+          chainId: 1,
+        );
+
+    Uint8List coin() => AptosSigner.rawTokenTransfer(
+          sender: sender,
+          sequenceNumber: 7,
+          assetType: '0x${'0b' * 32}::asset::USDC',
+          to: to,
+          amount: BigInt.from(5000000),
+          maxGasAmount: 2000,
+          gasUnitPrice: 100,
+          expirationTimestampSecs: 1700000000,
+          chainId: 1,
+        );
+
+    test('a fungible asset matches primary_fungible_store::transfer in the aptos-sdk', () {
+      expect(hex.encode(fa()),
+          '1985ca180559f52d8d37809fa63a3dc89870507ff5e9340aa8360d7322bb23b00700000000000000020000000000000000000000000000000000000000000000000000000000000001167072696d6172795f66756e6769626c655f73746f7265087472616e73666572010700000000000000000000000000000000000000000000000000000000000000010e66756e6769626c655f6173736574084d657461646174610003200a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a20111111111111111111111111111111111111111111111111111111111111111108404b4c0000000000d007000000000000640000000000000000f153650000000001');
+      expect(
+        hex.encode(AptosSigner.sign(privateSeed: seed, rawTransaction: fa())),
+        '1985ca180559f52d8d37809fa63a3dc89870507ff5e9340aa8360d7322bb23b00700000000000000020000000000000000000000000000000000000000000000000000000000000001167072696d6172795f66756e6769626c655f73746f7265087472616e73666572010700000000000000000000000000000000000000000000000000000000000000010e66756e6769626c655f6173736574084d657461646174610003200a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a20111111111111111111111111111111111111111111111111111111111111111108404b4c0000000000d007000000000000640000000000000000f1536500000000010020f036276246a75b9de3349ed42b15e232f6518fc20f5fcd4f1d64e81f9bd258f7401614230ddada074b85808b38e1d0a86e31915dc2e64fb72e4da7cc514b5e7a1d3f187cae261b08be595474ec88b695d10ab42a0f870b4247716c0285f2a5300b',
+      );
+    });
+
+    test('a legacy coin matches aptos_account::transfer_coins in the aptos-sdk', () {
+      expect(hex.encode(coin()),
+          '1985ca180559f52d8d37809fa63a3dc89870507ff5e9340aa8360d7322bb23b007000000000000000200000000000000000000000000000000000000000000000000000000000000010d6170746f735f6163636f756e740e7472616e736665725f636f696e7301070b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0561737365740455534443000220111111111111111111111111111111111111111111111111111111111111111108404b4c0000000000d007000000000000640000000000000000f153650000000001');
+      expect(
+        hex.encode(AptosSigner.sign(privateSeed: seed, rawTransaction: coin())),
+        '1985ca180559f52d8d37809fa63a3dc89870507ff5e9340aa8360d7322bb23b007000000000000000200000000000000000000000000000000000000000000000000000000000000010d6170746f735f6163636f756e740e7472616e736665725f636f696e7301070b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0561737365740455534443000220111111111111111111111111111111111111111111111111111111111111111108404b4c0000000000d007000000000000640000000000000000f1536500000000010020f036276246a75b9de3349ed42b15e232f6518fc20f5fcd4f1d64e81f9bd258f7409ad74ac9675419a72b657c25799f55d848d0a3054d1ad17e4fcc55895964c8f03b9c193e5b00a0ecb537082c081c26801cd19b4fd56355c7721d9904cfc19b01',
+      );
+    });
+
+    test('a token is told apart from a coin by its type', () {
+      expect(AptosSigner.isFungibleAsset('0x${'0a' * 32}'), isTrue);
+      expect(AptosSigner.isFungibleAsset('0x1::aptos_coin::AptosCoin'), isFalse);
+    });
+
+    test('malformed or generic types and bad amounts are refused', () {
+      for (final String bad in <String>[
+        '0x1::coin',
+        '0x1::coin::Coin<0x1::aptos_coin::AptosCoin>',
+        '0x1::9bad::Name',
+        '::coin::Name',
+      ]) {
+        expect(
+          () => AptosSigner.rawTokenTransfer(
+            sender: sender,
+            sequenceNumber: 0,
+            assetType: bad,
+            to: to,
+            amount: BigInt.one,
+            maxGasAmount: 2000,
+            gasUnitPrice: 100,
+            expirationTimestampSecs: 1,
+            chainId: 1,
+          ),
+          throwsA(isA<AptosSigningException>()),
+          reason: bad,
+        );
+      }
+      expect(
+        () => AptosSigner.rawTokenTransfer(
+          sender: sender,
+          sequenceNumber: 0,
+          assetType: '0x${'0a' * 32}',
+          to: to,
+          amount: BigInt.zero,
+          maxGasAmount: 2000,
+          gasUnitPrice: 100,
+          expirationTimestampSecs: 1,
+          chainId: 1,
+        ),
+        throwsA(isA<AptosSigningException>()),
+      );
+    });
+  });
 }

@@ -356,8 +356,16 @@ class _SendScreenState extends State<SendScreen> {
         });
         return;
       }
+      if (_isToken && _enteredAmount <= BigInt.zero) {
+        controller.dispose();
+        return;
+      }
       final ({BigInt? fee, String? problem}) quote =
-          await controller.prepareNative(to: recipient, amount: _nativeOut);
+          await controller.prepareNative(
+        to: recipient,
+        amount: _isToken ? _enteredAmount : _nativeOut,
+        token: widget.token,
+      );
       controller.dispose();
       if (!mounted) {
         return;
@@ -1254,7 +1262,7 @@ class _SendScreenState extends State<SendScreen> {
         network: network,
         recipient: recipient,
         amount: amount,
-        splToken: _isSplToken ? widget.token : null,
+        splToken: widget.token,
       ),
     );
   }

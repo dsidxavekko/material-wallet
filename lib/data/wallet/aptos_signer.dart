@@ -90,6 +90,108 @@ class AptosSigner {
     required int expirationTimestampSecs,
     required int chainId,
   }) {
+    _checkTransfer(sender, to, amount, chainId);
+    return _rawEntry(
+      sender: sender,
+      sequenceNumber: sequenceNumber,
+      module: 'aptos_account',
+      function: 'transfer',
+      typeArguments: const <List<int>>[],
+      arguments: <List<int>>[to, _u64(amount)],
+      maxGasAmount: maxGasAmount,
+      gasUnitPrice: gasUnitPrice,
+      expirationTimestampSecs: expirationTimestampSecs,
+      chainId: chainId,
+    );
+  }
+
+  /// `true` when [assetType] names a *fungible asset* (a metadata object
+  /// address, `0x…`), `false` when it is a legacy coin type (`0xaddr::mod::Name`).
+  static bool isFungibleAsset(String assetType) => !assetType.contains('::');
+
+  /// BCS `RawTransaction` for sending [amount] of a token other than APT.
+  ///
+  /// * a **fungible asset** ([assetType] is its metadata object address) is
+  ///   moved with `0x1::primary_fungible_store::transfer<0x1::fungible_asset::Metadata>
+  ///   (metadata, to, amount)`;
+  /// * a **legacy coin** ([assetType] is a `0xaddr::module::Name` type) with
+  ///   `0x1::aptos_account::transfer_coins<CoinType>(to, amount)`.
+  ///
+  /// Both create the recipient's store when it does not exist yet. Pinned by
+  /// vectors from the official `aptos-sdk`.
+  static Uint8List rawTokenTransfer({
+    required Uint8List sender,
+    required int sequenceNumber,
+    required String assetType,
+    required Uint8List to,
+    required BigInt amount,
+    required int maxGasAmount,
+    required int gasUnitPrice,
+    required int expirationTimestampSecs,
+    required int chainId,
+  }) {
+    _checkTransfer(sender, to, amount, chainId);
+    if (isFungibleAsset(assetType)) {
+      final Uint8List metadata = addressBytes(assetType);
+      return _rawEntry(
+        sender: sender,
+        sequenceNumber: sequenceNumber,
+        module: 'primary_fungible_store',
+        function: 'transfer',
+        typeArguments: <List<int>>[
+          structTag(Uint8List.fromList(<int>[...Uint8List(31), 1]),
+              'fungible_asset', 'Metadata'),
+        ],
+        arguments: <List<int>>[metadata, to, _u64(amount)],
+        maxGasAmount: maxGasAmount,
+        gasUnitPrice: gasUnitPrice,
+        expirationTimestampSecs: expirationTimestampSecs,
+        chainId: chainId,
+      );
+    }
+    final List<String> parts = assetType.split('::');
+    if (parts.length != 3 ||
+        parts.any((String p) => p.isEmpty) ||
+        assetType.contains('<') ||
+        !RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(parts[1]) ||
+        !RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(parts[2])) {
+      throw const AptosSigningException('Unsupported token type.');
+    }
+    return _rawEntry(
+      sender: sender,
+      sequenceNumber: sequenceNumber,
+      module: 'aptos_account',
+      function: 'transfer_coins',
+      typeArguments: <List<int>>[
+        structTag(addressBytes(parts[0]), parts[1], parts[2]),
+      ],
+      arguments: <List<int>>[to, _u64(amount)],
+      maxGasAmount: maxGasAmount,
+      gasUnitPrice: gasUnitPrice,
+      expirationTimestampSecs: expirationTimestampSecs,
+      chainId: chainId,
+    );
+  }
+
+  /// BCS `TypeTag::Struct` for `address::module::name` (no type parameters).
+  static List<int> structTag(Uint8List address, String module, String name) {
+    final List<int> m = utf8.encode(module);
+    final List<int> n = utf8.encode(name);
+    return <int>[
+      7, // TypeTag::Struct
+      ...address,
+      ...uleb128(m.length), ...m,
+      ...uleb128(n.length), ...n,
+      0, // no type parameters
+    ];
+  }
+
+  static void _checkTransfer(
+    Uint8List sender,
+    Uint8List to,
+    BigInt amount,
+    int chainId,
+  ) {
     if (sender.length != 32 || to.length != 32) {
       throw const AptosSigningException('Malformed address.');
     }
@@ -99,19 +201,36 @@ class AptosSigner {
     if (chainId < 0 || chainId > 255) {
       throw const AptosSigningException('Invalid chain id.');
     }
-    final List<int> module = utf8.encode('aptos_account');
-    final List<int> function = utf8.encode('transfer');
+  }
+
+  /// A `RawTransaction` calling `0x1::[module]::[function]`. Each argument is
+  /// given as its BCS bytes and wrapped in the length prefix entry functions
+  /// expect.
+  static Uint8List _rawEntry({
+    required Uint8List sender,
+    required int sequenceNumber,
+    required String module,
+    required String function,
+    required List<List<int>> typeArguments,
+    required List<List<int>> arguments,
+    required int maxGasAmount,
+    required int gasUnitPrice,
+    required int expirationTimestampSecs,
+    required int chainId,
+  }) {
+    final List<int> moduleName = utf8.encode(module);
+    final List<int> functionName = utf8.encode(function);
     return Uint8List.fromList(<int>[
       ...sender,
       ..._u64(BigInt.from(sequenceNumber)),
       2, // TransactionPayload::EntryFunction
       ...Uint8List(31), 1, // module address 0x1
-      ...uleb128(module.length), ...module,
-      ...uleb128(function.length), ...function,
-      0, // no type arguments
-      2, // two arguments
-      ...uleb128(32), ...to,
-      ...uleb128(8), ..._u64(amount),
+      ...uleb128(moduleName.length), ...moduleName,
+      ...uleb128(functionName.length), ...functionName,
+      ...uleb128(typeArguments.length),
+      for (final List<int> t in typeArguments) ...t,
+      ...uleb128(arguments.length),
+      for (final List<int> a in arguments) ...<int>[...uleb128(a.length), ...a],
       ..._u64(BigInt.from(maxGasAmount)),
       ..._u64(BigInt.from(gasUnitPrice)),
       ..._u64(BigInt.from(expirationTimestampSecs)),

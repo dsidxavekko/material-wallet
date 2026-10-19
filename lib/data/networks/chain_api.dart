@@ -1266,9 +1266,10 @@ class ChainApi {
 
   /// ERC-20 balances for [address], largest USD value first.
   ///
-  /// Returns an empty list on chains without a token index (Bitcoin, Solana,
-  /// Aptos, and the JSON-RPC-only BNB Chain) and whenever the request fails:
-  /// token data is a bonus and must never break the balance screen.
+  /// Returns an empty list on chains without a token index (Bitcoin and the
+  /// JSON-RPC-only BNB Chain) and whenever the request fails: token data is a
+  /// bonus and must never break the balance screen. (Solana tokens come from the
+  /// node, Aptos ones from Aptos Labs' public indexer.)
   Future<List<TokenBalance>> fetchTokenBalances(
     NetworkConfig network,
     String address,
@@ -1278,6 +1279,14 @@ class ChainApi {
         return await _fetchSplBalances(network, address);
       } catch (error) {
         AppLog.warning('SPL balances unavailable for ${network.name}', error);
+        return const <TokenBalance>[];
+      }
+    }
+    if (network.chain == ChainKind.aptos) {
+      try {
+        return await _fetchAptosTokenBalances(network, address);
+      } catch (error) {
+        AppLog.warning('Aptos token balances unavailable', error);
         return const <TokenBalance>[];
       }
     }
@@ -2049,6 +2058,136 @@ class ChainApi {
       }
     }
     return 'Unknown';
+  }
+
+  // --- Aptos tokens ----------------------------------------------------------
+
+  /// Aptos Labs' public GraphQL indexer, the only key-less way to list every
+  /// fungible asset and coin an account holds (the fullnode can only look a
+  /// known one up).
+  static const String aptosIndexerUrl = 'https://api.mainnet.aptoslabs.com/v1/graphql';
+
+  /// The fungible assets and legacy coins [address] holds, other than APT.
+  ///
+  /// `asset_type` is a metadata object address for a fungible asset and a
+  /// `0xaddr::module::Name` type for a legacy coin; the same asset can appear
+  /// twice (a coin and its paired asset), so amounts are summed per type.
+  Future<List<TokenBalance>> _fetchAptosTokenBalances(
+    NetworkConfig network,
+    String address,
+  ) async {
+    final Object? result = await _postJson(
+      aptosIndexerUrl,
+      <String, Object?>{
+        'query': 'query(\$owner: String!) { current_fungible_asset_balances('
+            'where: {owner_address: {_eq: \$owner}, amount: {_gt: 0}}, '
+            'limit: 100) { asset_type amount metadata { name symbol decimals } } }',
+        'variables': <String, Object?>{'owner': _aptosIndexerAddress(address)},
+      },
+    );
+    final Object? data = result is Map ? result['data'] : null;
+    final Object? rows =
+        data is Map ? data['current_fungible_asset_balances'] : null;
+    if (rows is! List) {
+      throw const ChainApiException(
+        'The Aptos indexer returned no balances.',
+        retryable: false,
+      );
+    }
+    final Map<String, ({BigInt amount, String symbol, String name, int decimals})>
+        byType = <String, ({BigInt amount, String symbol, String name, int decimals})>{};
+    for (final Object? row in rows) {
+      if (row is! Map || row['asset_type'] is! String) {
+        continue;
+      }
+      final String type = row['asset_type']! as String;
+      if (type == _aptosCoinType || type.endsWith('::aptos_coin::AptosCoin')) {
+        continue; // the native coin has its own balance
+      }
+      final BigInt? amount = BigInt.tryParse('${row['amount']}');
+      final Object? meta = row['metadata'];
+      final int? decimals = meta is Map ? (meta['decimals'] as num?)?.toInt() : null;
+      if (amount == null || amount <= BigInt.zero || decimals == null) {
+        continue;
+      }
+      final existing = byType[type];
+      byType[type] = (
+        amount: (existing?.amount ?? BigInt.zero) + amount,
+        symbol: meta is Map ? '${meta['symbol'] ?? '?'}' : '?',
+        name: meta is Map ? '${meta['name'] ?? ''}' : '',
+        decimals: decimals,
+      );
+    }
+    return <TokenBalance>[
+      for (final e in byType.entries)
+        TokenBalance(
+          symbol: e.value.symbol,
+          name: e.value.name,
+          decimals: e.value.decimals,
+          balance: e.value.amount,
+          contractAddress: e.key,
+        ),
+    ];
+  }
+
+  /// The live balance of one Aptos token for [address], for the re-check right
+  /// before signing. Reads the indexer again; throws when it cannot answer.
+  Future<BigInt> fetchAptosTokenBalance(
+    NetworkConfig network,
+    String address,
+    String assetType,
+  ) async {
+    final List<TokenBalance> all = await _fetchAptosTokenBalances(network, address);
+    BigInt total = BigInt.zero;
+    for (final TokenBalance t in all) {
+      if (t.contractAddress == assetType) {
+        total += t.balance;
+      }
+    }
+    return total;
+  }
+
+  /// The indexer keys accounts by the full form: `0x` plus 64 hex digits.
+  static String _aptosIndexerAddress(String address) {
+    final String lower = address.trim().toLowerCase();
+    final String hex = lower.startsWith('0x') ? lower.substring(2) : lower;
+    return '0x${hex.padLeft(64, '0')}';
+  }
+
+  Future<Object?> _postJson(String url, Map<String, Object?> body) async {
+    final http.Response response;
+    try {
+      response = await _client
+          .post(
+            Uri.parse(url),
+            headers: const <String, String>{
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+            body: jsonEncode(body),
+          )
+          .timeout(timeout);
+    } on TimeoutException {
+      throw const ChainApiException('The network request timed out.');
+    } catch (_) {
+      throw const ChainApiException(
+        'Could not reach the blockchain API. Check your connection.',
+      );
+    }
+    if (response.statusCode >= 400) {
+      throw ChainApiException(
+        'The API rejected the request (HTTP ${response.statusCode}).',
+        retryable: response.statusCode >= 500 || response.statusCode == 429,
+      );
+    }
+    try {
+      return jsonDecode(utf8.decode(response.bodyBytes));
+    } catch (_) {
+      throw const ChainApiException(
+        'Unexpected response from the API.',
+        retryable: false,
+      );
+    }
   }
 
   // --- Aptos parsing -------------------------------------------------------
