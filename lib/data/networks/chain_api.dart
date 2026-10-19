@@ -12,6 +12,7 @@ import '../../core/utils/app_log.dart';
 import '../models/chain_kind.dart';
 import '../wallet/bitcoin_signer.dart';
 import '../wallet/evm_signer.dart';
+import '../wallet/spl_token_signer.dart';
 import 'activity_merge.dart';
 import 'chain_models.dart';
 import 'network_config.dart';
@@ -659,6 +660,160 @@ class ChainApi {
       );
     }
     return result;
+  }
+
+  // --- Solana SPL token transfers -------------------------------------------
+
+  /// What the chain says about a token mint: which program owns it (and so
+  /// which program moves it) and how many decimals it has. `null` when the mint
+  /// does not exist or belongs to a program this wallet cannot move.
+  Future<({SplTokenProgram program, int decimals})?> fetchSolanaMint(
+    NetworkConfig network,
+    String mint,
+  ) async {
+    final Object? result = await _rpc(
+      network.apiBase,
+      'getAccountInfo',
+      <Object?>[
+        mint,
+        <String, Object?>{'encoding': 'jsonParsed', 'commitment': 'confirmed'},
+      ],
+    );
+    final Object? value = result is Map ? result['value'] : null;
+    if (value is! Map) {
+      return null;
+    }
+    final SplTokenProgram? program =
+        SplTokenProgram.fromAddress(value['owner'] as String?);
+    final Object? data = value['data'];
+    final Object? parsed = data is Map ? data['parsed'] : null;
+    final Object? info = parsed is Map ? parsed['info'] : null;
+    final int? decimals = info is Map ? (info['decimals'] as num?)?.toInt() : null;
+    if (program == null || decimals == null || parsed is! Map || parsed['type'] != 'mint') {
+      return null;
+    }
+    return (program: program, decimals: decimals);
+  }
+
+  /// The token accounts [owner] holds for [mint], each with its live balance,
+  /// largest first. Read again right before signing, so a stale list can never
+  /// be spent.
+  Future<List<({String address, BigInt amount})>> fetchSolanaTokenAccounts(
+    NetworkConfig network,
+    String owner,
+    String mint,
+  ) async {
+    final Object? result = await _rpc(
+      network.apiBase,
+      'getTokenAccountsByOwner',
+      <Object?>[
+        owner,
+        <String, Object?>{'mint': mint},
+        <String, Object?>{'encoding': 'jsonParsed', 'commitment': 'confirmed'},
+      ],
+    );
+    final Object? accounts = result is Map ? result['value'] : null;
+    final List<({String address, BigInt amount})> found =
+        <({String address, BigInt amount})>[];
+    if (accounts is List) {
+      for (final Object? entry in accounts) {
+        if (entry is! Map || entry['pubkey'] is! String) {
+          continue;
+        }
+        final Object? account = entry['account'];
+        final Object? data = account is Map ? account['data'] : null;
+        final Object? parsed = data is Map ? data['parsed'] : null;
+        final Object? info = parsed is Map ? parsed['info'] : null;
+        final Object? tokenAmount = info is Map ? info['tokenAmount'] : null;
+        final BigInt? amount = tokenAmount is Map
+            ? BigInt.tryParse('${tokenAmount['amount']}')
+            : null;
+        // A frozen account cannot send.
+        final bool frozen = info is Map && info['state'] == 'frozen';
+        if (amount != null && !frozen) {
+          found.add((address: entry['pubkey']! as String, amount: amount));
+        }
+      }
+    }
+    found.sort((a, b) => b.amount.compareTo(a.amount));
+    return found;
+  }
+
+  /// A token account's mint, owner and program, or `null` when [address] holds
+  /// no account at all (the recipient's associated account does not exist yet).
+  /// Throws when the address is an account of some other kind.
+  Future<({String? mint, String? owner, SplTokenProgram? program})?>
+      fetchSolanaTokenAccountState(
+    NetworkConfig network,
+    String address,
+  ) async {
+    final Object? result = await _rpc(
+      network.apiBase,
+      'getAccountInfo',
+      <Object?>[
+        address,
+        <String, Object?>{'encoding': 'jsonParsed', 'commitment': 'confirmed'},
+      ],
+    );
+    final Object? value = result is Map ? result['value'] : null;
+    if (value is! Map) {
+      return null;
+    }
+    final Object? data = value['data'];
+    final Object? parsed = data is Map ? data['parsed'] : null;
+    final Object? info = parsed is Map ? parsed['info'] : null;
+    return (
+      mint: info is Map ? info['mint'] as String? : null,
+      owner: info is Map ? info['owner'] as String? : null,
+      program: SplTokenProgram.fromAddress(value['owner'] as String?),
+    );
+  }
+
+  /// Dry-runs a signed transaction on the cluster, returning the node's error
+  /// (if it would fail) and the lamports each of [watch] would hold afterwards.
+  Future<({Object? error, List<BigInt?> lamports})> simulateSolanaTransaction(
+    NetworkConfig network,
+    Uint8List transaction, {
+    List<String> watch = const <String>[],
+    bool verifySignature = true,
+  }) async {
+    final Object? result = await _rpc(
+      network.apiBase,
+      'simulateTransaction',
+      <Object?>[
+        base64Encode(transaction),
+        <String, Object?>{
+          'encoding': 'base64',
+          'sigVerify': verifySignature,
+          // Without a real signature the blockhash is swapped for a current one,
+          // so a quote never fails just because it was priced a moment ago.
+          if (!verifySignature) 'replaceRecentBlockhash': true,
+          'commitment': 'confirmed',
+          if (watch.isNotEmpty)
+            'accounts': <String, Object?>{
+              'encoding': 'base64',
+              'addresses': watch,
+            },
+        },
+      ],
+    );
+    final Object? value = result is Map ? result['value'] : null;
+    if (value is! Map) {
+      throw const ChainApiException(
+        'The node returned no simulation result.',
+        retryable: false,
+      );
+    }
+    final Object? accounts = value['accounts'];
+    return (
+      error: value['err'],
+      lamports: <BigInt?>[
+        for (int i = 0; i < watch.length; i++)
+          accounts is List && i < accounts.length && accounts[i] is Map
+              ? BigInt.tryParse('${(accounts[i] as Map)['lamports']}')
+              : null,
+      ],
+    );
   }
 
   /// Waits until [signature] is confirmed, returning whether it succeeded.

@@ -14,6 +14,7 @@ import '../data/wallet/aptos_signer.dart';
 import '../data/wallet/bitcoin_signer.dart';
 import '../data/wallet/evm_signer.dart';
 import '../data/wallet/solana_signer.dart';
+import '../data/wallet/spl_token_signer.dart';
 import 'wallet_identity_controller.dart';
 
 /// Speed presets offered for an EIP-1559 transfer.
@@ -657,6 +658,278 @@ class SendController extends ChangeNotifier {
     }
   }
 
+  // Solana SPL tokens
+
+  /// Prices a transfer of the Solana token [token] and finds anything that
+  /// would make the chain refuse it, without signing. `fee` is the whole SOL
+  /// cost: the network fee plus, when the recipient has no account for this
+  /// token yet, the rent of the one the transfer opens for them.
+  Future<({BigInt? fee, String? problem, bool opensAccount})> prepareSplToken({
+    required TokenBalance token,
+    required String to,
+    required BigInt amount,
+  }) async {
+    try {
+      final _SplTransferPlan plan =
+          await _planSpl(token: token, to: to, amount: amount);
+      return (
+        fee: plan.solCost,
+        problem: plan.problem,
+        opensAccount: plan.opensAccount,
+      );
+    } on _NativeRefusal catch (refusal) {
+      return (fee: null, problem: refusal.message, opensAccount: false);
+    } on ChainApiException catch (error) {
+      return (fee: null, problem: error.message, opensAccount: false);
+    } on SolanaSigningException catch (error) {
+      return (fee: null, problem: error.message, opensAccount: false);
+    } catch (error, stackTrace) {
+      AppLog.warning('Could not price a ${token.symbol} transfer', error, stackTrace);
+      return (
+        fee: null,
+        problem: 'Could not price this transfer.',
+        opensAccount: false,
+      );
+    }
+  }
+
+  /// Signs and broadcasts an SPL token transfer.
+  ///
+  /// Everything the signature depends on is read again here: the mint and its
+  /// program, the sender's token accounts and their live balance, whether the
+  /// recipient's account exists, the blockhash and the SOL balance. The very
+  /// transaction that is signed is dry-run on the cluster first, so a transfer
+  /// the chain would reject never leaves the phone. Returns `true` when it went
+  /// out; `false` means [error] is set and nothing was sent.
+  Future<bool> sendSplToken({
+    required TokenBalance token,
+    required String to,
+    required BigInt amount,
+  }) async {
+    if (identity.isWatchOnly) {
+      return _fail(_watchOnlyMessage);
+    }
+    if (!network.canSign || network.chain != ChainKind.solana) {
+      return _fail('${network.name} does not support sending yet.');
+    }
+    try {
+      _notify(() => _stage = SendStage.preparing);
+      final _SplTransferPlan plan =
+          await _planSpl(token: token, to: to, amount: amount);
+      if (plan.problem != null) {
+        throw _NativeRefusal('${plan.problem} Nothing was sent.');
+      }
+
+      _notify(() => _stage = SendStage.signing);
+      final Uint8List seed = await _requireSeed();
+      final ({Uint8List privateSeed, Uint8List publicKey}) keys =
+          AddressDeriver.solanaKeyPairFromSeed(seed, account: identity.accountIndex);
+      final Uint8List transaction;
+      try {
+        if (!_bytesEqual(keys.publicKey, _solanaKey(address, 'address'))) {
+          throw const _NativeRefusal(
+            'The wallet key does not match this account. Nothing was sent.',
+          );
+        }
+        transaction = SolanaSigner.signTransaction(
+          privateSeed: keys.privateSeed,
+          message: plan.message,
+        );
+      } finally {
+        keys.privateSeed.fillRange(0, keys.privateSeed.length, 0);
+      }
+
+      // The exact bytes about to be sent, dry-run with the signature checked.
+      final simulation =
+          await _chainApi.simulateSolanaTransaction(network, transaction);
+      if (simulation.error != null) {
+        throw _NativeRefusal(
+          '${_solanaSimulationProblem(simulation.error)} Nothing was sent.',
+        );
+      }
+
+      _notify(() => _stage = SendStage.broadcasting);
+      final String signature =
+          await _chainApi.sendSolanaTransaction(network, transaction);
+      _notify(() {
+        _txHash = signature;
+        _stage = SendStage.broadcast;
+      });
+      final bool? ok =
+          await _chainApi.waitForSolanaConfirmation(network, signature);
+      _notify(() {
+        _stage = ok == null
+            ? SendStage.broadcast
+            : ok
+                ? SendStage.confirmed
+                : SendStage.failed;
+      });
+      return ok != false;
+    } on _NativeRefusal catch (refusal) {
+      return _fail(refusal.message);
+    } on ChainApiException catch (error, stackTrace) {
+      AppLog.warning('Token transfer failed on ${network.name}', error, stackTrace);
+      return _fail(error.message);
+    } on SolanaSigningException catch (error) {
+      return _fail(error.message);
+    } on EvmSigningException catch (error) {
+      return _fail(error.message);
+    } catch (error, stackTrace) {
+      AppLog.error('Unexpected token transfer failure', error, stackTrace);
+      return _fail('Something went wrong while sending. Nothing was sent.');
+    }
+  }
+
+  /// Reads everything an SPL transfer depends on and builds the message.
+  Future<_SplTransferPlan> _planSpl({
+    required TokenBalance token,
+    required String to,
+    required BigInt amount,
+  }) async {
+    final Uint8List owner = _solanaKey(address, 'address');
+    final Uint8List recipient = _solanaKey(to, 'recipient');
+    final Uint8List mint = _solanaKey(token.contractAddress, 'token');
+    if (amount <= BigInt.zero) {
+      throw const _NativeRefusal('Enter an amount to send.');
+    }
+
+    final mintInfo = await _chainApi.fetchSolanaMint(network, token.contractAddress);
+    if (mintInfo == null) {
+      throw const _NativeRefusal(
+        'This token is not one the wallet can send (its program is not the '
+        'SPL Token or Token-2022 program).',
+      );
+    }
+    if (mintInfo.decimals != token.decimals) {
+      throw const _NativeRefusal(
+        'The token\'s decimals changed since the balance was read. Refresh '
+        'and try again.',
+      );
+    }
+
+    // Typing a token account where a wallet address belongs is an easy mistake
+    // and the tokens would be stuck: refuse it.
+    final recipientState = await _chainApi.fetchSolanaTokenAccountState(network, to);
+    if (recipientState != null &&
+        recipientState.mint != null &&
+        recipientState.owner != null) {
+      throw const _NativeRefusal(
+        'That address is a token account, not a wallet. Use the owner\'s '
+        'wallet address.',
+      );
+    }
+
+    final accounts = await _chainApi.fetchSolanaTokenAccounts(
+      network,
+      address,
+      token.contractAddress,
+    );
+    final BigInt held = accounts.fold(BigInt.zero, (a, b) => a + b.amount);
+    if (amount > held) {
+      throw const _NativeRefusal('Your token balance is lower than this amount.');
+    }
+    if (accounts.isEmpty || accounts.first.amount < amount) {
+      throw const _NativeRefusal(
+        'Your balance is split across several token accounts and none holds '
+        'this much on its own. Send a smaller amount.',
+      );
+    }
+    final Uint8List source = _solanaKey(accounts.first.address, 'token account');
+
+    final Uint8List destination = SplTokenSigner.associatedTokenAddress(
+      owner: recipient,
+      mint: mint,
+      program: mintInfo.program,
+    );
+    final String destinationAddress = Base58.encode(destination);
+    final existing =
+        await _chainApi.fetchSolanaTokenAccountState(network, destinationAddress);
+    final bool opens = existing == null;
+    if (!opens &&
+        (existing.mint != token.contractAddress ||
+            existing.owner != to ||
+            existing.program != mintInfo.program)) {
+      throw const _NativeRefusal(
+        'The recipient\'s token account is not usable for this token.',
+      );
+    }
+
+    final Uint8List blockhash = await _chainApi.fetchSolanaBlockhash(network);
+    final Uint8List message = SplTokenSigner.transferMessage(
+      owner: owner,
+      source: source,
+      recipientOwner: recipient,
+      mint: mint,
+      program: mintInfo.program,
+      amount: amount,
+      decimals: token.decimals,
+      createDestination: opens,
+      recentBlockhash: blockhash,
+    );
+    final BigInt fee = await _chainApi.fetchSolanaMessageFee(network, message) ??
+        BigInt.from(5000);
+
+    // Dry run with a zero signature (the real one is made only at send time).
+    final Uint8List unsigned = Uint8List.fromList(<int>[
+      ...SolanaSigner.compactU16(1),
+      ...Uint8List(64),
+      ...message,
+    ]);
+    final simulation = await _chainApi.simulateSolanaTransaction(
+      network,
+      unsigned,
+      watch: <String>[destinationAddress],
+      verifySignature: false,
+    );
+    final BigInt rent = opens ? (simulation.lamports.first ?? BigInt.zero) : BigInt.zero;
+    final BigInt solBalance = await _chainApi.fetchBalance(network, address);
+    final BigInt rentMinimum = await _chainApi.fetchSolanaRentExemptMinimum(network);
+
+    String? problem;
+    if (simulation.error != null) {
+      problem = _solanaSimulationProblem(simulation.error);
+    } else if (fee + rent > solBalance) {
+      String sol(BigInt v) => Units.formatWithSymbol(v, 9, 'SOL', maxDecimals: 9);
+      problem = opens
+          ? 'Not enough SOL: the transfer costs ${sol(fee)} and opens the '
+              'recipient\'s token account for ${sol(rent)}.'
+          : 'Not enough SOL for the network fee (${sol(fee)}).';
+    } else {
+      final BigInt remainder = solBalance - fee - rent;
+      if (remainder > BigInt.zero && remainder < rentMinimum) {
+        problem = 'This would leave less SOL in your account than an account '
+            'must keep. Top up some SOL first.';
+      }
+    }
+
+    return _SplTransferPlan(
+      message: message,
+      fee: fee,
+      rent: rent,
+      opensAccount: opens,
+      problem: problem,
+    );
+  }
+
+  /// A readable reason for a simulation error.
+  static String _solanaSimulationProblem(Object? error) {
+    final String raw = '$error';
+    if (raw.contains('InsufficientFundsForRent')) {
+      return 'This would leave your SOL balance below the minimum an account '
+          'must keep.';
+    }
+    if (raw.contains('AccountNotFound')) {
+      return 'Your account holds no SOL to pay the network fee.';
+    }
+    if (RegExp(r'Custom:\s*1\b').hasMatch(raw)) {
+      return 'Not enough tokens in the account.';
+    }
+    if (raw.contains('BlockhashNotFound')) {
+      return 'The network moved on while preparing. Try again.';
+    }
+    return 'The network would reject this transfer ($raw).';
+  }
+
   // Solana
 
   Uint8List _solanaKey(String base58, String what) {
@@ -996,6 +1269,28 @@ class SendController extends ChangeNotifier {
     change();
     notifyListeners();
   }
+}
+
+/// Everything an SPL transfer was built from and what it will cost.
+class _SplTransferPlan {
+  const _SplTransferPlan({
+    required this.message,
+    required this.fee,
+    required this.rent,
+    required this.opensAccount,
+    required this.problem,
+  });
+
+  final Uint8List message;
+  final BigInt fee;
+
+  /// SOL locked in the recipient's new token account (zero if it exists).
+  final BigInt rent;
+  final bool opensAccount;
+  final String? problem;
+
+  /// What the sender pays in SOL.
+  BigInt get solCost => fee + rent;
 }
 
 /// A refusal raised mid-send with the exact text to show; nothing was sent.

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../data/networks/chain_models.dart';
 import '../../../data/wallet/bitcoin_signer.dart';
 import '../../../state/send_controller.dart';
 
@@ -27,6 +28,7 @@ class TransferProgressDialog extends StatefulWidget {
     this.bitcoinPlan,
     this.replacesTxid,
     this.nativeAmount,
+    this.splToken,
   }) : assert(
           bitcoinPlan != null ||
               nativeAmount != null ||
@@ -71,6 +73,10 @@ class TransferProgressDialog extends StatefulWidget {
   /// and the rest are read from the chain at signing time.
   final BigInt? nativeAmount;
 
+  /// With [nativeAmount] on Solana: the SPL token being sent (the amount is in
+  /// that token's smallest unit, not lamports).
+  final TokenBalance? splToken;
+
   @override
   State<TransferProgressDialog> createState() => _TransferProgressDialogState();
 }
@@ -88,7 +94,16 @@ class _TransferProgressDialogState extends State<TransferProgressDialog> {
       final SendController controller = context.read<SendController>();
       final BigInt? nativeAmount = widget.nativeAmount;
       if (nativeAmount != null) {
-        controller.sendNative(to: widget.to, amount: nativeAmount);
+        final TokenBalance? token = widget.splToken;
+        if (token != null) {
+          controller.sendSplToken(
+            token: token,
+            to: widget.to,
+            amount: nativeAmount,
+          );
+        } else {
+          controller.sendNative(to: widget.to, amount: nativeAmount);
+        }
         return;
       }
       final BitcoinPlan? plan = widget.bitcoinPlan;

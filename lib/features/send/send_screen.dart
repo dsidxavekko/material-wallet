@@ -76,6 +76,10 @@ class _SendScreenState extends State<SendScreen> {
   /// reason the chain would refuse the transfer (rent rules, gas reserve…).
   ({BigInt? fee, String? problem})? _nativeQuote;
 
+  /// A Solana token transfer that also opens the recipient's token account
+  /// (and pays its rent) — said out loud on the review sheet.
+  bool _opensTokenAccount = false;
+
   /// Fallback sat/vB when the network published no tiers at all — the lowest
   /// rate a node will relay.
   static const int _btcFallbackRate = 1;
@@ -135,6 +139,10 @@ class _SendScreenState extends State<SendScreen> {
   /// Solana and Aptos: ed25519 chains whose fee comes from the chain itself.
   bool get _isNative =>
       _network.chain == ChainKind.solana || _network.chain == ChainKind.aptos;
+
+  /// An SPL token on Solana: signed by the wallet, unlike an ERC-20 it moves
+  /// between token accounts rather than through a contract call.
+  bool get _isSplToken => _isToken && _network.chain == ChainKind.solana;
 
   int get _decimals => widget.token?.decimals ?? _network.decimals;
 
@@ -325,6 +333,29 @@ class _SendScreenState extends State<SendScreen> {
     );
 
     if (_isNative) {
+      if (_isSplToken) {
+        final BigInt amount = _enteredAmount;
+        if (amount <= BigInt.zero) {
+          controller.dispose();
+          return;
+        }
+        final ({BigInt? fee, String? problem, bool opensAccount}) quote =
+            await controller.prepareSplToken(
+          token: widget.token!,
+          to: recipient,
+          amount: amount,
+        );
+        controller.dispose();
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _nativeQuote = (fee: quote.fee, problem: quote.problem);
+          _opensTokenAccount = quote.opensAccount;
+          _loadingFee = false;
+        });
+        return;
+      }
       final ({BigInt? fee, String? problem}) quote =
           await controller.prepareNative(to: recipient, amount: _nativeOut);
       controller.dispose();
@@ -1066,6 +1097,11 @@ class _SendScreenState extends State<SendScreen> {
         showTotal: !_isToken,
         feeLabel: _isBitcoin || _isNative ? 'Network fee' : 'Max network fee',
         fee: _effectiveFee,
+        feeNote: _isSplToken && _opensTokenAccount
+            ? 'Includes the one-time deposit that opens the recipient\'s '
+                '$_symbol account. The recipient has no account for this '
+                'token yet.'
+            : null,
         explorerUrl: network.explorerAddress(recipient),
         alreadySaved: alreadySaved,
         onSave: () => _saveRecipient(recipient, network),
@@ -1218,6 +1254,7 @@ class _SendScreenState extends State<SendScreen> {
         network: network,
         recipient: recipient,
         amount: amount,
+        splToken: _isSplToken ? widget.token : null,
       ),
     );
   }
@@ -1227,6 +1264,7 @@ class _SendScreenState extends State<SendScreen> {
     required NetworkConfig network,
     required String recipient,
     required BigInt amount,
+    TokenBalance? splToken,
   }) async {
     await showDialog<void>(
       context: context,
@@ -1237,6 +1275,7 @@ class _SendScreenState extends State<SendScreen> {
           to: recipient,
           value: amount,
           nativeAmount: amount,
+          splToken: splToken,
         ),
       ),
     );
@@ -1252,8 +1291,8 @@ class _SendScreenState extends State<SendScreen> {
       confirmed: confirmed,
       error: error,
       amount: amount,
-      amountDecimals: network.decimals,
-      amountSymbol: network.symbol,
+      amountDecimals: splToken?.decimals ?? network.decimals,
+      amountSymbol: splToken?.symbol ?? network.symbol,
     );
   }
 
@@ -1743,6 +1782,7 @@ class _PreparedSheet extends StatelessWidget {
     required this.showTotal,
     required this.feeLabel,
     required this.fee,
+    this.feeNote,
     required this.explorerUrl,
     required this.alreadySaved,
     required this.onSave,
@@ -1765,6 +1805,10 @@ class _PreparedSheet extends StatelessWidget {
   final bool showTotal;
   final String feeLabel;
   final BigInt? fee;
+
+  /// An explanation printed under the fee line, when the fee is more than the
+  /// network fee.
+  final String? feeNote;
   final String explorerUrl;
   final bool alreadySaved;
   final VoidCallback onSave;
@@ -1823,6 +1867,17 @@ class _PreparedSheet extends StatelessWidget {
                       maxDecimals: 8,
                     ),
             ),
+            if (feeNote != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  feeNote!,
+                  style: text.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                    height: 1.35,
+                  ),
+                ),
+              ),
             if (showTotal)
               _line(
                 context,

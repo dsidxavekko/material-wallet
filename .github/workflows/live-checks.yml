@@ -23,6 +23,8 @@ jobs:
         run: dart run tool/verify_eip1559.dart bsc-testnet
       - name: Solana Devnet simulation
         run: dart run tool/verify_solana.dart
+      - name: SPL token transfer simulation on Solana mainnet
+        run: dart run tool/verify_spl.dart
       - name: Aptos testnet simulation
         run: dart run tool/verify_aptos.dart
       - name: ENS resolution on mainnet
