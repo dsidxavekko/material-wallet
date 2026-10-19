@@ -15,6 +15,7 @@ import '../../state/wallet_controller.dart';
 import '../activity/activity_screen.dart';
 import '../activity/widgets/transaction_tile.dart';
 import '../network/network_chip.dart';
+import '../portfolio/portfolio_screen.dart';
 import '../receive/receive_screen.dart';
 import '../send/replace_transfer.dart';
 import '../send/send_screen.dart';
@@ -116,14 +117,13 @@ class _HomeScreenState extends State<HomeScreen> {
           onRetryPrice: wallet.refresh,
         ),
         const SizedBox(height: 20),
-        if (wallet.portfolioFiat != null) ...<Widget>[
-          _PortfolioCard(
-            totalUsd: wallet.portfolioFiat!,
-            currency: currency,
-            hidden: _hideBalance,
-          ),
-          const SizedBox(height: 16),
-        ],
+        _PortfolioCard(
+          totalUsd: wallet.portfolioFiat,
+          currency: currency,
+          hidden: _hideBalance,
+          onTap: () => _push(context, const PortfolioScreen()),
+        ),
+        const SizedBox(height: 16),
         QuickActions(
           onSend: () => _push(context, const SendScreen()),
           onReceive: () => _push(context, const ReceiveScreen()),
@@ -244,9 +244,11 @@ class _PortfolioCard extends StatelessWidget {
     required this.totalUsd,
     required this.currency,
     required this.hidden,
+    required this.onTap,
   });
 
-  final double totalUsd;
+  final VoidCallback onTap;
+  final double? totalUsd;
   final AppCurrency currency;
   final bool hidden;
 
@@ -257,13 +259,16 @@ class _PortfolioCard extends StatelessWidget {
 
     return Card(
       child: ListTile(
+        onTap: onTap,
         leading: Icon(Icons.pie_chart_outline_rounded, color: scheme.primary),
-        title: const Text('Total across networks'),
-        subtitle: const Text('From the last synced balance of each chain'),
-        trailing: Text(
-          hidden ? '••••' : AppFormat.fiat(totalUsd, currency),
-          style: text.titleSmall?.copyWith(fontWeight: FontWeight.w800),
-        ),
+        title: const Text('Portfolio'),
+        subtitle: const Text('Every network in one list'),
+        trailing: totalUsd == null
+            ? const Icon(Icons.chevron_right_rounded)
+            : Text(
+                hidden ? '••••' : AppFormat.fiat(totalUsd!, currency),
+                style: text.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+              ),
       ),
     );
   }

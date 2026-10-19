@@ -88,6 +88,51 @@ class PriceApi {
     }
   }
 
+  /// Spot prices for every id in [coinGeckoIds] in **one** request.
+  ///
+  /// Ids missing from the answer are simply absent from the map; a failed
+  /// request returns an empty map. Fresh entries are served from (and written
+  /// to) the same cache as [fetchPrice], so only the stale ids are asked for.
+  Future<Map<String, CoinPrice>> fetchPrices(Iterable<String> coinGeckoIds) async {
+    final Map<String, CoinPrice> result = <String, CoinPrice>{};
+    final List<String> stale = <String>[];
+    for (final String id in coinGeckoIds.toSet()) {
+      final _CacheEntry<CoinPrice>? cached = _priceCache[id];
+      if (cached != null && _isFresh(cached.fetchedAt)) {
+        result[id] = cached.value;
+      } else {
+        stale.add(id);
+      }
+    }
+    if (stale.isEmpty) {
+      return result;
+    }
+    try {
+      final String url = '$_base/simple/price?ids=${stale.join(',')}'
+          '&vs_currencies=usd,eur,uah&include_24hr_change=true';
+      final Map<String, Object?>? json = await _getJson(url);
+      for (final String id in stale) {
+        final Object? coin = json?[id];
+        final num? usd = coin is Map ? coin['usd'] as num? : null;
+        if (coin is! Map || usd == null) {
+          continue;
+        }
+        final CoinPrice price = CoinPrice(
+          usd: usd.toDouble(),
+          change24h: (coin['usd_24h_change'] as num?)?.toDouble() ?? 0,
+          eur: (coin['eur'] as num?)?.toDouble(),
+          uah: (coin['uah'] as num?)?.toDouble(),
+        );
+        price.applyFxRates();
+        _priceCache[id] = _CacheEntry<CoinPrice>(price, _now());
+        result[id] = price;
+      }
+    } catch (error) {
+      AppLog.warning('Batch price fetch failed', error);
+    }
+    return result;
+  }
+
   /// Normalised 24h price series used for the chart, or an empty list.
   ///
   /// A cached value younger than [cacheTtl] is returned without a request.
