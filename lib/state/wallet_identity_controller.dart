@@ -7,7 +7,6 @@ import '../core/utils/app_log.dart';
 import '../data/models/chain_kind.dart';
 import '../data/networks/network_config.dart';
 import '../data/wallet/address_deriver.dart';
-import '../data/wallet/biometric_auth.dart';
 import '../data/wallet/secure_pin_store.dart';
 import '../data/wallet/seed_vault.dart';
 import '../data/wallet/unlock_throttle.dart';
@@ -46,16 +45,13 @@ enum WalletStatus {
 class WalletIdentityController extends ChangeNotifier {
   WalletIdentityController({
     this._storage = const WalletStorage(),
-    BiometricAuth? biometrics,
     this._pinStore = const SecurePinStore(),
     int? kdfRounds,
     DateTime Function()? clock,
-  })  : _biometrics = biometrics ?? BiometricAuth(),
-        _kdfRounds = kdfRounds ?? SeedVault.iterations,
+  })  : _kdfRounds = kdfRounds ?? SeedVault.iterations,
         _clock = clock ?? DateTime.now;
 
   final WalletStorage _storage;
-  final BiometricAuth _biometrics;
   final SecurePinStore _pinStore;
 
   /// Source of "now", injectable so backoff tests need no real waiting.
@@ -66,10 +62,16 @@ class WalletIdentityController extends ChangeNotifier {
   final int _kdfRounds;
 
   bool _biometricsEnabled = false;
+  bool _biometricsReset = false;
 
-  /// `true` when the PIN is kept in the platform keystore, so a fingerprint
-  /// (or face) can unlock the wallet instead of typing it.
+  /// `true` when the password is kept behind the fingerprint (see
+  /// [SecurePinStore]), so a finger can unlock the wallet instead of typing it.
   bool get biometricsEnabled => _biometricsEnabled;
+
+  /// `true` when fingerprint unlock was switched off because the device's
+  /// fingerprints changed; the lock screen explains it. Cleared by the next
+  /// successful enabling.
+  bool get biometricsReset => _biometricsReset;
 
   WalletStatus _status = WalletStatus.loading;
   String? _vault;
@@ -280,6 +282,10 @@ class WalletIdentityController extends ChangeNotifier {
 
   Future<void> _refreshBiometricState() async {
     try {
+      // An older version kept the password in a Keystore entry that did not
+      // need the fingerprint; it is deleted, and unlock-by-fingerprint has to
+      // be turned on again so it is bound to the hardware.
+      unawaited(_pinStore.dropLegacy());
       final bool enabled = await _pinStore.hasPin;
       if (enabled != _biometricsEnabled) {
         _biometricsEnabled = enabled;
@@ -480,7 +486,12 @@ class WalletIdentityController extends ChangeNotifier {
   }
 
   /// Verifies [currentPin] and re-encrypts every phrase under [newPin].
-  Future<void> changePin({
+  ///
+  /// Returns whether fingerprint unlock still works afterwards. It had been on,
+  /// the stored copy must change too, which takes one fingerprint; if that is
+  /// cancelled the stale copy is dropped and unlock-by-fingerprint is switched
+  /// off, so it can never replay the old password.
+  Future<bool> changePin({
     required String currentPin,
     required String newPin,
   }) async {
@@ -492,12 +503,18 @@ class WalletIdentityController extends ChangeNotifier {
     await SeedVault.decryptAsync(vault, currentPin); // throws on a wrong PIN
 
     await _rewriteVault(contents, newPin);
+    bool biometricsKept = _biometricsEnabled;
     if (_biometricsEnabled) {
       // Keep the keystore copy in sync with the new PIN, otherwise the
       // fingerprint would replay the old one.
-      await _pinStore.write(newPin);
+      if (!await _pinStore.write(newPin, reason: 'Update fingerprint unlock')) {
+        await _pinStore.clear();
+        _biometricsEnabled = false;
+        biometricsKept = false;
+      }
     }
     notifyListeners();
+    return biometricsKept;
   }
 
   /// Drops the decrypted material from memory but keeps the vault on disk.
@@ -717,29 +734,30 @@ class WalletIdentityController extends ChangeNotifier {
 
   // --- biometrics -----------------------------------------------------------
 
-  /// `true` when the device has biometric hardware with an enrolled print.
-  Future<bool> canUseBiometrics() => _biometrics.isAvailable();
+  /// `true` when the device has strong biometric hardware with an enrolled
+  /// fingerprint that a key can be bound to.
+  Future<bool> canUseBiometrics() => _pinStore.isSupported;
 
-  /// Runs a biometric check and, on success, keeps [pin] in the keystore so
-  /// later launches can be unlocked with a fingerprint.
+  /// Stores [pin] behind the fingerprint (one prompt) so later launches can be
+  /// unlocked with it.
   ///
-  /// Returns `true` only when the PIN was actually stored. It returns `false`
-  /// when the device has no biometrics or the user cancels the prompt, so
-  /// callers can report the real outcome instead of assuming success.
+  /// Returns `true` only when the password was actually stored. It returns
+  /// `false` when the device has no suitable biometrics or the user cancels the
+  /// prompt, so callers can report the real outcome instead of assuming success.
   Future<bool> enableBiometrics(String pin) async {
     if (!await canUseBiometrics()) {
       return false;
     }
-    if (!await _biometrics.authenticate(reason: 'Enable fingerprint unlock')) {
+    if (!await _pinStore.write(pin, reason: 'Enable fingerprint unlock')) {
       return false;
     }
-    await _pinStore.write(pin);
     _biometricsEnabled = true;
+    _biometricsReset = false;
     notifyListeners();
     return true;
   }
 
-  /// Forgets the stored PIN; the wallet goes back to PIN-only unlocking.
+  /// Forgets the stored password; the wallet goes back to password-only unlock.
   Future<void> disableBiometrics() async {
     await _pinStore.clear();
     if (_biometricsEnabled) {
@@ -748,38 +766,57 @@ class WalletIdentityController extends ChangeNotifier {
     }
   }
 
+  /// Reads the password back with a fingerprint; `null` when cancelled.
+  ///
+  /// A reset key (fingerprints changed) switches the feature off and is
+  /// reported through [biometricsReset].
+  Future<String?> _releasePin(String reason) async {
+    if (!_biometricsEnabled) {
+      return null;
+    }
+    try {
+      return await _pinStore.read(reason: reason);
+    } on BoundSecretInvalidated {
+      _biometricsEnabled = false;
+      _biometricsReset = true;
+      notifyListeners();
+      return null;
+    }
+  }
+
   /// Re-authenticates for a sensitive action (e.g. revealing the recovery
   /// phrase) while the wallet is already unlocked.
   ///
+  /// The password is released only by a fingerprint through the hardware-bound
+  /// key, so `true` means a finger really was presented — it cannot be
+  /// produced by code that merely skips the prompt.
+  ///
   /// Returns `false` when biometrics is off or the prompt is cancelled, so the
   /// caller can fall back to asking for the PIN.
-  Future<bool> confirmWithBiometrics({required String reason}) async {
-    if (!_biometricsEnabled) {
-      return false;
-    }
-    return _biometrics.authenticate(reason: reason);
-  }
+  Future<bool> confirmWithBiometrics({required String reason}) async =>
+      await _releasePin(reason) != null;
 
-  /// Unlocks using the fingerprint prompt plus the PIN from the keystore.
+  /// Unlocks with a fingerprint: the hardware releases the password, which then
+  /// opens the vault.
   ///
   /// Biometric success is its own authorisation factor, so it is not subject to
   /// the wrong-PIN backoff (a fingerprint cannot be guessed offline). A
   /// successful unlock clears any pending PIN penalty.
   ///
   /// Returns `false` (and leaves the wallet locked) when biometrics is off, the
-  /// prompt is cancelled, or no PIN is stored.
+  /// prompt is cancelled, or the stored password no longer opens the vault.
   Future<bool> unlockWithBiometrics() async {
-    if (!_biometricsEnabled) {
-      return false;
-    }
-    if (!await _biometrics.authenticate(reason: 'Unlock Material Wallet')) {
-      return false;
-    }
-    final String? pin = await _pinStore.read();
+    final String? pin = await _releasePin('Unlock Material Wallet');
     if (pin == null) {
       return false;
     }
-    await _decryptInto(pin);
+    try {
+      await _decryptInto(pin);
+    } on SeedVaultException {
+      // The stored copy no longer matches the vault; never keep a dead secret.
+      await disableBiometrics();
+      return false;
+    }
     await _clearThrottle();
     return true;
   }

@@ -178,6 +178,19 @@ class _LockScreenState extends State<LockScreen> {
                       : const Icon(Icons.lock_open_rounded),
                   label: Text(_busy ? 'Decrypting…' : 'Unlock'),
                 ),
+                if (identity.biometricsReset) ...<Widget>[
+                  const SizedBox(height: 14),
+                  Text(
+                    'The fingerprints on this phone changed, so fingerprint '
+                    'unlock was turned off. Enter your password, then enable '
+                    'it again in Settings.',
+                    textAlign: TextAlign.center,
+                    style: text.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
                 if (identity.biometricsEnabled) ...<Widget>[
                   const SizedBox(height: 8),
                   OutlinedButton.icon(

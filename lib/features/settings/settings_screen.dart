@@ -987,8 +987,11 @@ class _ChangePinSheetState extends State<_ChangePinSheet> {
       _error = null;
     });
 
+    final bool hadFingerprint =
+        context.read<WalletIdentityController>().biometricsEnabled;
+    bool fingerprintKept = false;
     try {
-      await context.read<WalletIdentityController>().changePin(
+      fingerprintKept = await context.read<WalletIdentityController>().changePin(
             currentPin: _currentController.text,
             newPin: next,
           );
@@ -1016,7 +1019,14 @@ class _ChangePinSheetState extends State<_ChangePinSheet> {
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
     Navigator.of(context).pop();
     messenger.showSnackBar(
-      const SnackBar(content: Text('Password updated successfully.')),
+      SnackBar(
+        content: Text(
+          hadFingerprint && !fingerprintKept
+              ? 'Password updated. Fingerprint unlock was turned off — '
+                  'enable it again in Settings.'
+              : 'Password updated successfully.',
+        ),
+      ),
     );
   }
 }

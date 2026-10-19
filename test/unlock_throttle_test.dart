@@ -1,4 +1,3 @@
-import 'package:crypto_wallet/data/wallet/biometric_auth.dart';
 import 'package:crypto_wallet/data/wallet/secure_pin_store.dart';
 import 'package:crypto_wallet/data/wallet/seed_vault.dart';
 import 'package:crypto_wallet/data/wallet/unlock_throttle.dart';
@@ -27,32 +26,29 @@ class _FakeWalletStorage extends WalletStorage {
   }
 }
 
-/// In-memory stand-in for the fingerprint prompt.
-class _FakeBiometrics extends BiometricAuth {
-  bool available = true;
-  bool result = true;
-
-  @override
-  Future<bool> isAvailable() async => available;
-
-  @override
-  Future<bool> authenticate({required String reason}) async => result;
-}
-
-/// In-memory stand-in for the platform keystore.
+/// In-memory stand-in for the hardware-bound store (the prompt always passes).
 class _FakePinStore extends SecurePinStore {
   _FakePinStore();
 
   String? pin;
 
   @override
-  Future<void> write(String value) async => pin = value;
+  Future<bool> get isSupported async => true;
 
   @override
-  Future<String?> read() async => pin;
+  Future<bool> write(String value, {String reason = ''}) async {
+    pin = value;
+    return true;
+  }
+
+  @override
+  Future<String?> read({String reason = ''}) async => pin;
 
   @override
   Future<void> clear() async => pin = null;
+
+  @override
+  Future<void> dropLegacy() async {}
 
   @override
   Future<bool> get hasPin async => pin != null;
@@ -290,7 +286,6 @@ void main() {
       final DateTime now = DateTime(2026, 1, 1, 12);
       final WalletIdentityController identity = WalletIdentityController(
         storage: _FakeWalletStorage(),
-        biometrics: _FakeBiometrics(),
         pinStore: _FakePinStore(),
         clock: () => now,
         kdfRounds: fastRounds,

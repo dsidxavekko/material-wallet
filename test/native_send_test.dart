@@ -35,10 +35,13 @@ class _FakePinStore extends SecurePinStore {
   String? pin;
 
   @override
-  Future<void> write(String value) async => pin = value;
+  Future<bool> write(String value, {String reason = ''}) async {
+    pin = value;
+    return true;
+  }
 
   @override
-  Future<String?> read() async => pin;
+  Future<String?> read({String reason = ''}) async => pin;
 
   @override
   Future<void> clear() async => pin = null;
