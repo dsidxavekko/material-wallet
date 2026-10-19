@@ -185,6 +185,8 @@ in the same vault without binding the key to authentication
 the web build, where storage is the browser, it is not. The README should say
 so directly.
 
+> **Updated 2026-10-19 (F4):** on Android the biometric gate is now cryptographic: the password sits behind a Keystore key that needs a fingerprint for every use, so "the PIN is stored without binding the key to authentication" no longer holds. The web build still has no fingerprint unlock and the vault there is still only as strong as the password.
+
 ### 3.9. Smaller items
 
 > **Updated 2026-10-19:** the BNB sending gap (C6), the unsaved "hide balance" (D4), unnamed accounts (D3) and the three-of-six provider list (D8) are all fixed; the items below are kept as the record of what was found. One new finding: Bitcoin **testnet** addresses (`tb1…`) are derived from the same path as mainnet (`m/84'/0'/…`, coin type 0), where BIP-84 assigns testnet coin type 1. The key is the same as the mainnet key under a different prefix. It is a simplification, not a bug, and it is not changed because that would move every existing testnet address; do not reuse a testnet account as a mainnet one anyway.
