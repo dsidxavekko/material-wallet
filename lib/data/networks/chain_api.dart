@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:convert/convert.dart';
 import 'package:http/http.dart' as http;
 
+import '../../core/crypto/ens.dart';
 import '../../core/crypto/hashing.dart';
 import '../../core/utils/app_log.dart';
 import '../models/chain_kind.dart';
@@ -262,6 +263,45 @@ class ChainApi {
       );
     }
     return result;
+  }
+
+  /// Resolves an ENS [name] (`alice.eth`) to its Ethereum address through the
+  /// Universal Resolver, or `null` when the name points nowhere.
+  ///
+  /// Always asked of Ethereum mainnet — that is where ENS lives, and an EVM
+  /// address is the same on every EVM chain. Throws [ChainApiException] when
+  /// the lookup fails (including a name that needs an off-chain gateway, which
+  /// is not supported): the caller must show the failure, never fall back to
+  /// treating the text as an address.
+  Future<String?> resolveEnsName(String name) async {
+    final String? normal = Ens.normalize(name);
+    if (normal == null) {
+      throw const ChainApiException(
+        'This name uses characters the wallet cannot resolve safely.',
+        retryable: false,
+      );
+    }
+    final Object? result;
+    try {
+      result = await _evmRpc(
+        NetworkCatalog.ethereum,
+        'eth_call',
+        <Object?>[
+          <String, Object?>{
+            'to': Ens.universalResolver,
+            'data': Ens.resolveCallData(normal),
+          },
+          'latest',
+        ],
+      );
+    } on ChainApiException catch (error) {
+      if (!error.retryable) {
+        // A revert: the name has no resolver, or needs an off-chain lookup.
+        return null;
+      }
+      rethrow;
+    }
+    return result is String ? Ens.decodeResolveResult(result) : null;
   }
 
   /// What the explorer knows about [address], for the pre-signature recipient

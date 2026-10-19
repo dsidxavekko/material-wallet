@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 
+import '../../core/utils/app_log.dart';
 import '../../core/utils/explorer.dart';
 import '../../core/utils/feedback.dart';
+import '../../core/utils/units.dart';
+import '../../data/deep_links/payment_link.dart';
 import '../../data/networks/network_config.dart';
 import '../../shared/widgets/empty_state.dart';
 import '../../shared/widgets/qr_card.dart';
@@ -12,8 +16,25 @@ import '../../state/wallet_controller.dart';
 
 /// Shows the wallet's **real** receive address for the active network, both as
 /// text and as a scannable QR code.
-class ReceiveScreen extends StatelessWidget {
+///
+/// Optionally asks for an amount: the QR then carries a payment-request URI
+/// (BIP-21, EIP-681, Solana Pay, `aptos:`) that a paying wallet fills in on
+/// its own, and the request can be shared as text.
+class ReceiveScreen extends StatefulWidget {
   const ReceiveScreen({super.key});
+
+  @override
+  State<ReceiveScreen> createState() => _ReceiveScreenState();
+}
+
+class _ReceiveScreenState extends State<ReceiveScreen> {
+  final TextEditingController _amount = TextEditingController();
+
+  @override
+  void dispose() {
+    _amount.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -21,6 +42,17 @@ class ReceiveScreen extends StatelessWidget {
     final NetworkConfig network =
         context.select<SettingsController, NetworkConfig>((s) => s.network);
     final String? address = wallet.address;
+    final BigInt? requested = Units.parse(_amount.text, network.decimals);
+    final bool hasRequest = address != null &&
+        requested != null &&
+        requested > BigInt.zero;
+    final String? payload = address == null
+        ? null
+        : buildPaymentLink(
+            network: network,
+            address: address,
+            amount: hasRequest ? requested : null,
+          );
     final TextTheme text = Theme.of(context).textTheme;
     final ColorScheme scheme = Theme.of(context).colorScheme;
 
@@ -72,11 +104,14 @@ class ReceiveScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 24),
-          Center(child: QrCard(data: address)),
+          Center(child: QrCard(data: payload!)),
           const SizedBox(height: 20),
           Center(
             child: Text(
-              'Scan to receive ${network.symbol}',
+              hasRequest
+                  ? 'Scan to pay ${Units.format(requested, network.decimals)} '
+                      '${network.symbol}'
+                  : 'Scan to receive ${network.symbol}',
               style: text.titleSmall?.copyWith(fontWeight: FontWeight.w700),
             ),
           ),
@@ -88,6 +123,33 @@ class ReceiveScreen extends StatelessWidget {
               style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
             ),
           ),
+          const SizedBox(height: 20),
+          TextField(
+            controller: _amount,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: InputDecoration(
+              labelText: 'Request an amount (optional)',
+              suffixText: network.symbol,
+              helperText: _amount.text.trim().isNotEmpty && !hasRequest
+                  ? 'Enter a valid amount'
+                  : null,
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
+          if (hasRequest) ...<Widget>[
+            const SizedBox(height: 10),
+            FilledButton.tonalIcon(
+              onPressed: () => _shareRequest(
+                context,
+                network: network,
+                address: address,
+                amount: requested,
+                link: payload,
+              ),
+              icon: const Icon(Icons.ios_share_rounded),
+              label: const Text('Share payment request'),
+            ),
+          ],
           const SizedBox(height: 26),
           Card(
             child: Padding(
@@ -128,6 +190,34 @@ class ReceiveScreen extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _shareRequest(
+    BuildContext context, {
+    required NetworkConfig network,
+    required String address,
+    required BigInt amount,
+    required String link,
+  }) async {
+    try {
+      await SharePlus.instance.share(
+        ShareParams(
+          text: 'Please send '
+              '${Units.format(amount, network.decimals)} ${network.symbol} '
+              'on ${network.name} to $address\n$link',
+          subject: 'Payment request',
+        ),
+      );
+    } catch (error, stackTrace) {
+      AppLog.warning('Could not share the payment request', error, stackTrace);
+      if (context.mounted) {
+        showAppSnackBar(
+          context,
+          'Could not share the request.',
+          icon: Icons.error_outline_rounded,
+        );
+      }
+    }
   }
 
   Future<void> _copy(BuildContext context, String address) async {

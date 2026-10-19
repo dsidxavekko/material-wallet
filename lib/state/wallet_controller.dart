@@ -130,6 +130,10 @@ class WalletController extends ChangeNotifier {
   Future<AddressInfo?> fetchAddressInfo(String address) =>
       _chainApi.fetchAddressInfo(network, address);
 
+  /// Resolves an ENS name for the recipient field; see
+  /// [ChainApi.resolveEnsName].
+  Future<String?> resolveEns(String name) => _chainApi.resolveEnsName(name);
+
   @override
   void dispose() {
     _disposed = true;

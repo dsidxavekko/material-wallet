@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/crypto/ens.dart';
 import '../../core/utils/explorer.dart';
 import '../../core/utils/feedback.dart';
+import '../../core/utils/fiat_amount.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/units.dart';
 import '../../data/deep_links/payment_link.dart';
@@ -82,7 +84,46 @@ class _SendScreenState extends State<SendScreen> {
   BigInt? _estimate;
   bool _loadingFee = true;
 
+  /// D2: the amount field holds a fiat figure; the signed amount is the coin
+  /// figure derived from it (rounded down) and is what the sheet shows.
+  bool _fiatMode = false;
+
+  /// D6: ENS resolution of the recipient field.
+  Timer? _ensTimer;
+  String? _ensName;
+  String? _ensAddress;
+  String? _ensError;
+  bool _ensResolving = false;
+  int _ensToken = 0;
+
   bool get _isToken => widget.token != null;
+
+  /// USD price of one whole coin (or token) being sent, when known.
+  double? get _unitPriceUsd => _isToken
+      ? widget.token!.usdRate
+      : context.read<WalletController>().snapshot?.price?.usd;
+
+  AppCurrency get _currency => context.read<SettingsController>().currency;
+
+  /// Whether the recipient field holds an ENS name that must be resolved.
+  bool get _ensApplies =>
+      _network.chain == ChainKind.evm &&
+      Ens.looksLikeName(_addressController.text);
+
+  /// What the user typed, minus any URI scheme.
+  String get _typedRecipient => _extractAddress(_addressController.text.trim());
+
+  /// The address the transfer goes to: the resolved address when the field
+  /// holds an ENS name that has been resolved *as currently typed*, otherwise
+  /// the text itself.
+  String get _recipient {
+    if (_ensApplies &&
+        _ensAddress != null &&
+        _ensName == Ens.normalize(_addressController.text)) {
+      return _ensAddress!;
+    }
+    return _typedRecipient;
+  }
 
   bool get _isBitcoin => _network.chain == ChainKind.bitcoin;
 
@@ -145,6 +186,7 @@ class _SendScreenState extends State<SendScreen> {
 
   @override
   void dispose() {
+    _ensTimer?.cancel();
     _amountController.dispose();
     _addressController.dispose();
     super.dispose();
@@ -152,8 +194,22 @@ class _SendScreenState extends State<SendScreen> {
 
   NetworkConfig get _network => context.read<SettingsController>().network;
 
-  BigInt get _enteredAmount =>
-      Units.parse(_amountController.text, _decimals) ?? BigInt.zero;
+  BigInt get _enteredAmount {
+    if (!_fiatMode) {
+      return Units.parse(_amountController.text, _decimals) ?? BigInt.zero;
+    }
+    final double? price = _unitPriceUsd;
+    if (price == null) {
+      return BigInt.zero;
+    }
+    return FiatAmount.toRaw(
+          fiatText: _amountController.text,
+          currency: _currency,
+          unitPriceUsd: price,
+          decimals: _decimals,
+        ) ??
+        BigInt.zero;
+  }
 
   BigInt get _effectiveFee {
     if (_isBitcoin) {
@@ -180,7 +236,7 @@ class _SendScreenState extends State<SendScreen> {
       : _total <= _nativeBalance;
 
   AddressValidation get _addressValidation =>
-      AddressValidator.validate(_network, _addressController.text);
+      AddressValidator.validate(_network, _recipient);
 
   /// A saved or already-seen address the entered recipient imitates.
   ///
@@ -190,8 +246,8 @@ class _SendScreenState extends State<SendScreen> {
   /// so it is done against the small set of addresses this wallet already
   /// deals with rather than any on-chain index.
   String? get _impersonatedAddress {
-    final String recipient = _extractAddress(_addressController.text.trim());
-    if (recipient.isEmpty) {
+    final String recipient = _recipient;
+    if (recipient.isEmpty || _ensApplies && recipient == _typedRecipient) {
       return null;
     }
     return AddressGuard.impersonates(recipient, _knownAddresses(_network));
@@ -240,7 +296,7 @@ class _SendScreenState extends State<SendScreen> {
       return;
     }
     final NetworkConfig network = _network;
-    final String recipient = _extractAddress(_addressController.text.trim());
+    final String recipient = _recipient;
     if (recipient.isEmpty ||
         !AddressValidator.validate(network, recipient).valid) {
       return;
@@ -307,7 +363,7 @@ class _SendScreenState extends State<SendScreen> {
     final AccountSnapshot? snapshot = wallet.snapshot;
     final ColorScheme scheme = Theme.of(context).colorScheme;
     final AddressValidation addressCheck =
-        AddressValidator.validate(network, _addressController.text);
+        AddressValidator.validate(network, _recipient);
 
     if (snapshot == null) {
       return Scaffold(
@@ -354,18 +410,32 @@ class _SendScreenState extends State<SendScreen> {
                     ],
                     onChanged: (_) => setState(() {}),
                     decoration: InputDecoration(
-                      labelText: 'Amount',
+                      labelText: _fiatMode ? 'Amount in ${currency.code}' : 'Amount',
                       hintText: '0.00',
-                      suffixText: _symbol,
+                      suffixText: _fiatMode ? currency.code : _symbol,
+                      helperText: _amountHelper(currency),
                       errorText: _enteredAmount > BigInt.zero && !_hasEnoughFunds
                           ? _isToken
                               ? 'Not enough $_symbol, or too little '
                                   '${network.symbol} for the fee'
                               : 'Not enough funds for amount + fee'
                           : null,
-                      suffixIcon: TextButton(
-                        onPressed: _setMax,
-                        child: const Text('MAX'),
+                      suffixIcon: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          if (_unitPriceUsd != null)
+                            IconButton(
+                              tooltip: _fiatMode
+                                  ? 'Enter in $_symbol'
+                                  : 'Enter in ${currency.code}',
+                              icon: const Icon(Icons.swap_vert_rounded),
+                              onPressed: _toggleFiat,
+                            ),
+                          TextButton(
+                            onPressed: _setMax,
+                            child: const Text('MAX'),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -375,19 +445,34 @@ class _SendScreenState extends State<SendScreen> {
                     // A valid checksum is not the same as a trustworthy
                     // address, so the whole field is re-validated on every
                     // keystroke to drive the poisoning warning below.
-                    onChanged: (_) => setState(() {}),
+                    onChanged: _onRecipientChanged,
                     decoration: InputDecoration(
                       labelText: 'Recipient address',
                       hintText: switch (network.chain) {
                         ChainKind.bitcoin => 'bc1q… / tb1q…',
-                        ChainKind.evm => '0x…',
+                        ChainKind.evm => '0x… or name.eth',
                         ChainKind.solana => 'Base58 address',
                         ChainKind.aptos => '0x… (64 hex chars)',
                       },
                       errorText: _addressController.text.trim().isEmpty ||
                               addressCheck.valid
                           ? null
-                          : addressCheck.reason,
+                          : _ensApplies
+                              ? _ensError ??
+                                  (_ensResolving ? null : 'Resolving the name…')
+                              : addressCheck.reason,
+                      helperText: _ensApplies
+                          ? _ensResolving
+                              ? 'Resolving the name…'
+                              : _ensAddress != null &&
+                                      _ensName ==
+                                          Ens.normalize(
+                                            _addressController.text,
+                                          )
+                                  ? '→ $_ensAddress'
+                                  : null
+                          : null,
+                      helperMaxLines: 2,
                       suffixIcon: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: <Widget>[
@@ -466,6 +551,105 @@ class _SendScreenState extends State<SendScreen> {
     );
   }
 
+  /// The line under the amount: the exact coin figure that will be signed when
+  /// typing fiat, the fiat value of the coins otherwise.
+  String? _amountHelper(AppCurrency currency) {
+    final BigInt amount = _enteredAmount;
+    if (amount <= BigInt.zero) {
+      return null;
+    }
+    if (_fiatMode) {
+      return '≈ ${Units.formatWithSymbol(amount, _decimals, _symbol)} '
+          '(this is what gets signed)';
+    }
+    final double? price = _unitPriceUsd;
+    return price == null
+        ? null
+        : '≈ ${AppFormat.fiat(Units.toDouble(amount, _decimals) * price, currency)}';
+  }
+
+  /// Switches the amount field between coins and fiat, carrying the value over.
+  void _toggleFiat() {
+    final double? price = _unitPriceUsd;
+    if (price == null) {
+      return;
+    }
+    final BigInt coins = _enteredAmount;
+    setState(() {
+      if (!_fiatMode) {
+        _fiatMode = true;
+        _amountController.text = coins > BigInt.zero
+            ? FiatAmount.inputText(
+                coins: Units.toDouble(coins, _decimals),
+                currency: _currency,
+                unitPriceUsd: price,
+              )
+            : '';
+      } else {
+        _fiatMode = false;
+        _amountController.text = coins > BigInt.zero
+            ? Units.format(coins, _decimals, maxDecimals: _decimals, group: false)
+            : '';
+      }
+    });
+  }
+
+  /// Reacts to typing in the recipient field: re-validates, and — for an ENS
+  /// name — schedules a lookup once typing pauses.
+  void _onRecipientChanged(String _) {
+    _ensTimer?.cancel();
+    if (_ensApplies) {
+      final String? name = Ens.normalize(_addressController.text);
+      if (name != _ensName) {
+        // A different name invalidates whatever was resolved before.
+        _ensAddress = null;
+        _ensError = null;
+      }
+      if (name == null) {
+        _ensError = 'This name uses characters the wallet cannot resolve safely.';
+      } else if (_ensAddress == null) {
+        _ensTimer = Timer(const Duration(milliseconds: 500), _resolveEns);
+      }
+    }
+    setState(() {});
+  }
+
+  Future<void> _resolveEns() async {
+    final String? name = Ens.normalize(_addressController.text);
+    if (name == null || !_ensApplies || !mounted) {
+      return;
+    }
+    final int token = ++_ensToken;
+    setState(() {
+      _ensResolving = true;
+      _ensName = name;
+      _ensAddress = null;
+      _ensError = null;
+    });
+    String? address;
+    String? error;
+    try {
+      address = await context.read<WalletController>().resolveEns(name);
+      if (address == null) {
+        error = '$name does not point to an address.';
+      } else if (!AddressValidator.validate(NetworkCatalog.ethereum, address)
+          .valid) {
+        address = null;
+        error = 'The resolver returned an invalid address.';
+      }
+    } on ChainApiException catch (e) {
+      error = 'Could not look up $name: ${e.message}';
+    }
+    if (!mounted || token != _ensToken) {
+      return;
+    }
+    setState(() {
+      _ensResolving = false;
+      _ensAddress = address;
+      _ensError = error;
+    });
+  }
+
   Future<void> _setMax() async {
     if (_isBitcoin) {
       // Bitcoin sweeps every utxo, so MAX depends on the input count (and thus
@@ -480,12 +664,7 @@ class _SendScreenState extends State<SendScreen> {
       if (!mounted || max == null) {
         return;
       }
-      _amountController.text = Units.format(
-        max,
-        _decimals,
-        maxDecimals: _decimals,
-        group: false,
-      );
+      _writeMax(max);
       setState(() {});
       await _refreshQuote();
       return;
@@ -496,13 +675,28 @@ class _SendScreenState extends State<SendScreen> {
     final BigInt max = _isToken
         ? _balance
         : (_balance > _effectiveFee ? _balance - _effectiveFee : BigInt.zero);
+    _writeMax(max);
+    setState(() {});
+  }
+
+  /// Puts [max] (raw units) into the amount field in the current unit. In fiat
+  /// mode the figure is floored to cents, so it can only under-shoot the max.
+  void _writeMax(BigInt max) {
+    final double? price = _unitPriceUsd;
+    if (_fiatMode && price != null) {
+      _amountController.text = FiatAmount.inputText(
+        coins: Units.toDouble(max, _decimals),
+        currency: _currency,
+        unitPriceUsd: price,
+      );
+      return;
+    }
     _amountController.text = Units.format(
       max,
       _decimals,
       maxDecimals: _decimals,
       group: false,
     );
-    setState(() {});
   }
 
   Future<void> _pasteAddress() async {
@@ -756,7 +950,7 @@ class _SendScreenState extends State<SendScreen> {
     }
 
     final ContactsController contacts = context.read<ContactsController>();
-    final String recipient = _extractAddress(_addressController.text.trim());
+    final String recipient = _recipient;
     final bool alreadySaved = contacts.contains(recipient, network.id);
     final bool canSend = network.canSign && (_isBitcoin ? _btcPlan != null : _quote != null);
 
@@ -796,6 +990,7 @@ class _SendScreenState extends State<SendScreen> {
       builder: (_) => _PreparedSheet(
         network: network,
         recipient: recipient,
+        ensName: _ensApplies ? _ensName : null,
         check: check,
         amount: _enteredAmount,
         amountDecimals: _decimals,
@@ -1358,6 +1553,7 @@ class _PreparedSheet extends StatelessWidget {
   const _PreparedSheet({
     required this.network,
     required this.recipient,
+    this.ensName,
     required this.check,
     required this.amount,
     required this.amountDecimals,
@@ -1373,6 +1569,10 @@ class _PreparedSheet extends StatelessWidget {
 
   final NetworkConfig network;
   final String recipient;
+
+  /// The ENS name the recipient was resolved from, shown next to the address
+  /// that is actually paid.
+  final String? ensName;
 
   /// The pre-signature check of the recipient; its [RecipientCheck.message]
   /// is shown, and a [RecipientRisk.block] disables the send button.
@@ -1413,6 +1613,7 @@ class _PreparedSheet extends StatelessWidget {
               style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
             ),
             const SizedBox(height: 18),
+            if (ensName != null) _line(context, 'ENS name', ensName!),
             _line(context, 'To', recipient),
             if (check.risk != RecipientRisk.none) ...<Widget>[
               const SizedBox(height: 12),

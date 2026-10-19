@@ -1,4 +1,5 @@
 import '../../core/utils/units.dart';
+import '../models/chain_kind.dart';
 import '../networks/network_config.dart';
 
 /// A parsed payment link: `bitcoin:`, `ethereum:` (EIP-681), `solana:` (Solana
@@ -94,8 +95,14 @@ PaymentLink? parsePaymentLink(Uri uri) {
     return null;
   }
 
+  // A BIP-21 link names no network; the address prefix does.
+  final NetworkConfig linkNetwork =
+      scheme == 'bitcoin' && address.toLowerCase().startsWith('tb1')
+          ? NetworkCatalog.bitcoinTestnet
+          : network;
+
   return PaymentLink(
-    network: network,
+    network: linkNetwork,
     recipient: address,
     amount: tokenContract == null ? _amountFor(uri, network) : null,
     tokenContract: tokenContract,
@@ -160,4 +167,32 @@ BigInt? _parseWei(String raw) {
     return null;
   }
   return BigInt.from(value);
+}
+
+/// Builds the payment-request URI for receiving [amount] (smallest units) of
+/// the native coin at [address] on [network]: BIP-21 for Bitcoin, EIP-681 for
+/// EVM chains (with `@chainId`), Solana Pay and `aptos:` for the rest.
+///
+/// Without an [amount] the plain address is returned — exactly what the QR
+/// code carried before payment requests existed. The result round-trips
+/// through [parsePaymentLink].
+String buildPaymentLink({
+  required NetworkConfig network,
+  required String address,
+  BigInt? amount,
+}) {
+  if (amount == null || amount <= BigInt.zero) {
+    return address;
+  }
+  String whole() =>
+      Units.format(amount, network.decimals, maxDecimals: network.decimals, group: false);
+
+  return switch (network.chain) {
+    ChainKind.bitcoin => 'bitcoin:$address?amount=${whole()}',
+    ChainKind.evm => 'ethereum:$address'
+        '${network.chainId == null ? '' : '@${network.chainId}'}'
+        '?value=$amount',
+    ChainKind.solana => 'solana:$address?amount=${whole()}',
+    ChainKind.aptos => 'aptos:$address?amount=${whole()}',
+  };
 }

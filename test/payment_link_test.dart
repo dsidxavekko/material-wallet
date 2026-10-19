@@ -132,4 +132,85 @@ void main() {
       );
     });
   });
+
+  group('buildPaymentLink (D1)', () {
+    const String evm = '0x9858EfFD232B4033E47d90003D41EC34EcaEda94';
+
+    PaymentLink roundTrip(NetworkConfig network, String address, BigInt amount) {
+      final String uri =
+          buildPaymentLink(network: network, address: address, amount: amount);
+      final PaymentLink? parsed = parsePaymentLink(Uri.parse(uri));
+      expect(parsed, isNotNull, reason: uri);
+      return parsed!;
+    }
+
+    test('without an amount the QR stays the plain address', () {
+      expect(
+        buildPaymentLink(network: NetworkCatalog.ethereum, address: evm),
+        evm,
+      );
+      expect(
+        buildPaymentLink(
+          network: NetworkCatalog.ethereum,
+          address: evm,
+          amount: BigInt.zero,
+        ),
+        evm,
+      );
+    });
+
+    test('Bitcoin: BIP-21, mainnet and testnet', () {
+      final PaymentLink main = roundTrip(
+        NetworkCatalog.bitcoin,
+        'bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu',
+        BigInt.from(50000000),
+      );
+      expect(main.network.id, NetworkCatalog.bitcoin.id);
+      expect(main.amount, '0.5');
+
+      final PaymentLink test = roundTrip(
+        NetworkCatalog.bitcoinTestnet,
+        'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx',
+        BigInt.from(1234),
+      );
+      expect(test.network.id, NetworkCatalog.bitcoinTestnet.id);
+      expect(test.amount, '0.00001234');
+    });
+
+    test('EVM: EIP-681 carries the chain id and the amount in wei', () {
+      final String uri = buildPaymentLink(
+        network: NetworkCatalog.polygon,
+        address: evm,
+        amount: BigInt.parse('1500000000000000000'),
+      );
+      expect(uri, 'ethereum:$evm@137?value=1500000000000000000');
+
+      final PaymentLink parsed = roundTrip(
+        NetworkCatalog.polygon,
+        evm,
+        BigInt.parse('1500000000000000000'),
+      );
+      expect(parsed.network.id, NetworkCatalog.polygon.id);
+      expect(parsed.recipient, evm);
+      expect(parsed.amount, '1.5');
+    });
+
+    test('Solana Pay and aptos: round trip', () {
+      final PaymentLink sol = roundTrip(
+        NetworkCatalog.solana,
+        '11111111111111111111111111111112',
+        BigInt.from(2500000000),
+      );
+      expect(sol.network.id, NetworkCatalog.solana.id);
+      expect(sol.amount, '2.5');
+
+      final PaymentLink apt = roundTrip(
+        NetworkCatalog.aptos,
+        '0x1',
+        BigInt.from(100000000),
+      );
+      expect(apt.network.id, NetworkCatalog.aptos.id);
+      expect(apt.amount, '1');
+    });
+  });
 }
