@@ -212,6 +212,7 @@ void main() {
 
       final List<String> lines = csv.trim().split('\n');
       expect(lines.first, contains(',fee,fee_ticker,'));
+      expect(lines.first, endsWith(',status,note'));
       expect(lines[1], contains(',out,100,USDC,0.000021,ETH,$other,'));
     });
   });

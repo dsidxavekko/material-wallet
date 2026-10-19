@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
@@ -34,6 +35,8 @@ class SettingsController extends ChangeNotifier {
   NetworkConfig _network = NetworkCatalog.bitcoin;
   int? _autoLockSeconds = AutoLockDelay.minute1.seconds;
   bool _notificationsEnabled = false;
+  bool _hideBalances = false;
+  Map<int, String> _accountNames = const <int, String>{};
 
   ThemeMode get themeMode => _themeMode;
   AppCurrency get currency => _currency;
@@ -50,6 +53,16 @@ class SettingsController extends ChangeNotifier {
   /// Whether confirmation notifications are turned on.
   bool get notificationsEnabled => _notificationsEnabled;
 
+  /// Privacy mode: amounts are shown as dots on every screen.
+  bool get hideBalances => _hideBalances;
+
+  /// The display name of account [index]: the user's own, else `Account N`.
+  String accountName(int index) =>
+      _accountNames[index] ?? 'Account ${index + 1}';
+
+  /// Whether the user gave account [index] a name of their own.
+  bool hasCustomAccountName(int index) => _accountNames.containsKey(index);
+
   /// Restores the persisted network and currency choices at app start.
   Future<void> load() async {
     try {
@@ -58,6 +71,8 @@ class SettingsController extends ChangeNotifier {
       final int? autoLock = await _storage.readAutoLockSeconds();
       final String? themeName = await _storage.readThemeMode();
       final bool? notifications = await _storage.readNotificationsEnabled();
+      final bool? hide = await _storage.readHideBalances();
+      final String? namesJson = await _storage.readAccountNames();
       bool changed = false;
 
       if (id != null) {
@@ -100,6 +115,20 @@ class SettingsController extends ChangeNotifier {
 
       if (notifications != null && notifications != _notificationsEnabled) {
         _notificationsEnabled = notifications;
+        changed = true;
+      }
+
+      if (hide != null && hide != _hideBalances) {
+        _hideBalances = hide;
+        changed = true;
+      }
+
+      final Map<int, String> names = _decodeNames(namesJson);
+      if (names.length != _accountNames.length ||
+          names.entries.any(
+            (MapEntry<int, String> e) => _accountNames[e.key] != e.value,
+          )) {
+        _accountNames = names;
         changed = true;
       }
 
@@ -150,6 +179,55 @@ class SettingsController extends ChangeNotifier {
     _autoLockSeconds = delay.seconds;
     notifyListeners();
     unawaited(_storage.writeAutoLockSeconds(delay.seconds));
+  }
+
+  /// Turns privacy mode on or off and persists the choice.
+  void setHideBalances(bool hidden) {
+    if (_hideBalances == hidden) {
+      return;
+    }
+    _hideBalances = hidden;
+    notifyListeners();
+    unawaited(_storage.writeHideBalances(hidden));
+  }
+
+  /// Names account [index]; an empty [name] restores the default.
+  void renameAccount(int index, String name) {
+    final String clean = name.trim();
+    final Map<int, String> next = Map<int, String>.of(_accountNames);
+    if (clean.isEmpty) {
+      next.remove(index);
+    } else {
+      next[index] = clean.length > 30 ? clean.substring(0, 30) : clean;
+    }
+    _accountNames = next;
+    notifyListeners();
+    unawaited(
+      _storage.writeAccountNames(
+        jsonEncode(<String, String>{
+          for (final MapEntry<int, String> e in next.entries) '${e.key}': e.value,
+        }),
+      ),
+    );
+  }
+
+  static Map<int, String> _decodeNames(String? json) {
+    if (json == null || json.isEmpty) {
+      return const <int, String>{};
+    }
+    try {
+      final Object? decoded = jsonDecode(json);
+      if (decoded is! Map) {
+        return const <int, String>{};
+      }
+      return <int, String>{
+        for (final MapEntry<Object?, Object?> e in decoded.entries)
+          if (int.tryParse('${e.key}') != null && e.value is String)
+            int.parse('${e.key}'): e.value! as String,
+      };
+    } on FormatException {
+      return const <int, String>{};
+    }
   }
 
   /// Turns confirmation notifications on or off and persists the choice.

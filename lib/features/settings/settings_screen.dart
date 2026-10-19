@@ -438,7 +438,8 @@ class _WalletSection extends StatelessWidget {
               leading: const Icon(Icons.switch_account_rounded),
               title: const Text('Active account'),
               subtitle: Text(
-                'Account ${identity.accountIndex + 1} of ${identity.accountCount}',
+                '${context.watch<SettingsController>().accountName(identity.accountIndex)}'
+                ' · ${identity.accountIndex + 1} of ${identity.accountCount}',
               ),
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: () => _pickAccount(context, identity),
@@ -578,8 +579,30 @@ class _WalletSection extends StatelessWidget {
                 for (int i = 0; i < identity.accountCount; i++)
                   RadioListTile<int>(
                     value: i,
-                    title: Text('Account ${i + 1}'),
+                    title: Text(
+                      context.read<SettingsController>().accountName(i),
+                    ),
                     subtitle: i == 0 ? const Text('Default') : null,
+                    secondary: IconButton(
+                      tooltip: 'Rename',
+                      icon: const Icon(Icons.edit_outlined),
+                      onPressed: () async {
+                        final SettingsController settings =
+                            context.read<SettingsController>();
+                        final String? name = await _askAccountName(
+                          dialogContext,
+                          settings.hasCustomAccountName(i)
+                              ? settings.accountName(i)
+                              : '',
+                        );
+                        if (name != null) {
+                          settings.renameAccount(i, name);
+                          if (dialogContext.mounted) {
+                            Navigator.of(dialogContext).pop();
+                          }
+                        }
+                      },
+                    ),
                   ),
               ],
             ),
@@ -602,6 +625,41 @@ class _WalletSection extends StatelessWidget {
       return;
     }
     await identity.selectAccount(chosen);
+  }
+
+  /// Asks for a name for an account; an empty answer restores the default.
+  Future<String?> _askAccountName(BuildContext context, String current) async {
+    final TextEditingController controller =
+        TextEditingController(text: current);
+    final String? name = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Account name'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 30,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(
+            hintText: 'e.g. Savings (empty = default)',
+          ),
+          onSubmitted: (String v) => Navigator.of(dialogContext).pop(v),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(controller.text),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    return name;
   }
 
   Future<void> _revealPhrase(BuildContext context) async {

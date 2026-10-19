@@ -22,6 +22,9 @@ class TransactionTile extends StatelessWidget {
     this.counterpartyLabel,
     this.replacements = const <ReplacementKind>[],
     this.onReplace,
+    this.hidden = false,
+    this.note,
+    this.onEditNote,
   });
 
   final ChainTransaction transaction;
@@ -39,6 +42,15 @@ class TransactionTile extends StatelessWidget {
 
   /// Starts one of [replacements]; only called with a value from it.
   final void Function(ReplacementKind kind)? onReplace;
+
+  /// Privacy mode: amounts render as dots.
+  final bool hidden;
+
+  /// The user's private note on this transaction, shown under the row.
+  final String? note;
+
+  /// Opens the note editor; when `null` the row offers no note action.
+  final VoidCallback? onEditNote;
 
   @override
   Widget build(BuildContext context) {
@@ -121,6 +133,28 @@ class TransactionTile extends StatelessWidget {
                     style: text.bodySmall
                         ?.copyWith(color: scheme.onSurfaceVariant),
                   ),
+                  if (note != null) ...<Widget>[
+                    const SizedBox(height: 3),
+                    Row(
+                      children: <Widget>[
+                        Icon(
+                          Icons.sticky_note_2_outlined,
+                          size: 13,
+                          color: scheme.primary,
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            note!,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: text.bodySmall
+                                ?.copyWith(color: scheme.primary),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -129,7 +163,7 @@ class TransactionTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: <Widget>[
                 Text(
-                  transaction.amountLabel(network),
+                  hidden ? '••••' : transaction.amountLabel(network),
                   style: text.titleSmall?.copyWith(
                     fontWeight: FontWeight.w700,
                     color: transaction.isIncoming
@@ -140,7 +174,7 @@ class TransactionTile extends StatelessWidget {
                 if (fiat != null) ...<Widget>[
                   const SizedBox(height: 3),
                   Text(
-                    fiat,
+                    hidden ? '••••' : fiat,
                     style: text.bodySmall
                         ?.copyWith(color: scheme.onSurfaceVariant),
                   ),
@@ -148,7 +182,7 @@ class TransactionTile extends StatelessWidget {
               ],
             ),
             const SizedBox(width: 2),
-            if (replacements.isEmpty)
+            if (replacements.isEmpty && onEditNote == null)
               IconButton(
                 tooltip: 'View on explorer',
                 visualDensity: VisualDensity.compact,
@@ -165,6 +199,10 @@ class TransactionTile extends StatelessWidget {
                     onExplorer?.call();
                     return;
                   }
+                  if (action == 'note') {
+                    onEditNote?.call();
+                    return;
+                  }
                   onReplace?.call(ReplacementKind.values.byName(action));
                 },
                 itemBuilder: (_) => <PopupMenuEntry<String>>[
@@ -172,6 +210,11 @@ class TransactionTile extends StatelessWidget {
                     value: 'explorer',
                     child: Text('View on explorer'),
                   ),
+                  if (onEditNote != null)
+                    PopupMenuItem<String>(
+                      value: 'note',
+                      child: Text(note == null ? 'Add note' : 'Edit note'),
+                    ),
                   for (final ReplacementKind kind in replacements)
                     PopupMenuItem<String>(
                       value: kind.name,

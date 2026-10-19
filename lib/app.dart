@@ -19,6 +19,7 @@ import 'features/send/send_screen.dart';
 import 'features/shell/app_shell.dart';
 import 'state/confirmation_watcher.dart';
 import 'state/contacts_controller.dart';
+import 'state/notes_controller.dart';
 import 'state/settings_controller.dart';
 import 'state/wallet_controller.dart';
 import 'state/wallet_identity_controller.dart';
@@ -54,6 +55,9 @@ class MaterialWalletApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider<SettingsController>(
           create: (_) => SettingsController()..load(),
+        ),
+        ChangeNotifierProvider<NotesController>(
+          create: (_) => NotesController()..load(),
         ),
         ChangeNotifierProvider<ContactsController>(
           create: (_) => ContactsController()..load(),

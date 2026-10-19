@@ -11,6 +11,7 @@ class TokenList extends StatelessWidget {
     required this.tokens,
     required this.currency,
     this.onTokenTap,
+    this.hidden = false,
   });
 
   final List<TokenBalance> tokens;
@@ -18,6 +19,9 @@ class TokenList extends StatelessWidget {
 
   /// Opens the send flow for the tapped token, when provided.
   final ValueChanged<TokenBalance>? onTokenTap;
+
+  /// Privacy mode: balances render as dots.
+  final bool hidden;
 
   @override
   Widget build(BuildContext context) {
@@ -33,6 +37,7 @@ class TokenList extends StatelessWidget {
             _TokenTile(
               token: tokens[i],
               currency: currency,
+              hidden: hidden,
               text: text,
               scheme: scheme,
               onTap: onTokenTap == null
@@ -50,6 +55,7 @@ class _TokenTile extends StatelessWidget {
   const _TokenTile({
     required this.token,
     required this.currency,
+    required this.hidden,
     required this.text,
     required this.scheme,
     this.onTap,
@@ -57,6 +63,7 @@ class _TokenTile extends StatelessWidget {
 
   final TokenBalance token;
   final AppCurrency currency;
+  final bool hidden;
   final TextTheme text;
   final ColorScheme scheme;
   final VoidCallback? onTap;
@@ -101,12 +108,12 @@ class _TokenTile extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: <Widget>[
               Text(
-                token.amountLabel,
+                hidden ? '••••' : token.amountLabel,
                 style: text.titleSmall?.copyWith(fontWeight: FontWeight.w600),
               ),
               if (value != null)
                 Text(
-                  AppFormat.fiat(value, currency),
+                  hidden ? '••••' : AppFormat.fiat(value, currency),
                   style: text.bodySmall
                       ?.copyWith(color: scheme.onSurfaceVariant),
                 ),

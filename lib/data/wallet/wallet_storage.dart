@@ -34,6 +34,9 @@ class WalletStorage {
   static const String _watchedTxsKey = 'nova.wallet.watchedTxs';
   static const String _accountIndexKey = 'nova.wallet.accountIndex';
   static const String _accountCountKey = 'nova.wallet.accountCount';
+  static const String _hideBalancesKey = 'nova.wallet.hideBalances';
+  static const String _accountNamesKey = 'nova.wallet.accountNames';
+  static const String _txNotesKey = 'nova.wallet.txNotes';
 
   /// The encrypted recovery phrase, or `null` when no wallet exists.
   Future<String?> readVault() async {
@@ -183,6 +186,39 @@ class WalletStorage {
     await prefs.setInt(_accountCountKey, count);
   }
 
+  /// Whether privacy mode (amounts shown as dots) is on; `null` if never set.
+  Future<bool?> readHideBalances() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_hideBalancesKey);
+  }
+
+  Future<void> writeHideBalances(bool hidden) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_hideBalancesKey, hidden);
+  }
+
+  /// User-chosen account names as a JSON object `{"<index>": "name"}`.
+  Future<String?> readAccountNames() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_accountNamesKey);
+  }
+
+  Future<void> writeAccountNames(String json) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_accountNamesKey, json);
+  }
+
+  /// Local transaction notes as a JSON object `{"<hash>": "text"}`.
+  Future<String?> readTxNotes() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_txNotesKey);
+  }
+
+  Future<void> writeTxNotes(String json) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_txNotesKey, json);
+  }
+
   /// Reads the cached snapshot JSON for [id] (a network id), if any.
   Future<String?> readCache(String id) async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -214,6 +250,10 @@ class WalletStorage {
     await prefs.remove(_watchedTxsKey);
     await prefs.remove(_accountIndexKey);
     await prefs.remove(_accountCountKey);
+    // Account names and notes describe this wallet's accounts and history;
+    // they go with it.
+    await prefs.remove(_accountNamesKey);
+    await prefs.remove(_txNotesKey);
     for (final String key in prefs.getKeys().toList()) {
       if (key.startsWith(_cachePrefix)) {
         await prefs.remove(key);

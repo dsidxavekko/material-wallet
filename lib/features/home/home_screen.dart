@@ -9,6 +9,7 @@ import '../../data/networks/chain_models.dart';
 import '../../shared/widgets/quick_actions.dart';
 import '../../shared/widgets/section_header.dart';
 import '../../state/contacts_controller.dart';
+import '../../state/notes_controller.dart';
 import '../../state/settings_controller.dart';
 import '../../state/wallet_controller.dart';
 import '../activity/activity_screen.dart';
@@ -33,6 +34,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  /// Mirrors [SettingsController.hideBalances] for the widgets below.
   bool _hideBalance = false;
 
   @override
@@ -42,6 +44,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final AppCurrency currency =
         context.select<SettingsController, AppCurrency>((s) => s.currency);
     final AccountSnapshot? snapshot = wallet.snapshot;
+    final SettingsController settings = context.watch<SettingsController>();
+    _hideBalance = settings.hideBalances;
 
     return Scaffold(
       appBar: AppBar(
@@ -105,8 +109,9 @@ class _HomeScreenState extends State<HomeScreen> {
           snapshot: snapshot,
           currency: currency,
           hidden: _hideBalance,
-          onToggleVisibility: () =>
-              setState(() => _hideBalance = !_hideBalance),
+          onToggleVisibility: () => context
+              .read<SettingsController>()
+              .setHideBalances(!_hideBalance),
           onCurrencyTap: () => _pickCurrency(context),
           onRetryPrice: wallet.refresh,
         ),
@@ -135,6 +140,7 @@ class _HomeScreenState extends State<HomeScreen> {
           TokenList(
             tokens: snapshot.tokens,
             currency: currency,
+            hidden: _hideBalance,
             onTokenTap: (TokenBalance token) =>
                 _push(context, SendScreen(token: token)),
           ),
@@ -173,9 +179,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     currency: currency,
                     price: snapshot.price,
                     counterpartyLabel: contacts.labelFor(
-                      recent[i].counterparty,
+                      recent[i].displayCounterparty,
                       snapshot.network.id,
                     ),
+                    hidden: _hideBalance,
+                    note: context
+                        .watch<NotesController>()
+                        .noteFor(recent[i].hash),
                     onExplorer: () => openExplorer(
                       context,
                       snapshot.network.explorerTx(recent[i].hash),
@@ -188,7 +198,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     onReplace: (ReplacementKind kind) => showReplaceTransfer(
                       context,
                       network: snapshot.network,
-                      nonce: recent[i].nonce!,
+                      nonce: recent[i].nonce,
                       kind: kind,
                       original: recent[i],
                     ),

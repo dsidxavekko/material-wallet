@@ -13,10 +13,12 @@ import '../../core/utils/units.dart';
 import '../../data/networks/chain_models.dart';
 import '../../shared/widgets/empty_state.dart';
 import '../../state/contacts_controller.dart';
+import '../../state/notes_controller.dart';
 import '../../state/settings_controller.dart';
 import '../../state/wallet_controller.dart';
 import '../home/widgets/state_cards.dart';
 import '../send/replace_transfer.dart';
+import 'activity_search.dart';
 import 'widgets/transaction_tile.dart';
 
 /// Filters available in the activity feed.
@@ -40,24 +42,47 @@ class ActivityScreen extends StatefulWidget {
 
 class _ActivityScreenState extends State<ActivityScreen> {
   ActivityFilter _filter = ActivityFilter.all;
+  final TextEditingController _search = TextEditingController();
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final WalletController wallet = context.watch<WalletController>();
     final ContactsController contacts = context.watch<ContactsController>();
+    final NotesController notes = context.watch<NotesController>();
+    final bool hidden = context.watch<SettingsController>().hideBalances;
     final AppCurrency currency =
         context.select<SettingsController, AppCurrency>((s) => s.currency);
     final AccountSnapshot? snapshot = wallet.snapshot;
 
     final List<ChainTransaction> all =
         snapshot?.transactions ?? const <ChainTransaction>[];
-    final List<ChainTransaction> filtered = switch (_filter) {
+    final List<ChainTransaction> byDirection = switch (_filter) {
       ActivityFilter.all => all,
       ActivityFilter.sent =>
         all.where((t) => !t.isIncoming).toList(growable: false),
       ActivityFilter.received =>
         all.where((t) => t.isIncoming).toList(growable: false),
     };
+    final String networkId = snapshot?.network.id ?? '';
+    final List<ChainTransaction> filtered = _search.text.trim().isEmpty
+        ? byDirection
+        : byDirection
+            .where(
+              (ChainTransaction t) => matchesActivityQuery(
+                t,
+                _search.text,
+                contactLabel:
+                    contacts.labelFor(t.displayCounterparty, networkId),
+                note: notes.noteFor(t.hash),
+              ),
+            )
+            .toList(growable: false);
     final List<Object> items = _groupedByDay(filtered);
 
     return Scaffold(
@@ -68,7 +93,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
             tooltip: 'Export CSV',
             onPressed: snapshot == null || snapshot.transactions.isEmpty
                 ? null
-                : () => _exportCsv(context, snapshot),
+                : () => _exportCsv(context, snapshot, notes.all),
             icon: const Icon(Icons.file_download_outlined),
           ),
           const SizedBox(width: 6),
@@ -95,7 +120,30 @@ class _ActivityScreenState extends State<ActivityScreen> {
             else ...<Widget>[
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                child: _FlowSummary(snapshot: snapshot, currency: currency),
+                child: _FlowSummary(
+                  snapshot: snapshot,
+                  currency: currency,
+                  hidden: hidden,
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                child: TextField(
+                  controller: _search,
+                  onChanged: (_) => setState(() {}),
+                  textInputAction: TextInputAction.search,
+                  decoration: InputDecoration(
+                    hintText: 'Search address, label, note or hash',
+                    prefixIcon: const Icon(Icons.search_rounded),
+                    suffixIcon: _search.text.isEmpty
+                        ? null
+                        : IconButton(
+                            tooltip: 'Clear',
+                            icon: const Icon(Icons.close_rounded),
+                            onPressed: () => setState(_search.clear),
+                          ),
+                  ),
+                ),
               ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
@@ -119,10 +167,14 @@ class _ActivityScreenState extends State<ActivityScreen> {
                 ),
               ),
               if (items.isEmpty)
-                const EmptyState(
+                EmptyState(
                   icon: Icons.receipt_long_outlined,
-                  title: 'No transactions yet',
-                  message: 'On-chain activity for this network shows up here.',
+                  title: _search.text.trim().isEmpty
+                      ? 'No transactions yet'
+                      : 'Nothing matches',
+                  message: _search.text.trim().isEmpty
+                      ? 'On-chain activity for this network shows up here.'
+                      : 'Try another address, label, note or hash.',
                 )
               else
                 for (final Object item in items)
@@ -136,6 +188,9 @@ class _ActivityScreenState extends State<ActivityScreen> {
                         item.displayCounterparty,
                         snapshot.network.id,
                       ),
+                      hidden: hidden,
+                      note: notes.noteFor(item.hash),
+                      onEditNote: () => _editNote(context, item.hash, notes),
                       onExplorer: () => openExplorer(
                         context,
                         snapshot.network.explorerTx(item.hash),
@@ -176,11 +231,53 @@ class _ActivityScreenState extends State<ActivityScreen> {
   /// The OS share sheet is the export: it covers "save to Drive", "send to
   /// myself" and the rest without this app owning a file picker or a
   /// Downloads-folder permission.
+  Future<void> _editNote(
+    BuildContext context,
+    String hash,
+    NotesController notes,
+  ) async {
+    final TextEditingController controller =
+        TextEditingController(text: notes.noteFor(hash) ?? '');
+    final String? text = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.sticky_note_2_outlined),
+        title: const Text('Private note'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 200,
+          maxLines: 3,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(
+            hintText: 'Visible only on this device and in your CSV export',
+          ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (text != null) {
+      await notes.setNote(hash, text);
+    }
+  }
+
   Future<void> _exportCsv(
     BuildContext context,
     AccountSnapshot snapshot,
+    Map<String, String> notes,
   ) async {
-    final String csv = buildActivityCsv(snapshot);
+    final String csv = buildActivityCsv(snapshot, notes: notes);
     try {
       await SharePlus.instance.share(
         ShareParams(
@@ -288,10 +385,15 @@ class _DayHeader extends StatelessWidget {
 
 /// Totals for the transactions currently loaded from the API.
 class _FlowSummary extends StatelessWidget {
-  const _FlowSummary({required this.snapshot, required this.currency});
+  const _FlowSummary({
+    required this.snapshot,
+    required this.currency,
+    required this.hidden,
+  });
 
   final AccountSnapshot snapshot;
   final AppCurrency currency;
+  final bool hidden;
 
   @override
   Widget build(BuildContext context) {
@@ -341,6 +443,9 @@ class _FlowSummary extends StatelessWidget {
 
   /// Fiat value when a market price is available, native units otherwise.
   String _label(BigInt raw) {
+    if (hidden) {
+      return '••••';
+    }
     final CoinPrice? price = snapshot.price;
     if (price == null) {
       return Units.formatWithSymbol(
