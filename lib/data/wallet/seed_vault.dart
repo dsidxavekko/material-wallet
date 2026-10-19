@@ -76,6 +76,16 @@ class SeedVault {
     return _open(parsed, deriveKey(pin, parsed.salt, parsed.rounds));
   }
 
+  /// How many PBKDF2 rounds [payload] was sealed with, or `null` if it cannot be
+  /// read. Lets the app notice a vault made under older, weaker parameters.
+  static int? roundsOf(String payload) {
+    try {
+      return _parse(payload).rounds;
+    } on SeedVaultException {
+      return null;
+    }
+  }
+
   // --- asynchronous API (used by the app) ----------------------------------
 
   /// Like [encrypt], but derives the key off the UI thread.

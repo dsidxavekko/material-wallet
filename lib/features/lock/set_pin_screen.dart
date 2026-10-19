@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/utils/feedback.dart';
 import '../../data/wallet/seed_vault.dart';
+import '../../shared/widgets/password_strength_meter.dart';
 import '../../shared/widgets/pin_field.dart';
 import '../../state/wallet_identity_controller.dart';
 
@@ -106,6 +107,7 @@ class _SetPinScreenState extends State<SetPinScreen> {
                       _confirmError = null;
                     }),
                   ),
+                  PasswordStrengthMeter(password: _pinController.text),
                   const SizedBox(height: 16),
                   PinField(
                     controller: _confirmController,

@@ -9,6 +9,7 @@ import '../../data/background/background_service.dart';
 import '../../data/notifications/notification_service.dart';
 import '../../data/wallet/seed_vault.dart';
 import '../../shared/widgets/mnemonic_grid.dart';
+import '../../shared/widgets/password_strength_meter.dart';
 import '../../shared/widgets/pin_confirm_dialog.dart';
 import '../../shared/widgets/pin_field.dart';
 import '../../state/settings_controller.dart';
@@ -983,7 +984,9 @@ class _ChangePinSheetState extends State<_ChangePinSheet> {
                 controller: _nextController,
                 label: 'New password (min. $_minLength characters)',
                 enabled: !_busy,
+                onChanged: (_) => setState(() {}),
               ),
+              PasswordStrengthMeter(password: _nextController.text),
               const SizedBox(height: 14),
               PinField(
                 controller: _confirmController,

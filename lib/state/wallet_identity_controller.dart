@@ -316,6 +316,40 @@ class WalletIdentityController extends ChangeNotifier {
       rethrow;
     }
     await _clearThrottle();
+    unawaited(_strengthenVault(pin));
+  }
+
+  /// Re-seals the vault under the current key-derivation parameters when it was
+  /// made with fewer rounds — the one moment the password is in hand.
+  ///
+  /// Best effort: a failure leaves the old, still valid vault in place.
+  Future<void> _strengthenVault(String password) async {
+    try {
+      final String? vault = _vault;
+      final WalletAccount? contents = _vaultAccount;
+      final int? rounds = vault == null ? null : SeedVault.roundsOf(vault);
+      if (vault == null ||
+          contents == null ||
+          rounds == null ||
+          rounds >= _kdfRounds) {
+        return;
+      }
+      final String payload = await SeedVault.encryptAsync(
+        contents.toVaultPayload(),
+        password,
+        rounds: _kdfRounds,
+      );
+      // The derivation takes a while. If anything changed the vault meanwhile
+      // (another phrase added, the password changed, the wallet locked), what
+      // was sealed is stale and must not overwrite it.
+      if (!identical(_vaultAccount, contents) || _vault != vault) {
+        return;
+      }
+      await _storage.writeVault(payload, _createdAt ?? DateTime.now());
+      _vault = payload;
+    } catch (error, stackTrace) {
+      AppLog.warning('Could not strengthen the vault', error, stackTrace);
+    }
   }
 
   /// Decrypts [pin] and adopts the resulting account. No throttle handling.
@@ -848,6 +882,7 @@ class WalletIdentityController extends ChangeNotifier {
       return false;
     }
     await _clearThrottle();
+    unawaited(_strengthenVault(pin));
     return true;
   }
 

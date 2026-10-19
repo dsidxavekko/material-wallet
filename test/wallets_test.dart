@@ -201,6 +201,42 @@ void main() {
       expect(identity.canSign, isTrue);
     });
 
+    test('a vault made with fewer rounds is re-sealed at the next unlock',
+        () async {
+      final _FakeWalletStorage storage = _FakeWalletStorage()
+        ..vault = SeedVault.encrypt(mnemonicA, pin, rounds: 1000);
+      final WalletIdentityController identity =
+          WalletIdentityController(storage: storage, kdfRounds: 3000);
+      await identity.load();
+      await identity.unlock(pin);
+      for (int i = 0;
+          i < 100 && SeedVault.roundsOf(storage.vault!) != 3000;
+          i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+
+      expect(SeedVault.roundsOf(storage.vault!), 3000);
+      // …and it still opens with the same password, with the same wallet.
+      identity.lock();
+      final WalletIdentityController reopened =
+          WalletIdentityController(storage: storage, kdfRounds: 3000);
+      await reopened.load();
+      await reopened.unlock(pin);
+      expect(reopened.canSign, isTrue);
+    });
+
+    test('a vault already at the current rounds is left alone', () async {
+      final _FakeWalletStorage storage = _FakeWalletStorage()
+        ..vault = SeedVault.encrypt(mnemonicA, pin, rounds: 1000);
+      final String before = storage.vault!;
+      final WalletIdentityController identity =
+          WalletIdentityController(storage: storage, kdfRounds: 1000);
+      await identity.load();
+      await identity.unlock(pin);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(storage.vault, before);
+    });
+
     test('a vault of one wallet serialises as it always did', () {
       final WalletAccount account = WalletAccount(
         mnemonic: mnemonicA,
