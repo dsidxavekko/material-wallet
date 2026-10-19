@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/units.dart';
 import '../../data/networks/network_config.dart';
+import '../../state/hidden_tokens_controller.dart';
 import '../../state/portfolio_controller.dart';
 import '../../state/settings_controller.dart';
 import '../../state/wallet_identity_controller.dart';
@@ -21,7 +22,10 @@ class PortfolioScreen extends StatelessWidget {
     final WalletIdentityController identity =
         context.read<WalletIdentityController>();
     return ChangeNotifierProvider<PortfolioController>(
-      create: (_) => PortfolioController(addressFor: identity.addressFor)..load(),
+      create: (_) => PortfolioController(
+        addressFor: identity.addressFor,
+        isTokenHidden: context.read<HiddenTokensController>().isHidden,
+      )..load(),
       child: const _PortfolioView(),
     );
   }
@@ -141,10 +145,10 @@ class _EntryTile extends StatelessWidget {
               network.symbol,
               maxDecimals: 6,
             );
-      subtitle = entry.tokens.isEmpty
+      final int tokenCount = entry.visibleTokens.length;
+      subtitle = tokenCount == 0
           ? native
-          : '$native · ${entry.tokens.length} token'
-              '${entry.tokens.length == 1 ? '' : 's'}';
+          : '$native · $tokenCount token${tokenCount == 1 ? '' : 's'}';
     }
 
     return Card(

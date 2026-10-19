@@ -19,6 +19,7 @@ class PortfolioEntry {
     this.tokens = const <TokenBalance>[],
     this.price,
     this.error,
+    this.isTokenHidden,
   });
 
   final NetworkConfig network;
@@ -32,13 +33,22 @@ class PortfolioEntry {
   /// Why [balance] is missing, when it is.
   final String? error;
 
+  /// Tokens the user hid; they are neither listed nor counted in the total.
+  final bool Function(TokenBalance token)? isTokenHidden;
+
+  /// The tokens that count: everything the user has not hidden.
+  List<TokenBalance> get visibleTokens => <TokenBalance>[
+        for (final TokenBalance t in tokens)
+          if (!(isTokenHidden?.call(t) ?? false)) t,
+      ];
+
   bool get failed => balance == null;
 
   double? get nativeUsd => balance == null || price == null
       ? null
       : Units.toDouble(balance!, network.decimals) * price!.usd;
 
-  double get tokensUsd => tokens.fold<double>(
+  double get tokensUsd => visibleTokens.fold<double>(
         0,
         (double sum, TokenBalance t) => sum + (t.usdValue ?? 0),
       );
@@ -47,7 +57,8 @@ class PortfolioEntry {
   /// here has a price (a testnet, or a coin CoinGecko did not answer for).
   double? get totalUsd {
     final double? native = nativeUsd;
-    final bool anyToken = tokens.any((TokenBalance t) => t.usdValue != null);
+    final bool anyToken =
+        visibleTokens.any((TokenBalance t) => t.usdValue != null);
     if (native == null && !anyToken) {
       return null;
     }
@@ -69,6 +80,7 @@ class PortfolioController extends ChangeNotifier {
     ChainApi? chainApi,
     PriceApi? priceApi,
     Iterable<NetworkConfig>? networks,
+    this.isTokenHidden,
   })  : _chainApi = chainApi ?? ChainApi(),
         _priceApi = priceApi ?? PriceApi(),
         networks = List<NetworkConfig>.unmodifiable(
@@ -77,6 +89,10 @@ class PortfolioController extends ChangeNotifier {
 
   /// The active account's address on a network, or `null` while locked.
   final String? Function(NetworkConfig network) addressFor;
+
+  /// Whether the user hid [token] on [networkId]; hidden tokens are left out
+  /// of every total.
+  final bool Function(String networkId, TokenBalance token)? isTokenHidden;
 
   final List<NetworkConfig> networks;
   final ChainApi _chainApi;
@@ -150,6 +166,9 @@ class PortfolioController extends ChangeNotifier {
           tokens: e.tokens,
           error: e.error,
           price: e.network.priceId == null ? null : priceById[e.network.priceId],
+          isTokenHidden: isTokenHidden == null
+              ? null
+              : (TokenBalance t) => isTokenHidden!(e.network.id, t),
         ),
     ];
 

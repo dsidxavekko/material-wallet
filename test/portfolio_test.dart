@@ -107,6 +107,51 @@ void main() {
     portfolio.dispose();
   });
 
+  test('a hidden token is not counted in the entry or the total', () async {
+    final _FakeChain chain = _FakeChain()
+      ..balances['ethereum'] = BigInt.parse('1000000000000000000') // $2000
+      ..tokens['ethereum'] = <TokenBalance>[
+        TokenBalance(
+          symbol: 'USDC',
+          name: 'USD Coin',
+          decimals: 6,
+          balance: BigInt.from(1000000000),
+          contractAddress: '0xusdc',
+          usdRate: 1,
+        ),
+        TokenBalance(
+          symbol: 'AIRDROP',
+          name: 'Airdrop',
+          decimals: 6,
+          balance: BigInt.from(500000000),
+          contractAddress: '0xairdrop',
+          usdRate: 1,
+        ),
+      ];
+    final PortfolioController portfolio = PortfolioController(
+      addressFor: (NetworkConfig n) => 'addr-${n.id}',
+      chainApi: chain,
+      priceApi: PriceApi(
+        client: MockClient(
+          (_) async => http.Response(
+            jsonEncode(<String, Object>{
+              'ethereum': <String, Object>{'usd': 2000.0},
+            }),
+            200,
+          ),
+        ),
+      ),
+      networks: const <NetworkConfig>[NetworkCatalog.ethereum],
+      isTokenHidden: (String networkId, TokenBalance t) =>
+          networkId == 'ethereum' && t.contractAddress == '0xairdrop',
+    );
+    await portfolio.load();
+
+    expect(portfolio.entries.single.visibleTokens, hasLength(1));
+    expect(portfolio.totalUsd, closeTo(2000 + 1000, 1e-6)); // not + 500
+    portfolio.dispose();
+  });
+
   test('a failing network is shown as unavailable, never as empty', () async {
     final _FakeChain chain = _FakeChain()
       ..balances['bitcoin'] = BigInt.from(100000000)

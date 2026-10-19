@@ -11,10 +11,10 @@ import '../data/wallet/wallet_storage.dart';
 /// Keyed by network and contract, so the same token stays hidden when the
 /// account changes but a lookalike on another chain does not inherit the flag.
 ///
-/// ponytail: hiding only trims the list. The balance and portfolio totals still
-/// count a hidden token that has a price, because they are computed from the
-/// raw snapshot; Blockscout already filters known scam tokens, so a priced
-/// token the user wants gone is rare.
+/// A hidden token is also left out of the portfolio totals (the home card and
+/// the Portfolio screen), so hiding a worthless but priced airdrop does not
+/// inflate the number. Its balance stays in the snapshot and in the CSV: hiding
+/// is about what the wallet shows and adds up, not about what is on-chain.
 class HiddenTokensController extends ChangeNotifier {
   HiddenTokensController({WalletStorage? storage})
     : _storage = storage ?? const WalletStorage();

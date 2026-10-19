@@ -75,6 +75,7 @@ class MaterialWalletApp extends StatelessWidget {
             settings: context.read<SettingsController>(),
             chainApi: chainApi,
             priceApi: priceApi,
+            hiddenTokens: context.read<HiddenTokensController>(),
           ),
         ),
         Provider<NotificationService>(create: (_) => NotificationService()),

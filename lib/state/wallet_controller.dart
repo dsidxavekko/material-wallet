@@ -10,6 +10,7 @@ import '../data/networks/chain_models.dart';
 import '../data/networks/network_config.dart';
 import '../data/networks/price_api.dart';
 import '../data/wallet/snapshot_cache.dart';
+import 'hidden_tokens_controller.dart';
 import 'settings_controller.dart';
 import 'wallet_identity_controller.dart';
 
@@ -26,18 +27,23 @@ class WalletController extends ChangeNotifier {
     PriceApi? priceApi,
     SnapshotCache? cache,
     Duration? pendingPollInterval,
+    this.hiddenTokens,
   })  : _chainApi = chainApi ?? ChainApi(),
         _priceApi = priceApi ?? PriceApi(),
         _cache = cache ?? const SnapshotCache(),
         _pendingPollOverride = pendingPollInterval {
     identity.addListener(_onDependencyChanged);
     settings.addListener(_onDependencyChanged);
+    hiddenTokens?.addListener(_onHiddenTokensChanged);
     // Deferred so the very first notify happens after the first build.
     unawaited(Future<void>.microtask(_onDependencyChanged));
   }
 
   final WalletIdentityController identity;
   final SettingsController settings;
+
+  /// Tokens the user hid; they are left out of [portfolioFiat].
+  final HiddenTokensController? hiddenTokens;
   final ChainApi _chainApi;
   final PriceApi _priceApi;
   final SnapshotCache _cache;
@@ -140,6 +146,7 @@ class WalletController extends ChangeNotifier {
     _pendingPoll?.cancel();
     identity.removeListener(_onDependencyChanged);
     settings.removeListener(_onDependencyChanged);
+    hiddenTokens?.removeListener(_onHiddenTokensChanged);
     _chainApi.dispose();
     _priceApi.dispose();
     super.dispose();
@@ -172,6 +179,9 @@ class WalletController extends ChangeNotifier {
       }
       if (cached != null) {
         for (final TokenBalance token in cached.tokens) {
+          if (hiddenTokens?.isHidden(n.id, token) ?? false) {
+            continue;
+          }
           final double? tokenUsd = token.usdValue;
           if (tokenUsd != null) {
             total += tokenUsd;
@@ -187,6 +197,13 @@ class WalletController extends ChangeNotifier {
     if (next != _portfolioFiat) {
       _portfolioFiat = next;
       _safeNotify();
+    }
+  }
+
+  /// Hiding or showing a token changes the total, not the data behind it.
+  void _onHiddenTokensChanged() {
+    if (!_disposed) {
+      unawaited(_refreshPortfolio());
     }
   }
 

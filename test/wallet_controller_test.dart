@@ -11,6 +11,7 @@ import 'package:crypto_wallet/data/wallet/seed_vault.dart';
 import 'package:crypto_wallet/data/wallet/wallet_storage.dart';
 import 'package:crypto_wallet/features/settings/settings_screen.dart';
 import 'package:crypto_wallet/state/confirmation_watcher.dart';
+import 'package:crypto_wallet/state/hidden_tokens_controller.dart';
 import 'package:crypto_wallet/state/settings_controller.dart';
 import 'package:crypto_wallet/state/wallet_controller.dart';
 import 'package:crypto_wallet/state/wallet_identity_controller.dart';
@@ -515,6 +516,73 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 20));
 
     expect(wallet.snapshot?.fiatBalance, closeTo(5.0, 1e-6));
+    expect(wallet.portfolioFiat, closeTo(1005.0, 1e-6));
+
+    wallet.dispose();
+  });
+
+  test('a hidden token is left out of portfolioFiat, and showing it restores it',
+      () async {
+    final WalletIdentityController identity = await storedWallet();
+    await identity.unlock(pin);
+
+    final SettingsController settings = SettingsController();
+    settings.setNetwork(NetworkCatalog.ethereum);
+
+    final MockClient client = MockClient((request) async {
+      final String url = request.url.toString();
+      if (url.contains('/transactions')) {
+        return json(<String, Object>{'items': <Object>[]});
+      }
+      if (url.contains('/tokens')) {
+        return json(<String, Object>{
+          'items': <Object>[
+            <String, Object>{
+              'value': '1000000000',
+              'token': <String, Object?>{
+                'symbol': 'AIRDROP',
+                'name': 'Priced airdrop',
+                'decimals': '6',
+                'address_hash': '0x2222222222222222222222222222222222222222',
+                'exchange_rate': '1.0',
+              },
+            },
+          ],
+        });
+      }
+      if (url.contains('/addresses/')) {
+        return json(<String, Object>{'coin_balance': '2000000000000000'});
+      }
+      if (url.contains('simple/price')) {
+        return json(<String, Object>{
+          'ethereum': <String, Object>{'usd': 2500.0, 'usd_24h_change': 0.5},
+        });
+      }
+      if (url.contains('market_chart')) {
+        return json(<String, Object>{'prices': <Object>[]});
+      }
+      return http.Response('{}', 404);
+    });
+
+    final HiddenTokensController hidden = HiddenTokensController();
+    final WalletController wallet = WalletController(
+      identity: identity,
+      settings: settings,
+      chainApi: ChainApi(client: client),
+      priceApi: PriceApi(client: client),
+      hiddenTokens: hidden,
+    );
+    await settle(wallet);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(wallet.portfolioFiat, closeTo(1005.0, 1e-6));
+
+    final TokenBalance airdrop = wallet.snapshot!.tokens.single;
+    await hidden.setHidden('ethereum', airdrop, true);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(wallet.portfolioFiat, closeTo(5.0, 1e-6));
+
+    await hidden.setHidden('ethereum', airdrop, false);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
     expect(wallet.portfolioFiat, closeTo(1005.0, 1e-6));
 
     wallet.dispose();
