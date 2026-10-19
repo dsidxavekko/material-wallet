@@ -212,6 +212,15 @@ class _FakeChainApi extends ChainApi {
   }
 
   @override
+  Future<ActivityPage> fetchActivityPage(
+    NetworkConfig network,
+    String address, {
+    ActivityCursor? after,
+  }) async {
+    return ActivityPage(native: await fetchTransactions(network, address));
+  }
+
+  @override
   Future<List<TokenBalance>> fetchTokenBalances(
     NetworkConfig network,
     String address,
