@@ -4,6 +4,7 @@ import '../../../core/utils/formatters.dart';
 import '../../../data/networks/chain_models.dart';
 import '../../../shared/widgets/hidden_amount.dart';
 import '../../../shared/widgets/sparkline.dart';
+import '../../../l10n/l10n.dart';
 
 /// Hero card showing the live balance of the selected network.
 class AccountBalanceCard extends StatelessWidget {
@@ -70,7 +71,7 @@ class AccountBalanceCard extends StatelessWidget {
               IconButton(
                 onPressed: onToggleVisibility,
                 visualDensity: VisualDensity.compact,
-                tooltip: hidden ? 'Show balance' : 'Hide balance',
+                tooltip: hidden ? context.l10n.showBalance : context.l10n.hideBalance,
                 icon: Icon(
                   hidden
                       ? Icons.visibility_off_outlined
@@ -116,7 +117,7 @@ class AccountBalanceCard extends StatelessWidget {
             )
           else if (snapshot.network.isTestnet)
             Text(
-              'Testnet — no market price',
+              context.l10n.testnetNoMarketPrice,
               style: text.bodySmall?.copyWith(
                 color: scheme.onPrimary.withValues(alpha: 0.8),
               ),
@@ -275,7 +276,7 @@ class _PriceUnavailable extends StatelessWidget {
         Icon(Icons.cloud_off_rounded, size: 16, color: foreground),
         const SizedBox(width: 8),
         Text(
-          'Price temporarily unavailable',
+          context.l10n.priceTemporarilyUnavailable,
           style: text.bodySmall?.copyWith(color: foreground),
         ),
         const SizedBox(width: 4),
@@ -288,7 +289,7 @@ class _PriceUnavailable extends StatelessWidget {
             minimumSize: const Size(0, 32),
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           ),
-          child: const Text('Retry'),
+          child: Text(context.l10n.retry),
         ),
       ],
     );

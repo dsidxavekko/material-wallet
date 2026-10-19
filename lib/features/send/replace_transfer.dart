@@ -15,6 +15,8 @@ import '../../state/wallet_controller.dart';
 import '../../state/wallet_identity_controller.dart';
 import '../lock/sensitive_auth.dart';
 import 'widgets/transfer_progress_dialog.dart';
+import '../../l10n/l10n.dart';
+import '../../l10n/messages.dart';
 
 /// What a stuck pending transaction should be replaced with.
 enum ReplacementKind {
@@ -52,7 +54,7 @@ Future<void> showReplaceTransfer(
   if (!context.read<WalletIdentityController>().canSign) {
     showAppSnackBar(
       context,
-      'A watch-only wallet cannot send or replace transfers.',
+      context.l10n.aWatchOnlyWalletCannot2,
       icon: Icons.visibility_outlined,
     );
     return;
@@ -81,31 +83,22 @@ Future<void> showReplaceTransfer(
       icon: Icon(
         cancelling ? Icons.cancel_rounded : Icons.rocket_launch_rounded,
       ),
-      title: Text(cancelling ? 'Cancel this transfer?' : 'Speed this transfer up?'),
+      title: Text(cancelling ? context.l10n.cancelThisTransfer : context.l10n.speedThisTransferUp),
       content: Text(
         cancelling
-            ? 'This sends 0 ${network.symbol} to yourself and reuses the '
-                'pending transaction\'s nonce, so it can never confirm. It '
-                'only works while the transaction is still pending.'
+            ? context.l10n.thisSends0ToYourself(network.symbol)
             : calldata != null
-                ? 'This re-sends the identical token transfer to '
-                    '${original.counterparty} with a higher fee, reusing the '
-                    'pending transaction\'s nonce and calldata. Exactly one '
-                    'of the two will confirm.'
-                : 'This sends '
-                    '${Units.formatWithSymbol(original.amount.abs(), network.decimals, network.symbol)} '
-                    'to ${original.counterparty} again with a higher fee, reusing '
-                    'the pending transaction\'s nonce. Exactly one of the two will '
-                    'confirm.',
+                ? context.l10n.thisReSendsTheIdentical(original.counterparty)
+                : context.l10n.thisSendsToAgainWith(Units.formatWithSymbol(original.amount.abs(), network.decimals, network.symbol), original.counterparty),
       ),
       actions: <Widget>[
         TextButton(
           onPressed: () => Navigator.of(dialogContext).pop(false),
-          child: const Text('Keep it'),
+          child: Text(context.l10n.keepIt),
         ),
         FilledButton(
           onPressed: () => Navigator.of(dialogContext).pop(true),
-          child: Text(cancelling ? 'Cancel transfer' : 'Speed up'),
+          child: Text(cancelling ? context.l10n.cancelTransfer : context.l10n.speedUp),
         ),
       ],
     ),
@@ -116,9 +109,9 @@ Future<void> showReplaceTransfer(
 
   final bool authorized = await authorizeSensitiveAction(
     context,
-    reason: cancelling ? 'Confirm cancel' : 'Confirm speed up',
-    title: cancelling ? 'Confirm cancel' : 'Confirm speed up',
-    confirmLabel: cancelling ? 'Cancel transfer' : 'Speed up',
+    reason: cancelling ? context.l10n.confirmCancel : context.l10n.confirmSpeedUp,
+    title: cancelling ? context.l10n.confirmCancel : context.l10n.confirmSpeedUp,
+    confirmLabel: cancelling ? context.l10n.cancelTransfer : context.l10n.speedUp,
     icon: cancelling ? Icons.cancel_rounded : Icons.rocket_launch_rounded,
   );
   if (!authorized || !context.mounted) {
@@ -144,7 +137,7 @@ Future<void> showReplaceTransfer(
     if (context.mounted) {
       showAppSnackBar(
         context,
-        'Could not reach ${network.name} to price the replacement.',
+        context.l10n.couldNotReachToPrice2(network.name),
         icon: Icons.cloud_off_rounded,
       );
     }
@@ -177,7 +170,8 @@ Future<void> showReplaceTransfer(
   );
 
   final bool replaced = controller.txHash != null;
-  final String? error = controller.error;
+  final String? error =
+      controller.error == null ? null : tr(controller.error!);
   controller.dispose();
 
   if (!context.mounted) {
@@ -190,15 +184,15 @@ Future<void> showReplaceTransfer(
       showAppSnackBar(
         context,
         cancelling
-            ? 'Replacement submitted — the original can no longer confirm.'
-            : 'Faster replacement submitted.',
+            ? context.l10n.replacementSubmittedTheOriginalCan
+            : context.l10n.fasterReplacementSubmitted,
         icon: Icons.check_circle_outline_rounded,
       );
     }
   } else {
     showAppSnackBar(
       context,
-      error ?? 'The replacement could not be sent. Nothing changed.',
+      error ?? context.l10n.theReplacementCouldNotBe,
       icon: Icons.error_outline_rounded,
     );
   }
@@ -235,7 +229,7 @@ Future<void> _showBitcoinSpeedUp(
     if (context.mounted) {
       showAppSnackBar(
         context,
-        prepared.reason ?? 'This transfer cannot be sped up.',
+        tr(prepared.reason ?? context.l10n.thisTransferCannotBeSped),
         icon: Icons.error_outline_rounded,
       );
     }
@@ -249,21 +243,18 @@ Future<void> _showBitcoinSpeedUp(
     context: context,
     builder: (dialogContext) => AlertDialog(
       icon: const Icon(Icons.rocket_launch_rounded),
-      title: const Text('Speed this transfer up?'),
+      title: Text(context.l10n.speedThisTransferUp),
       content: Text(
-        'The same payment is sent again with a higher fee, paid out of your '
-        'change: ${sats(prepared.oldFee ?? BigInt.zero)} → ${sats(plan.fee)} '
-        '(${plan.feeRate} sat/vB). The recipient still gets the same amount; '
-        'exactly one of the two transfers will confirm.',
+        context.l10n.theSamePaymentIsSent(sats(prepared.oldFee ?? BigInt.zero), sats(plan.fee), plan.feeRate),
       ),
       actions: <Widget>[
         TextButton(
           onPressed: () => Navigator.of(dialogContext).pop(false),
-          child: const Text('Keep it'),
+          child: Text(context.l10n.keepIt),
         ),
         FilledButton(
           onPressed: () => Navigator.of(dialogContext).pop(true),
-          child: const Text('Speed up'),
+          child: Text(context.l10n.speedUp),
         ),
       ],
     ),
@@ -275,9 +266,9 @@ Future<void> _showBitcoinSpeedUp(
 
   final bool authorized = await authorizeSensitiveAction(
     context,
-    reason: 'Confirm speed up',
-    title: 'Confirm speed up',
-    confirmLabel: 'Speed up',
+    reason: context.l10n.confirmSpeedUp,
+    title: context.l10n.confirmSpeedUp,
+    confirmLabel: context.l10n.speedUp,
     icon: Icons.rocket_launch_rounded,
   );
   if (!authorized || !context.mounted) {
@@ -300,7 +291,8 @@ Future<void> _showBitcoinSpeedUp(
   );
 
   final bool replaced = controller.txHash != null;
-  final String? error = controller.error;
+  final String? error =
+      controller.error == null ? null : tr(controller.error!);
   controller.dispose();
 
   if (!context.mounted) {
@@ -311,14 +303,14 @@ Future<void> _showBitcoinSpeedUp(
     if (context.mounted) {
       showAppSnackBar(
         context,
-        'Faster replacement submitted.',
+        context.l10n.fasterReplacementSubmitted,
         icon: Icons.check_circle_outline_rounded,
       );
     }
   } else {
     showAppSnackBar(
       context,
-      error ?? 'The replacement could not be sent. Nothing changed.',
+      error ?? context.l10n.theReplacementCouldNotBe,
       icon: Icons.error_outline_rounded,
     );
   }

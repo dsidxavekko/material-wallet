@@ -1,4 +1,5 @@
 import 'package:intl/intl.dart';
+import '../../l10n/messages.dart';
 
 /// Fiat currencies the wallet can display.
 ///
@@ -73,19 +74,19 @@ class AppFormat {
     final DateTime reference = now ?? DateTime.now();
     final Duration diff = reference.difference(time);
     if (diff.inSeconds < 60) {
-      return 'Just now';
+      return tr('Just now');
     }
     if (diff.inMinutes < 60) {
-      return '${diff.inMinutes} min ago';
+      return tr('${diff.inMinutes} min ago');
     }
     if (diff.inHours < 24) {
-      return '${diff.inHours} h ago';
+      return tr('${diff.inHours} h ago');
     }
     if (diff.inDays == 1) {
-      return 'Yesterday';
+      return tr('Yesterday');
     }
     if (diff.inDays < 7) {
-      return '${diff.inDays} days ago';
+      return tr('${diff.inDays} days ago');
     }
     return DateFormat.yMMMd().format(time);
   }
@@ -97,10 +98,10 @@ class AppFormat {
     final DateTime today = DateTime(reference.year, reference.month, reference.day);
     final int delta = today.difference(day).inDays;
     if (delta == 0) {
-      return 'Today';
+      return tr('Today');
     }
     if (delta == 1) {
-      return 'Yesterday';
+      return tr('Yesterday');
     }
     return DateFormat.yMMMMd().format(time);
   }

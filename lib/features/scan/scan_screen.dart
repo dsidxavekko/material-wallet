@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../../l10n/l10n.dart';
 
 /// Full-screen QR scanner.
 ///
 /// Pops with the first decoded value so callers can drop it straight into a
 /// text field (addresses, payment links, …).
 class ScanScreen extends StatefulWidget {
-  const ScanScreen({super.key, this.title = 'Scan QR code'});
+  const ScanScreen({super.key, this.title});
 
-  final String title;
+  /// Defaults to the translated "Scan QR code".
+  final String? title;
 
   @override
   State<ScanScreen> createState() => _ScanScreenState();
@@ -51,17 +53,17 @@ class _ScanScreenState extends State<ScanScreen> {
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        title: Text(widget.title),
+        title: Text(widget.title ?? context.l10n.scanQrCode),
         backgroundColor: Colors.transparent,
         foregroundColor: Colors.white,
         actions: <Widget>[
           IconButton(
-            tooltip: 'Toggle flashlight',
+            tooltip: context.l10n.toggleFlashlight,
             onPressed: _controller.toggleTorch,
             icon: const Icon(Icons.flashlight_on_rounded),
           ),
           IconButton(
-            tooltip: 'Switch camera',
+            tooltip: context.l10n.switchCamera,
             onPressed: _controller.switchCamera,
             icon: const Icon(Icons.cameraswitch_rounded),
           ),
@@ -78,7 +80,7 @@ class _ScanScreenState extends State<ScanScreen> {
             child: Padding(
               padding: const EdgeInsets.fromLTRB(24, 0, 24, 48),
               child: Text(
-                'Point the camera at a wallet QR code',
+                context.l10n.pointTheCameraAtA,
                 textAlign: TextAlign.center,
                 style: text.bodyMedium?.copyWith(
                   color: Colors.white.withValues(alpha: 0.9),

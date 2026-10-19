@@ -10,6 +10,8 @@ import '../../state/wallet_identity_controller.dart';
 import '../onboarding/create_wallet_screen.dart';
 import '../onboarding/import_wallet_screen.dart';
 import 'watch_wallet_screen.dart';
+import '../../l10n/l10n.dart';
+import '../../l10n/messages.dart';
 
 /// Every wallet on the device: recovery phrases (one vault, one password) and
 /// watch-only wallets (public addresses, no key). Tapping one switches to it.
@@ -24,7 +26,7 @@ class WalletsScreen extends StatelessWidget {
     final ColorScheme scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Wallets')),
+      appBar: AppBar(title: Text(context.l10n.wallets)),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: <Widget>[
@@ -38,7 +40,7 @@ class WalletsScreen extends StatelessWidget {
                       : Icons.account_balance_wallet_rounded,
                 ),
                 title: Text(wallet.name),
-                subtitle: Text(_subtitle(wallet)),
+                subtitle: Text(_subtitle(context, wallet)),
                 trailing: wallet.id == identity.activeWalletId
                     ? Row(
                         mainAxisSize: MainAxisSize.min,
@@ -53,7 +55,7 @@ class WalletsScreen extends StatelessWidget {
             ),
           const SizedBox(height: 18),
           Text(
-            'Add a wallet',
+            context.l10n.addAWallet,
             style: Theme.of(context)
                 .textTheme
                 .titleSmall
@@ -65,20 +67,20 @@ class WalletsScreen extends StatelessWidget {
               children: <Widget>[
                 ListTile(
                   leading: const Icon(Icons.add_circle_outline_rounded),
-                  title: const Text('Create a new wallet'),
-                  subtitle: const Text('A fresh recovery phrase'),
+                  title: Text(context.l10n.createANewWallet),
+                  subtitle: Text(context.l10n.aFreshRecoveryPhrase),
                   onTap: () => _open(context, const CreateWalletScreen()),
                 ),
                 ListTile(
                   leading: const Icon(Icons.download_rounded),
-                  title: const Text('Import a recovery phrase'),
-                  subtitle: const Text('Another 12 or 24-word wallet'),
+                  title: Text(context.l10n.importARecoveryPhrase),
+                  subtitle: Text(context.l10n.another12Or24Word),
                   onTap: () => _open(context, const ImportWalletScreen()),
                 ),
                 ListTile(
                   leading: const Icon(Icons.visibility_outlined),
-                  title: const Text('Watch an address'),
-                  subtitle: const Text('Follow a balance without the keys'),
+                  title: Text(context.l10n.watchAnAddress),
+                  subtitle: Text(context.l10n.followABalanceWithoutThe),
                   onTap: () => _open(context, const WatchWalletScreen()),
                 ),
               ],
@@ -89,15 +91,15 @@ class WalletsScreen extends StatelessWidget {
     );
   }
 
-  static String _subtitle(WalletEntry wallet) {
+  static String _subtitle(BuildContext context, WalletEntry wallet) {
     if (!wallet.isWatchOnly) {
-      return 'Recovery phrase';
+      return context.l10n.recoveryPhrase;
     }
     final List<String> kinds = <String>[
       for (final String family in wallet.watched.keys)
-        WatchAddresses.labels[family] ?? family,
+        tr(WatchAddresses.labels[family] ?? family),
     ];
-    return 'Watch-only · ${kinds.join(', ')}';
+    return context.l10n.watchOnly(kinds.join(', '));
   }
 
   static void _open(BuildContext context, Widget screen) {
@@ -110,7 +112,7 @@ class WalletsScreen extends StatelessWidget {
     WalletEntry wallet,
   ) {
     return PopupMenuButton<String>(
-      tooltip: 'Wallet options',
+      tooltip: context.l10n.walletOptions,
       onSelected: (String action) {
         if (action == 'rename') {
           _rename(context, identity, wallet);
@@ -121,13 +123,13 @@ class WalletsScreen extends StatelessWidget {
         }
       },
       itemBuilder: (_) => <PopupMenuEntry<String>>[
-        const PopupMenuItem<String>(value: 'rename', child: Text('Rename')),
+        PopupMenuItem<String>(value: 'rename', child: Text(context.l10n.rename)),
         if (wallet.isWatchOnly)
-          const PopupMenuItem<String>(
+          PopupMenuItem<String>(
             value: 'edit',
-            child: Text('Edit addresses'),
+            child: Text(context.l10n.editAddresses),
           ),
-        const PopupMenuItem<String>(value: 'remove', child: Text('Remove')),
+        PopupMenuItem<String>(value: 'remove', child: Text(context.l10n.remove)),
       ],
     );
   }
@@ -142,23 +144,23 @@ class WalletsScreen extends StatelessWidget {
     final String? name = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Wallet name'),
+        title: Text(context.l10n.walletName),
         content: TextField(
           controller: controller,
           autofocus: true,
           maxLength: 30,
           textCapitalization: TextCapitalization.sentences,
-          decoration: const InputDecoration(hintText: 'e.g. Savings'),
+          decoration: InputDecoration(hintText: context.l10n.eGSavings),
           onSubmitted: (String v) => Navigator.of(dialogContext).pop(v),
         ),
         actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
+            child: Text(context.l10n.cancel),
           ),
           FilledButton(
             onPressed: () => Navigator.of(dialogContext).pop(controller.text),
-            child: const Text('Save'),
+            child: Text(context.l10n.save),
           ),
         ],
       ),
@@ -179,19 +181,16 @@ class WalletsScreen extends StatelessWidget {
       context: context,
       builder: (dialogContext) => AlertDialog(
         icon: const Icon(Icons.warning_amber_rounded),
-        title: Text('Remove ${wallet.name}?'),
+        title: Text(context.l10n.remove2(wallet.name)),
         content: Text(
           watch
-              ? 'The followed addresses are forgotten. Nothing on the '
-                  'blockchain changes.'
-              : 'Without its recovery phrase the funds in this wallet are '
-                  'unrecoverable. Make sure you have your backup before '
-                  'continuing.',
+              ? context.l10n.theFollowedAddressesAreForgotten
+              : context.l10n.withoutItsRecoveryPhraseThe,
         ),
         actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancel'),
+            child: Text(context.l10n.cancel),
           ),
           FilledButton(
             style: FilledButton.styleFrom(
@@ -199,7 +198,7 @@ class WalletsScreen extends StatelessWidget {
               foregroundColor: Theme.of(dialogContext).colorScheme.onError,
             ),
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Remove'),
+            child: Text(context.l10n.remove),
           ),
         ],
       ),
@@ -215,8 +214,8 @@ class WalletsScreen extends StatelessWidget {
     // A recovery phrase goes only with the password: the vault is rewritten.
     final String? password = await PinConfirmDialog.show(
       context,
-      title: 'Confirm your password',
-      confirmLabel: 'Remove',
+      title: context.l10n.confirmYourPassword,
+      confirmLabel: context.l10n.remove,
       icon: Icons.delete_outline_rounded,
     );
     if (password == null || !context.mounted) {

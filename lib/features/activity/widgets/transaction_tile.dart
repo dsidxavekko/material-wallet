@@ -6,6 +6,7 @@ import '../../../core/utils/units.dart';
 import '../../../data/networks/chain_models.dart';
 import '../../../data/networks/network_config.dart';
 import '../../send/replace_transfer.dart';
+import '../../../l10n/l10n.dart';
 
 /// Activity feed row for a single on-chain transaction.
 ///
@@ -106,7 +107,7 @@ class TransactionTile extends StatelessWidget {
                       Flexible(
                         child: Text(
                           transaction.isApproval && !transaction.isToken
-                              ? 'Token approval'
+                              ? context.l10n.tokenApproval
                               : '${transaction.isIncoming ? 'Received' : 'Sent'} '
                                   '${transaction.tokenSymbol ?? network.symbol}',
                           maxLines: 1,
@@ -118,7 +119,7 @@ class TransactionTile extends StatelessWidget {
                       if (!transaction.confirmed || transaction.failed) ...[
                         const SizedBox(width: 8),
                         _StatusChip(
-                          label: transaction.failed ? 'Failed' : 'Pending',
+                          label: transaction.failed ? context.l10n.failed : context.l10n.pending,
                           failed: transaction.failed,
                         ),
                       ],
@@ -184,7 +185,7 @@ class TransactionTile extends StatelessWidget {
             const SizedBox(width: 2),
             if (replacements.isEmpty && onEditNote == null)
               IconButton(
-                tooltip: 'View on explorer',
+                tooltip: context.l10n.viewOnExplorer,
                 visualDensity: VisualDensity.compact,
                 icon: const Icon(Icons.open_in_new_rounded, size: 17),
                 color: scheme.onSurfaceVariant,
@@ -192,7 +193,7 @@ class TransactionTile extends StatelessWidget {
               )
             else
               PopupMenuButton<String>(
-                tooltip: 'More actions',
+                tooltip: context.l10n.moreActions,
                 icon: Icon(Icons.more_vert_rounded, color: scheme.onSurfaceVariant),
                 onSelected: (String action) {
                   if (action == 'explorer') {
@@ -206,22 +207,22 @@ class TransactionTile extends StatelessWidget {
                   onReplace?.call(ReplacementKind.values.byName(action));
                 },
                 itemBuilder: (_) => <PopupMenuEntry<String>>[
-                  const PopupMenuItem<String>(
+                  PopupMenuItem<String>(
                     value: 'explorer',
-                    child: Text('View on explorer'),
+                    child: Text(context.l10n.viewOnExplorer),
                   ),
                   if (onEditNote != null)
                     PopupMenuItem<String>(
                       value: 'note',
-                      child: Text(note == null ? 'Add note' : 'Edit note'),
+                      child: Text(note == null ? context.l10n.addNote : context.l10n.editNote),
                     ),
                   for (final ReplacementKind kind in replacements)
                     PopupMenuItem<String>(
                       value: kind.name,
                       child: Text(
                         switch (kind) {
-                          ReplacementKind.cancel => 'Cancel transaction',
-                          ReplacementKind.speedUp => 'Speed up',
+                          ReplacementKind.cancel => context.l10n.cancelTransaction,
+                          ReplacementKind.speedUp => context.l10n.speedUp,
                         },
                       ),
                     ),

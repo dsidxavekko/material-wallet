@@ -7,6 +7,7 @@ import '../data/notifications/notification_service.dart';
 import '../data/wallet/wallet_storage.dart';
 import 'settings_controller.dart';
 import 'wallet_controller.dart';
+import '../l10n/messages.dart';
 
 /// Notifies the user when an outgoing transfer they were waiting on confirms.
 ///
@@ -85,8 +86,8 @@ class ConfirmationWatcher {
           unawaited(
             notifications.show(
               id: tx.hash.hashCode & 0x7fffffff,
-              title: 'Transfer confirmed',
-              body: '${tx.amountLabel(network)} is confirmed on ${network.name}.',
+              title: tr('Transfer confirmed'),
+              body: tr('${tx.amountLabel(network)} is confirmed on ${network.name}.'),
             ),
           );
         }

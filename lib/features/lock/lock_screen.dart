@@ -7,6 +7,8 @@ import '../../core/utils/feedback.dart';
 import '../../data/wallet/seed_vault.dart';
 import '../../shared/widgets/pin_field.dart';
 import '../../state/wallet_identity_controller.dart';
+import '../../l10n/l10n.dart';
+import '../../l10n/messages.dart';
 
 /// Asks for the PIN and decrypts the stored recovery phrase.
 class LockScreen extends StatefulWidget {
@@ -106,7 +108,7 @@ class _LockScreenState extends State<LockScreen> {
         context.watch<WalletIdentityController>();
     final bool throttled = identity.unlockThrottled;
     final String? throttleHint =
-        throttled ? identity.throttle.retryHint(DateTime.now()) : null;
+        throttled ? tr(identity.throttle.retryHint(DateTime.now())) : null;
     final bool blocked = _busy || throttled;
 
     return Scaffold(
@@ -136,13 +138,13 @@ class _LockScreenState extends State<LockScreen> {
                 ),
                 const SizedBox(height: 24),
                 Text(
-                  'Welcome back',
+                  context.l10n.welcomeBack,
                   style: text.headlineSmall
                       ?.copyWith(fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Enter your password to decrypt the wallet.',
+                  context.l10n.enterYourPasswordToDecrypt,
                   textAlign: TextAlign.center,
                   style: text.bodyMedium
                       ?.copyWith(color: scheme.onSurfaceVariant),
@@ -150,7 +152,7 @@ class _LockScreenState extends State<LockScreen> {
                 const SizedBox(height: 28),
                 PinField(
                   controller: _pinController,
-                  label: 'Password',
+                  label: context.l10n.password,
                   autofocus: true,
                   enabled: !blocked,
                   errorText: throttleHint ?? _error,
@@ -176,14 +178,12 @@ class _LockScreenState extends State<LockScreen> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.lock_open_rounded),
-                  label: Text(_busy ? 'Decrypting…' : 'Unlock'),
+                  label: Text(_busy ? context.l10n.decrypting : context.l10n.unlock),
                 ),
                 if (identity.biometricsReset) ...<Widget>[
                   const SizedBox(height: 14),
                   Text(
-                    'The fingerprints on this phone changed, so fingerprint '
-                    'unlock was turned off. Enter your password, then enable '
-                    'it again in Settings.',
+                    context.l10n.theFingerprintsOnThisPhone,
                     textAlign: TextAlign.center,
                     style: text.bodySmall?.copyWith(
                       color: scheme.onSurfaceVariant,
@@ -196,13 +196,13 @@ class _LockScreenState extends State<LockScreen> {
                   OutlinedButton.icon(
                     onPressed: _busy ? null : _tryBiometrics,
                     icon: const Icon(Icons.fingerprint_rounded),
-                    label: const Text('Unlock with fingerprint'),
+                    label: Text(context.l10n.unlockWithFingerprint),
                   ),
                 ],
                 const SizedBox(height: 8),
                 TextButton(
                   onPressed: _busy ? null : _confirmReset,
-                  child: const Text('Forgot password — erase recovery phrases'),
+                  child: Text(context.l10n.forgotPasswordEraseRecoveryPhrases),
                 ),
                 const SizedBox(height: 12),
                 Text(
@@ -221,7 +221,7 @@ class _LockScreenState extends State<LockScreen> {
 
   Future<void> _unlock() async {
     if (_pinController.text.isEmpty) {
-      setState(() => _error = 'Enter your password');
+      setState(() => _error = context.l10n.enterYourPassword);
       return;
     }
 
@@ -246,7 +246,7 @@ class _LockScreenState extends State<LockScreen> {
       if (mounted) {
         setState(() {
           _busy = false;
-          _error = error.message;
+          _error = tr(error.message);
         });
         if (identity.unlockThrottled) {
           _startLockoutTicker();
@@ -257,7 +257,7 @@ class _LockScreenState extends State<LockScreen> {
       if (mounted) {
         setState(() {
           _busy = false;
-          _error = 'Could not unlock the wallet.';
+          _error = context.l10n.couldNotUnlockTheWallet;
         });
       }
       return;
@@ -276,17 +276,14 @@ class _LockScreenState extends State<LockScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         icon: const Icon(Icons.warning_amber_rounded),
-        title: const Text('Erase the recovery phrases?'),
-        content: const Text(
-          'This deletes every recovery phrase and the password from this '
-          'device. Without the backups the funds are unrecoverable. '
-          'Watch-only wallets are kept. Make sure you have your backups '
-          'before continuing.',
+        title: Text(context.l10n.eraseTheRecoveryPhrases),
+        content: Text(
+          context.l10n.thisDeletesEveryRecoveryPhrase,
         ),
         actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancel'),
+            child: Text(context.l10n.cancel),
           ),
           FilledButton(
             style: FilledButton.styleFrom(
@@ -294,7 +291,7 @@ class _LockScreenState extends State<LockScreen> {
               foregroundColor: Theme.of(dialogContext).colorScheme.onError,
             ),
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Erase'),
+            child: Text(context.l10n.erase),
           ),
         ],
       ),
@@ -305,7 +302,7 @@ class _LockScreenState extends State<LockScreen> {
     }
     showAppSnackBar(
       context,
-      'Recovery phrases erased from this device.',
+      context.l10n.recoveryPhrasesErasedFromThis,
       icon: Icons.delete_outline_rounded,
     );
     await identity.removeWallet();

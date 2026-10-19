@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'pin_field.dart';
+import '../../l10n/l10n.dart';
 
 /// Modal that asks for the current PIN and returns it, or `null` on cancel.
 ///
@@ -57,7 +58,7 @@ class _PinConfirmDialogState extends State<PinConfirmDialog> {
       title: Text(widget.title),
       content: PinField(
         controller: _controller,
-        label: 'Password',
+        label: context.l10n.password,
         autofocus: true,
         textInputAction: TextInputAction.done,
         onSubmitted: (_) => _submit(),
@@ -65,7 +66,7 @@ class _PinConfirmDialogState extends State<PinConfirmDialog> {
       actions: <Widget>[
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(context.l10n.cancel),
         ),
         FilledButton(
           onPressed: _submit,

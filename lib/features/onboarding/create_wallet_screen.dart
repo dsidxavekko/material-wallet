@@ -5,6 +5,7 @@ import '../../core/utils/feedback.dart';
 import '../../shared/widgets/mnemonic_grid.dart';
 import '../../state/wallet_identity_controller.dart';
 import 'verify_mnemonic_screen.dart';
+import '../../l10n/l10n.dart';
 
 /// Generates and reveals a brand new BIP-39 recovery phrase.
 class CreateWalletScreen extends StatefulWidget {
@@ -25,7 +26,7 @@ class _CreateWalletScreenState extends State<CreateWalletScreen> {
     final ColorScheme scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Your recovery phrase')),
+      appBar: AppBar(title: Text(context.l10n.yourRecoveryPhrase)),
       body: SafeArea(
         child: Column(
           children: <Widget>[
@@ -34,14 +35,13 @@ class _CreateWalletScreenState extends State<CreateWalletScreen> {
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
                 children: <Widget>[
                   Text(
-                    'Write these ${_words.length} words down',
+                    context.l10n.writeTheseWordsDown(_words.length),
                     style: text.titleLarge
                         ?.copyWith(fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'They are the only way to restore your wallet. Store them '
-                    'offline — anyone who reads them can take your funds.',
+                    context.l10n.theyAreTheOnlyWay,
                     style: text.bodyMedium?.copyWith(
                       color: scheme.onSurfaceVariant,
                       height: 1.45,
@@ -53,7 +53,7 @@ class _CreateWalletScreenState extends State<CreateWalletScreen> {
                   OutlinedButton.icon(
                     onPressed: _copyPhrase,
                     icon: const Icon(Icons.copy_rounded),
-                    label: const Text('Copy phrase'),
+                    label: Text(context.l10n.copyPhrase),
                   ),
                   const SizedBox(height: 18),
                   Container(
@@ -71,8 +71,7 @@ class _CreateWalletScreenState extends State<CreateWalletScreen> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
-                            'Never share this phrase. Material Wallet will never '
-                            'ask you for it.',
+                            context.l10n.neverShareThisPhraseMaterial,
                             style: text.bodySmall?.copyWith(
                               color: scheme.onErrorContainer,
                               height: 1.4,
@@ -89,8 +88,8 @@ class _CreateWalletScreenState extends State<CreateWalletScreen> {
                         setState(() => _confirmed = value ?? false),
                     contentPadding: EdgeInsets.zero,
                     controlAffinity: ListTileControlAffinity.leading,
-                    title: const Text(
-                      'I have written down my recovery phrase',
+                    title: Text(
+                      context.l10n.iHaveWrittenDownMy,
                     ),
                   ),
                 ],
@@ -100,7 +99,7 @@ class _CreateWalletScreenState extends State<CreateWalletScreen> {
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
               child: FilledButton(
                 onPressed: _confirmed ? _continue : null,
-                child: const Text('Continue'),
+                child: Text(context.l10n.continueLabel),
               ),
             ),
           ],
@@ -114,7 +113,7 @@ class _CreateWalletScreenState extends State<CreateWalletScreen> {
     if (mounted) {
       showAppSnackBar(
         context,
-        'Recovery phrase copied — cleared automatically',
+        context.l10n.recoveryPhraseCopiedClearedAutomatically,
         icon: Icons.copy_rounded,
       );
     }

@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
+import '../../../l10n/l10n.dart';
+import '../../../l10n/messages.dart';
 
 /// Card shown while the first load for a network is in flight.
 class LoadingCard extends StatelessWidget {
-  const LoadingCard({super.key, this.message = 'Loading on-chain data…'});
+  const LoadingCard({super.key, this.message});
 
-  final String message;
+  /// Defaults to the translated "Loading on-chain data…".
+  final String? message;
 
   @override
   Widget build(BuildContext context) {
@@ -24,7 +27,7 @@ class LoadingCard extends StatelessWidget {
             const SizedBox(width: 18),
             Expanded(
               child: Text(
-                message,
+                message ?? context.l10n.loadingOnChainData,
                 style: text.bodyMedium
                     ?.copyWith(color: scheme.onSurfaceVariant),
               ),
@@ -69,7 +72,7 @@ class ErrorCard extends StatelessWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    'Could not load data',
+                    context.l10n.couldNotLoadData,
                     style: text.titleSmall?.copyWith(
                       color: scheme.onErrorContainer,
                       fontWeight: FontWeight.w700,
@@ -80,7 +83,7 @@ class ErrorCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              message,
+              tr(message),
               style: text.bodySmall?.copyWith(
                 color: scheme.onErrorContainer,
                 height: 1.4,
@@ -93,7 +96,7 @@ class ErrorCard extends StatelessWidget {
                 child: FilledButton.tonalIcon(
                   onPressed: onRetry,
                   icon: const Icon(Icons.refresh_rounded, size: 18),
-                  label: const Text('Try again'),
+                  label: Text(context.l10n.tryAgain),
                 ),
               ),
           ],

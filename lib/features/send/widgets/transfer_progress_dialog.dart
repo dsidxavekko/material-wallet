@@ -6,6 +6,8 @@ import 'package:provider/provider.dart';
 import '../../../data/networks/chain_models.dart';
 import '../../../data/wallet/bitcoin_signer.dart';
 import '../../../state/send_controller.dart';
+import '../../../l10n/l10n.dart';
+import '../../../l10n/messages.dart';
 
 /// Blocking dialog that drives a transfer from signing to confirmation.
 ///
@@ -140,7 +142,7 @@ class _TransferProgressDialogState extends State<TransferProgressDialog> {
     return PopScope(
       canPop: done,
       child: AlertDialog(
-        title: Text(done ? 'Transfer submitted' : 'Sending…'),
+        title: Text(done ? context.l10n.transferSubmitted : context.l10n.sending),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -152,12 +154,12 @@ class _TransferProgressDialogState extends State<TransferProgressDialog> {
             Text(
               controller.stage == SendStage.broadcasting ||
                       controller.stage == SendStage.signing
-                  ? 'Signing on this device…'
+                  ? context.l10n.signingOnThisDevice
                   : controller.stage == SendStage.broadcast
-                      ? 'Waiting for $shortTo to confirm…'
+                      ? context.l10n.waitingForToConfirm(shortTo)
                       : controller.stage == SendStage.confirmed
-                          ? 'Confirmed on-chain.'
-                          : controller.error ?? 'Broadcasting…',
+                          ? context.l10n.confirmedOnChain
+                          : tr(controller.error ?? context.l10n.broadcasting),
               style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
             ),
             if (controller.txHash != null) ...[
@@ -173,7 +175,7 @@ class _TransferProgressDialogState extends State<TransferProgressDialog> {
           if (done)
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Close'),
+              child: Text(context.l10n.close),
             ),
         ],
       ),

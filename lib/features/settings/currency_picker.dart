@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/utils/formatters.dart';
+import '../../l10n/l10n.dart';
 
 /// Shows the fiat-currency picker and returns the chosen currency.
 ///
@@ -25,7 +26,7 @@ Future<AppCurrency?> showCurrencyPicker(
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
               child: Text(
-                'Display currency',
+                context.l10n.displayCurrency,
                 style: text.titleMedium?.copyWith(fontWeight: FontWeight.w700),
               ),
             ),

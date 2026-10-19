@@ -9,6 +9,8 @@ import '../../state/portfolio_controller.dart';
 import '../../state/settings_controller.dart';
 import '../../state/wallet_identity_controller.dart';
 import '../home/widgets/state_cards.dart';
+import '../../l10n/l10n.dart';
+import '../../l10n/messages.dart';
 
 /// The account's holdings on every mainnet in one list, largest first.
 ///
@@ -47,10 +49,10 @@ class _PortfolioView extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Portfolio'),
+        title: Text(context.l10n.portfolio),
         actions: <Widget>[
           IconButton(
-            tooltip: 'Refresh',
+            tooltip: context.l10n.refresh,
             onPressed:
                 portfolio.loading ? null : () => portfolio.load(force: true),
             icon: portfolio.loading
@@ -76,14 +78,14 @@ class _PortfolioView extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     Text(
-                      'Total across networks',
+                      context.l10n.totalAcrossNetworks,
                       style: text.labelLarge
                           ?.copyWith(color: scheme.onSurfaceVariant),
                     ),
                     const SizedBox(height: 6),
                     Text(
                       total == null
-                          ? (portfolio.loading ? 'Loading…' : '—')
+                          ? (portfolio.loading ? context.l10n.loading : '—')
                           : hidden
                               ? '••••'
                               : AppFormat.fiat(total, currency),
@@ -93,8 +95,7 @@ class _PortfolioView extends StatelessWidget {
                     if (portfolio.incomplete) ...<Widget>[
                       const SizedBox(height: 8),
                       Text(
-                        'Some networks could not be read, so this total may '
-                        'be too low.',
+                        context.l10n.someNetworksCouldNotBe,
                         style: text.bodySmall?.copyWith(color: scheme.error),
                       ),
                     ],
@@ -135,7 +136,7 @@ class _EntryTile extends StatelessWidget {
 
     final String subtitle;
     if (entry.failed) {
-      subtitle = entry.error ?? 'Unavailable';
+      subtitle = tr(entry.error ?? context.l10n.unavailable);
     } else {
       final String native = hidden
           ? '••••'
@@ -148,7 +149,7 @@ class _EntryTile extends StatelessWidget {
       final int tokenCount = entry.visibleTokens.length;
       subtitle = tokenCount == 0
           ? native
-          : '$native · $tokenCount token${tokenCount == 1 ? '' : 's'}';
+          : context.l10n.tokenOtherTokens(native, tokenCount);
     }
 
     return Card(

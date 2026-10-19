@@ -6,6 +6,8 @@ import '../../data/wallet/seed_vault.dart';
 import '../../shared/widgets/password_strength_meter.dart';
 import '../../shared/widgets/pin_field.dart';
 import '../../state/wallet_identity_controller.dart';
+import '../../l10n/l10n.dart';
+import '../../l10n/messages.dart';
 
 /// Sets a PIN and encrypts the recovery phrase with it.
 ///
@@ -71,7 +73,7 @@ class _SetPinScreenState extends State<SetPinScreen> {
     final ColorScheme scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Security')),
+      appBar: AppBar(title: Text(context.l10n.security)),
       body: SafeArea(
         child: Column(
           children: <Widget>[
@@ -80,16 +82,13 @@ class _SetPinScreenState extends State<SetPinScreen> {
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
                 children: <Widget>[
                   Text(
-                    'Set a password',
+                    context.l10n.setAPassword,
                     style: text.titleLarge
                         ?.copyWith(fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Your recovery phrase is encrypted with AES-256-GCM using '
-                    'a key derived from this password, and you will need it '
-                    'every time you open the wallet. A passphrase of several '
-                    'words is much harder to guess than a short code.',
+                    context.l10n.yourRecoveryPhraseIsEncrypted,
                     style: text.bodyMedium?.copyWith(
                       color: scheme.onSurfaceVariant,
                       height: 1.45,
@@ -98,7 +97,7 @@ class _SetPinScreenState extends State<SetPinScreen> {
                   const SizedBox(height: 24),
                   PinField(
                     controller: _pinController,
-                    label: 'Password (min. $_minLength characters)',
+                    label: context.l10n.passwordMinCharacters(_minLength),
                     autofocus: true,
                     enabled: !_busy,
                     errorText: _pinError,
@@ -111,7 +110,7 @@ class _SetPinScreenState extends State<SetPinScreen> {
                   const SizedBox(height: 16),
                   PinField(
                     controller: _confirmController,
-                    label: 'Confirm password',
+                    label: context.l10n.confirmPassword,
                     enabled: !_busy,
                     errorText: _confirmError,
                     textInputAction: TextInputAction.done,
@@ -132,10 +131,9 @@ class _SetPinScreenState extends State<SetPinScreen> {
                             : (bool value) =>
                                 setState(() => _useBiometrics = value),
                         secondary: const Icon(Icons.fingerprint_rounded),
-                        title: const Text('Unlock with fingerprint'),
-                        subtitle: const Text(
-                          'Open the wallet with your fingerprint instead of '
-                          'typing the password',
+                        title: Text(context.l10n.unlockWithFingerprint2),
+                        subtitle: Text(
+                          context.l10n.openTheWalletWithYour,
                         ),
                       ),
                     ),
@@ -156,9 +154,7 @@ class _SetPinScreenState extends State<SetPinScreen> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
-                            'There is no password recovery. If you forget it you '
-                            'will need your recovery phrase to restore the '
-                            'wallet.',
+                            context.l10n.thereIsNoPasswordRecovery,
                             style: text.bodySmall?.copyWith(
                               color: scheme.onErrorContainer,
                               height: 1.4,
@@ -182,7 +178,7 @@ class _SetPinScreenState extends State<SetPinScreen> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.enhanced_encryption_rounded),
-                label: Text(_busy ? 'Encrypting…' : 'Encrypt & continue'),
+                label: Text(_busy ? context.l10n.encrypting : context.l10n.encryptContinue),
               ),
             ),
           ],
@@ -197,10 +193,10 @@ class _SetPinScreenState extends State<SetPinScreen> {
     if (!_isValid) {
       setState(() {
         _pinError = pin.length < _minLength
-            ? 'Use at least $_minLength characters'
+            ? context.l10n.useAtLeastCharacters(_minLength)
             : null;
         _confirmError =
-            pin != _confirmController.text ? 'Passwords do not match' : null;
+            pin != _confirmController.text ? context.l10n.passwordsDoNotMatch : null;
       });
       return;
     }
@@ -218,7 +214,7 @@ class _SetPinScreenState extends State<SetPinScreen> {
       if (mounted) {
         setState(() {
           _busy = false;
-          _pinError = error.message;
+          _pinError = tr(error.message);
         });
       }
       return;
@@ -230,7 +226,7 @@ class _SetPinScreenState extends State<SetPinScreen> {
     setState(() => _busy = false);
     showAppSnackBar(
       context,
-      'Wallet encrypted and stored on this device.',
+      context.l10n.walletEncryptedAndStoredOn,
       icon: Icons.verified_user_outlined,
     );
     Navigator.of(context).popUntil((Route<dynamic> route) => route.isFirst);

@@ -10,6 +10,8 @@ import '../../shared/widgets/coin_avatar.dart';
 import '../../shared/widgets/empty_state.dart';
 import '../../state/contacts_controller.dart';
 import '../../state/settings_controller.dart';
+import '../../l10n/l10n.dart';
+import '../../l10n/messages.dart';
 
 /// Manage the saved recipients shown when composing a transfer.
 class AddressBookScreen extends StatelessWidget {
@@ -20,19 +22,18 @@ class AddressBookScreen extends StatelessWidget {
     final ContactsController contacts = context.watch<ContactsController>();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Address book')),
+      appBar: AppBar(title: Text(context.l10n.addressBook)),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _add(context),
         icon: const Icon(Icons.person_add_alt_1_rounded),
-        label: const Text('Add'),
+        label: Text(context.l10n.add),
       ),
       body: contacts.isEmpty
-          ? const EmptyState(
+          ? EmptyState(
               icon: Icons.contacts_rounded,
-              title: 'No saved recipients',
+              title: context.l10n.noSavedRecipients,
               message:
-                  'Save the addresses you send to often and they will appear '
-                  'here and in the send flow.',
+                  context.l10n.saveTheAddressesYouSend,
             )
           : ListView.separated(
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
@@ -56,7 +57,7 @@ class AddressBookScreen extends StatelessWidget {
                       '${AppFormat.shortAddress(contact.address)}',
                     ),
                     trailing: IconButton(
-                      tooltip: 'Remove',
+                      tooltip: context.l10n.remove3,
                       icon: const Icon(Icons.delete_outline_rounded),
                       onPressed: () =>
                           contacts.remove(contact.address, contact.networkId),
@@ -86,7 +87,7 @@ class AddressBookScreen extends StatelessWidget {
     if (context.mounted) {
       showAppSnackBar(
         context,
-        'Saved “${contact.label}”.',
+        context.l10n.saved(contact.label),
         icon: Icons.check_circle_outline_rounded,
       );
     }
@@ -124,7 +125,7 @@ class _ContactFormState extends State<_ContactForm> {
 
   void _save() {
     if (!_validation.valid) {
-      setState(() => _addressError = _validation.reason);
+      setState(() => _addressError = tr(_validation.reason ?? ''));
       return;
     }
     Navigator.of(context).pop(
@@ -150,7 +151,7 @@ class _ContactFormState extends State<_ContactForm> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           Text(
-            'New recipient',
+            context.l10n.newRecipient,
             style: Theme.of(context)
                 .textTheme
                 .titleLarge
@@ -161,9 +162,9 @@ class _ContactFormState extends State<_ContactForm> {
             controller: _label,
             textCapitalization: TextCapitalization.sentences,
             onChanged: (_) => setState(() {}),
-            decoration: const InputDecoration(
-              labelText: 'Label',
-              hintText: 'e.g. Savings',
+            decoration: InputDecoration(
+              labelText: context.l10n.label,
+              hintText: context.l10n.eGSavings,
             ),
           ),
           const SizedBox(height: 14),
@@ -185,7 +186,7 @@ class _ContactFormState extends State<_ContactForm> {
                 _addressError = null;
               });
             },
-            decoration: const InputDecoration(labelText: 'Network'),
+            decoration: InputDecoration(labelText: context.l10n.network),
           ),
           const SizedBox(height: 14),
           TextField(
@@ -194,7 +195,7 @@ class _ContactFormState extends State<_ContactForm> {
             enableSuggestions: false,
             onChanged: (_) => setState(() => _addressError = null),
             decoration: InputDecoration(
-              labelText: 'Address',
+              labelText: context.l10n.address,
               errorText: _addressError,
             ),
           ),
@@ -202,7 +203,7 @@ class _ContactFormState extends State<_ContactForm> {
           FilledButton.icon(
             onPressed: _canSave ? _save : null,
             icon: const Icon(Icons.check_rounded),
-            label: const Text('Save recipient'),
+            label: Text(context.l10n.saveRecipient),
           ),
         ],
       ),

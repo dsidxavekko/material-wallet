@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../l10n/l10n.dart';
 
 /// Row of the two wallet operations available in this app.
 ///
@@ -25,14 +26,14 @@ class QuickActions extends StatelessWidget {
       children: <Widget>[
         _QuickAction(
           icon: Icons.north_east_rounded,
-          label: 'Send',
+          label: context.l10n.send,
           emphasized: sendEnabled,
           onTap: onSend,
         ),
         const SizedBox(width: 14),
         _QuickAction(
           icon: Icons.south_west_rounded,
-          label: 'Receive',
+          label: context.l10n.receive,
           onTap: onReceive,
         ),
       ],

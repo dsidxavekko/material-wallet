@@ -31,6 +31,8 @@ import '../lock/sensitive_auth.dart';
 import '../scan/scan_screen.dart';
 import 'transfer_success_screen.dart';
 import 'widgets/transfer_progress_dialog.dart';
+import '../../l10n/l10n.dart';
+import '../../l10n/messages.dart';
 
 /// Sends the native currency of the active network, or an ERC-20 [token].
 ///
@@ -428,13 +430,11 @@ class _SendScreenState extends State<SendScreen> {
         context.watch<WalletIdentityController>();
     if (identity.isWatchOnly) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Send')),
-        body: const EmptyState(
+        appBar: AppBar(title: Text(context.l10n.send)),
+        body: EmptyState(
           icon: Icons.visibility_outlined,
-          title: 'Watch-only wallet',
-          message: 'This wallet follows an address but holds no keys, so it '
-              'cannot send. Switch to a wallet with a recovery phrase in '
-              'Settings → Wallets.',
+          title: context.l10n.watchOnlyWallet,
+          message: context.l10n.thisWalletFollowsAnAddress,
         ),
       );
     }
@@ -450,17 +450,17 @@ class _SendScreenState extends State<SendScreen> {
 
     if (snapshot == null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Send')),
-        body: const EmptyState(
+        appBar: AppBar(title: Text(context.l10n.send)),
+        body: EmptyState(
           icon: Icons.cloud_off_rounded,
-          title: 'Account data unavailable',
-          message: 'The balance is still loading. Go back and try again.',
+          title: context.l10n.accountDataUnavailable,
+          message: context.l10n.theBalanceIsStillLoading,
         ),
       );
     }
 
     return Scaffold(
-      appBar: AppBar(title: Text('Send $_symbol')),
+      appBar: AppBar(title: Text(context.l10n.send2(_symbol))),
       body: SafeArea(
         child: Column(
           children: <Widget>[
@@ -474,7 +474,7 @@ class _SendScreenState extends State<SendScreen> {
                         Icons.account_balance_wallet_outlined,
                         color: scheme.primary,
                       ),
-                      title: const Text('Available'),
+                      title: Text(context.l10n.available),
                       subtitle: Text(_availableLabel),
                       trailing: Text(
                         network.name,
@@ -497,15 +497,14 @@ class _SendScreenState extends State<SendScreen> {
                     ],
                     onChanged: (_) => setState(() {}),
                     decoration: InputDecoration(
-                      labelText: _fiatMode ? 'Amount in ${currency.code}' : 'Amount',
+                      labelText: _fiatMode ? context.l10n.amountIn(currency.code) : context.l10n.amount,
                       hintText: '0.00',
                       suffixText: _fiatMode ? currency.code : _symbol,
                       helperText: _amountHelper(currency),
                       errorText: _enteredAmount > BigInt.zero && !_hasEnoughFunds
                           ? _isToken
-                              ? 'Not enough $_symbol, or too little '
-                                  '${network.symbol} for the fee'
-                              : 'Not enough funds for amount + fee'
+                              ? context.l10n.notEnoughOrTooLittle(_symbol, network.symbol)
+                              : context.l10n.notEnoughFundsForAmount
                           : null,
                       suffixIcon: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -513,14 +512,14 @@ class _SendScreenState extends State<SendScreen> {
                           if (_unitPriceUsd != null)
                             IconButton(
                               tooltip: _fiatMode
-                                  ? 'Enter in $_symbol'
-                                  : 'Enter in ${currency.code}',
+                                  ? context.l10n.enterIn(_symbol)
+                                  : context.l10n.enterIn2(currency.code),
                               icon: const Icon(Icons.swap_vert_rounded),
                               onPressed: _toggleFiat,
                             ),
                           TextButton(
                             onPressed: _setMax,
-                            child: const Text('MAX'),
+                            child: Text(context.l10n.max),
                           ),
                         ],
                       ),
@@ -534,23 +533,23 @@ class _SendScreenState extends State<SendScreen> {
                     // keystroke to drive the poisoning warning below.
                     onChanged: _onRecipientChanged,
                     decoration: InputDecoration(
-                      labelText: 'Recipient address',
+                      labelText: context.l10n.recipientAddress,
                       hintText: switch (network.chain) {
                         ChainKind.bitcoin => 'bc1q… / tb1q…',
-                        ChainKind.evm => '0x… or name.eth',
-                        ChainKind.solana => 'Base58 address',
-                        ChainKind.aptos => '0x… (64 hex chars)',
+                        ChainKind.evm => tr('0x… or name.eth'),
+                        ChainKind.solana => context.l10n.base58Address,
+                        ChainKind.aptos => tr('0x… (64 hex chars)'),
                       },
                       errorText: _addressController.text.trim().isEmpty ||
                               addressCheck.valid
                           ? null
                           : _ensApplies
                               ? _ensError ??
-                                  (_ensResolving ? null : 'Resolving the name…')
-                              : addressCheck.reason,
+                                  (_ensResolving ? null : context.l10n.resolvingTheName)
+                              : tr(addressCheck.reason ?? ''),
                       helperText: _ensApplies
                           ? _ensResolving
-                              ? 'Resolving the name…'
+                              ? context.l10n.resolvingTheName
                               : _ensAddress != null &&
                                       _ensName ==
                                           Ens.normalize(
@@ -564,17 +563,17 @@ class _SendScreenState extends State<SendScreen> {
                         mainAxisSize: MainAxisSize.min,
                         children: <Widget>[
                           IconButton(
-                            tooltip: 'Address book',
+                            tooltip: context.l10n.addressBook,
                             icon: const Icon(Icons.contacts_rounded),
                             onPressed: _openAddressBook,
                           ),
                           IconButton(
-                            tooltip: 'Scan QR code',
+                            tooltip: context.l10n.scanQrCode2,
                             icon: const Icon(Icons.qr_code_scanner_rounded),
                             onPressed: _scanAddress,
                           ),
                           IconButton(
-                            tooltip: 'Paste',
+                            tooltip: context.l10n.paste,
                             icon: const Icon(Icons.content_paste_rounded),
                             onPressed: _pasteAddress,
                           ),
@@ -602,8 +601,7 @@ class _SendScreenState extends State<SendScreen> {
                           label: Text(
                             _isBitcoin
                                 ? '$_btcRate sat/vB'
-                                : '${Units.format(_priority, 9, group: false)} gwei tip · '
-                                    '${Units.format(_cap, 9, group: false)} gwei cap',
+                                : context.l10n.gweiTipGweiCap(Units.format(_priority, 9, group: false), Units.format(_cap, 9, group: false)),
                           ),
                         ),
                       ),
@@ -618,7 +616,7 @@ class _SendScreenState extends State<SendScreen> {
                     amountSymbol: _symbol,
                     showTotal: !_isToken,
                     feeLabel:
-                        _isBitcoin || _isNative ? 'Network fee' : 'Max network fee',
+                        _isBitcoin || _isNative ? context.l10n.networkFee : context.l10n.maxNetworkFee,
                     fee: _feeKnown ? _effectiveFee : null,
                     loadingFee: _loadingFee,
                   ),
@@ -630,7 +628,7 @@ class _SendScreenState extends State<SendScreen> {
               child: FilledButton.icon(
                 onPressed: _isValid ? _prepare : null,
                 icon: const Icon(Icons.send_rounded),
-                label: const Text('Review transfer'),
+                label: Text(context.l10n.reviewTransfer),
               ),
             ),
           ],
@@ -647,8 +645,7 @@ class _SendScreenState extends State<SendScreen> {
       return null;
     }
     if (_fiatMode) {
-      return '≈ ${Units.formatWithSymbol(amount, _decimals, _symbol)} '
-          '(this is what gets signed)';
+      return context.l10n.thisIsWhatGetsSigned(Units.formatWithSymbol(amount, _decimals, _symbol));
     }
     final double? price = _unitPriceUsd;
     return price == null
@@ -694,7 +691,7 @@ class _SendScreenState extends State<SendScreen> {
         _ensError = null;
       }
       if (name == null) {
-        _ensError = 'This name uses characters the wallet cannot resolve safely.';
+        _ensError = context.l10n.thisNameUsesCharactersThe;
       } else if (_ensAddress == null) {
         _ensTimer = Timer(const Duration(milliseconds: 500), _resolveEns);
       }
@@ -703,6 +700,7 @@ class _SendScreenState extends State<SendScreen> {
   }
 
   Future<void> _resolveEns() async {
+    final AppLocalizations l10n = context.l10n;
     final String? name = Ens.normalize(_addressController.text);
     if (name == null || !_ensApplies || !mounted) {
       return;
@@ -719,14 +717,14 @@ class _SendScreenState extends State<SendScreen> {
     try {
       address = await context.read<WalletController>().resolveEns(name);
       if (address == null) {
-        error = '$name does not point to an address.';
+        error = l10n.doesNotPointToAn(name);
       } else if (!AddressValidator.validate(NetworkCatalog.ethereum, address)
           .valid) {
         address = null;
-        error = 'The resolver returned an invalid address.';
+        error = l10n.theResolverReturnedAnInvalid;
       }
     } on ChainApiException catch (e) {
-      error = 'Could not look up $name: ${e.message}';
+      error = l10n.couldNotLookUp(name, tr(e.message));
     }
     if (!mounted || token != _ensToken) {
       return;
@@ -794,7 +792,7 @@ class _SendScreenState extends State<SendScreen> {
       if (mounted) {
         showAppSnackBar(
           context,
-          'Clipboard is empty.',
+          context.l10n.clipboardIsEmpty,
           icon: Icons.content_paste_off_rounded,
         );
       }
@@ -835,7 +833,7 @@ class _SendScreenState extends State<SendScreen> {
         if (mounted) {
           showAppSnackBar(
             context,
-            'This payment link is not supported — nothing was filled in.',
+            context.l10n.thisPaymentLinkIsNot,
             icon: Icons.link_off_rounded,
           );
         }
@@ -853,19 +851,18 @@ class _SendScreenState extends State<SendScreen> {
       final bool? move = await showDialog<bool>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: const Text('Different network'),
+          title: Text(context.l10n.differentNetwork),
           content: Text(
-            'This link targets ${link.network.name}, but the send screen is '
-            'set to ${network.name}. Switch?',
+            context.l10n.thisLinkTargetsButThe(link.network.name, network.name),
           ),
           actions: <Widget>[
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Cancel'),
+              child: Text(context.l10n.cancel),
             ),
             FilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Switch'),
+              child: Text(context.l10n.switchLabel),
             ),
           ],
         ),
@@ -884,9 +881,7 @@ class _SendScreenState extends State<SendScreen> {
       if (token == null) {
         showAppSnackBar(
           context,
-          'This link pays with a token that is not in your '
-          '${link.network.name} balance. Open the network, let it sync and '
-          'scan the code again.',
+          context.l10n.thisLinkPaysWithA(link.network.name),
           icon: Icons.token_rounded,
         );
         return;
@@ -1041,8 +1036,7 @@ class _SendScreenState extends State<SendScreen> {
       if (!ready) {
         showAppSnackBar(
           context,
-          'Could not reach ${network.name} to price this transfer. '
-          'Nothing was sent.',
+          context.l10n.couldNotReachToPrice3(network.name),
           icon: Icons.cloud_off_rounded,
         );
         return;
@@ -1103,12 +1097,10 @@ class _SendScreenState extends State<SendScreen> {
         amountDecimals: _decimals,
         amountSymbol: _symbol,
         showTotal: !_isToken,
-        feeLabel: _isBitcoin || _isNative ? 'Network fee' : 'Max network fee',
+        feeLabel: _isBitcoin || _isNative ? context.l10n.networkFee : context.l10n.maxNetworkFee,
         fee: _effectiveFee,
         feeNote: _isSplToken && _opensTokenAccount
-            ? 'Includes the one-time deposit that opens the recipient\'s '
-                '$_symbol account. The recipient has no account for this '
-                'token yet.'
+            ? context.l10n.includesTheOneTimeDeposit(_symbol)
             : null,
         explorerUrl: network.explorerAddress(recipient),
         alreadySaved: alreadySaved,
@@ -1137,9 +1129,9 @@ class _SendScreenState extends State<SendScreen> {
 
     final bool authorized = await authorizeSensitiveAction(
       context,
-      reason: 'Confirm transfer',
-      title: 'Confirm transfer',
-      confirmLabel: 'Send',
+      reason: context.l10n.confirmTransfer,
+      title: context.l10n.confirmTransfer,
+      confirmLabel: context.l10n.send,
       icon: Icons.key_rounded,
     );
     if (!authorized || !mounted) {
@@ -1211,7 +1203,8 @@ class _SendScreenState extends State<SendScreen> {
     );
     final String? hash = controller.txHash;
     final bool confirmed = controller.stage == SendStage.confirmed;
-    final String? error = controller.error;
+    final String? error =
+        controller.error == null ? null : tr(controller.error!);
     controller.dispose();
 
     await _finishTransfer(
@@ -1239,9 +1232,9 @@ class _SendScreenState extends State<SendScreen> {
 
     final bool authorized = await authorizeSensitiveAction(
       context,
-      reason: 'Confirm transfer',
-      title: 'Confirm transfer',
-      confirmLabel: 'Send',
+      reason: context.l10n.confirmTransfer,
+      title: context.l10n.confirmTransfer,
+      confirmLabel: context.l10n.send,
       icon: Icons.key_rounded,
     );
     if (!authorized || !mounted) {
@@ -1289,7 +1282,8 @@ class _SendScreenState extends State<SendScreen> {
     );
     final String? hash = controller.txHash;
     final bool confirmed = controller.stage == SendStage.confirmed;
-    final String? error = controller.error;
+    final String? error =
+        controller.error == null ? null : tr(controller.error!);
     controller.dispose();
 
     await _finishTransfer(
@@ -1317,9 +1311,9 @@ class _SendScreenState extends State<SendScreen> {
 
     final bool authorized = await authorizeSensitiveAction(
       context,
-      reason: 'Confirm transfer',
-      title: 'Confirm transfer',
-      confirmLabel: 'Send',
+      reason: context.l10n.confirmTransfer,
+      title: context.l10n.confirmTransfer,
+      confirmLabel: context.l10n.send,
       icon: Icons.key_rounded,
     );
     if (!authorized || !mounted) {
@@ -1370,7 +1364,8 @@ class _SendScreenState extends State<SendScreen> {
     );
     final String? hash = controller.txHash;
     final bool confirmed = controller.stage == SendStage.confirmed;
-    final String? error = controller.error;
+    final String? error =
+        controller.error == null ? null : tr(controller.error!);
     controller.dispose();
 
     await _finishTransfer(
@@ -1404,7 +1399,7 @@ class _SendScreenState extends State<SendScreen> {
     if (hash == null) {
       showAppSnackBar(
         context,
-        error ?? 'The transfer failed. Nothing was sent.',
+        error ?? context.l10n.theTransferFailedNothingWas,
         icon: Icons.error_outline_rounded,
       );
       return;
@@ -1463,7 +1458,7 @@ class _SendScreenState extends State<SendScreen> {
     if (mounted) {
       showAppSnackBar(
         context,
-        'Saved “$label”.',
+        context.l10n.saved(label),
         icon: Icons.check_circle_outline_rounded,
       );
     }
@@ -1491,11 +1486,7 @@ class _NoHistoryNotice extends StatelessWidget {
             const SizedBox(width: 12),
             Expanded(
               child: Text(
-                '${network.name} has no transaction history in this wallet. '
-                'You can send, but a stuck transfer cannot be sped up or '
-                'cancelled here, you will not get a confirmation notification, '
-                'and the recipient is not checked against your past payments '
-                'or scam lists. Double-check the address.',
+                context.l10n.hasNoTransactionHistoryIn(network.name),
                 style: Theme.of(context)
                     .textTheme
                     .bodySmall
@@ -1522,10 +1513,9 @@ class _AddressBookSheet extends StatelessWidget {
       child: contacts.isEmpty
           ? EmptyState(
               icon: Icons.contacts_rounded,
-              title: 'No saved recipients',
+              title: context.l10n.noSavedRecipients,
               message:
-                  'Save a recipient from the transfer summary and it will '
-                  'show up here.',
+                  context.l10n.saveARecipientFromThe,
             )
           : Column(
               mainAxisSize: MainAxisSize.min,
@@ -1534,7 +1524,7 @@ class _AddressBookSheet extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
                   child: Text(
-                    '${network.name} recipients',
+                    tr('${network.name} recipients'),
                     style: Theme.of(context)
                         .textTheme
                         .titleLarge
@@ -1588,25 +1578,25 @@ class _LabelDialogState extends State<_LabelDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       icon: const Icon(Icons.person_add_alt_1_rounded),
-      title: const Text('Save recipient'),
+      title: Text(context.l10n.saveRecipient),
       content: TextField(
         controller: _controller,
         autofocus: true,
         textCapitalization: TextCapitalization.sentences,
-        decoration: const InputDecoration(
-          labelText: 'Label',
-          hintText: 'e.g. Exchange',
+        decoration: InputDecoration(
+          labelText: context.l10n.label,
+          hintText: context.l10n.eGExchange,
         ),
         onSubmitted: (_) => _submit(),
       ),
       actions: <Widget>[
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(context.l10n.cancel),
         ),
         FilledButton(
           onPressed: _submit,
-          child: const Text('Save'),
+          child: Text(context.l10n.save),
         ),
       ],
     );
@@ -1656,9 +1646,9 @@ class _SummaryCard extends StatelessWidget {
 
     final String feeText;
     if (loadingFee) {
-      feeText = 'Estimating…';
+      feeText = context.l10n.estimating;
     } else if (fee == null) {
-      feeText = 'Unavailable';
+      feeText = context.l10n.unavailable;
     } else {
       feeText = Units.formatWithSymbol(
         fee!,
@@ -1686,7 +1676,7 @@ class _SummaryCard extends StatelessWidget {
           children: <Widget>[
             _row(
               context,
-              'Amount',
+              context.l10n.amount,
               Units.formatWithSymbol(
                 amount,
                 amountDecimals,
@@ -1704,7 +1694,7 @@ class _SummaryCard extends StatelessWidget {
               Row(
                 children: <Widget>[
                   Text(
-                    'Total',
+                    context.l10n.total,
                     style:
                         text.titleSmall?.copyWith(fontWeight: FontWeight.w700),
                   ),
@@ -1838,24 +1828,24 @@ class _PreparedSheet extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             Text(
-              'Transfer prepared',
+              context.l10n.transferPrepared,
               style: text.titleLarge?.copyWith(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 8),
             Text(
-              'Validated against the live balance on ${network.name}.',
+              context.l10n.validatedAgainstTheLiveBalance(network.name),
               style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
             ),
             const SizedBox(height: 18),
-            if (ensName != null) _line(context, 'ENS name', ensName!),
-            _line(context, 'To', recipient),
+            if (ensName != null) _line(context, context.l10n.ensName, ensName!),
+            _line(context, context.l10n.to, recipient),
             if (check.risk != RecipientRisk.none) ...<Widget>[
               const SizedBox(height: 12),
               _RecipientWarning(check: check),
             ],
             _line(
               context,
-              'Amount',
+              context.l10n.amount,
               Units.formatWithSymbol(
                 amount,
                 amountDecimals,
@@ -1867,7 +1857,7 @@ class _PreparedSheet extends StatelessWidget {
               context,
               feeLabel,
               fee == null
-                  ? 'Unavailable'
+                  ? context.l10n.unavailable
                   : Units.formatWithSymbol(
                       fee!,
                       network.decimals,
@@ -1889,7 +1879,7 @@ class _PreparedSheet extends StatelessWidget {
             if (showTotal)
               _line(
                 context,
-                'Total',
+                context.l10n.total,
                 Units.formatWithSymbol(
                   total,
                   network.decimals,
@@ -1914,14 +1904,10 @@ class _PreparedSheet extends StatelessWidget {
                   Expanded(
                     child: Text(
                       !check.maySend
-                        ? 'Sending is blocked until you fix the recipient '
-                            'above.'
+                        ? context.l10n.sendingIsBlockedUntilYou
                         : onSend == null
-                          ? 'Sending is not supported on ${network.name} yet. '
-                              'Restore your recovery phrase in a signing wallet '
-                              'to move funds.'
-                          : 'The transfer is signed on this device and sent '
-                              'straight to ${network.name}. It cannot be undone.',
+                          ? context.l10n.sendingIsNotSupportedOn(network.name)
+                          : context.l10n.theTransferIsSignedOn(network.name),
                     style: text.bodySmall?.copyWith(
                       color: scheme.onTertiaryContainer,
                       height: 1.45,
@@ -1936,28 +1922,28 @@ class _PreparedSheet extends StatelessWidget {
               FilledButton.icon(
                 onPressed: onSend,
                 icon: const Icon(Icons.lock_rounded),
-                label: Text('Send $amountSymbol'),
+                label: Text(context.l10n.send3(amountSymbol)),
               ),
               const SizedBox(height: 10),
             ],
             OutlinedButton.icon(
               onPressed: () => _copy(context),
               icon: const Icon(Icons.copy_rounded),
-              label: const Text('Copy details'),
+              label: Text(context.l10n.copyDetails),
             ),
             if (!alreadySaved) ...<Widget>[
               const SizedBox(height: 10),
               OutlinedButton.icon(
                 onPressed: onSave,
                 icon: const Icon(Icons.person_add_alt_1_rounded),
-                label: const Text('Save recipient'),
+                label: Text(context.l10n.saveRecipient),
               ),
             ],
             const SizedBox(height: 10),
             OutlinedButton.icon(
               onPressed: () => openExplorer(context, explorerUrl),
               icon: const Icon(Icons.open_in_new_rounded),
-              label: const Text('View recipient on explorer'),
+              label: Text(context.l10n.viewRecipientOnExplorer),
             ),
           ],
         ),
@@ -1993,18 +1979,18 @@ class _PreparedSheet extends StatelessWidget {
 
   Future<void> _copy(BuildContext context) async {
     final String details = <String>[
-      'Network: ${network.name}',
-      'To: $recipient',
-      'Amount: ${Units.formatWithSymbol(amount, amountDecimals, amountSymbol)}',
+      tr('Network: ${network.name}'),
+      context.l10n.to2(recipient),
+      context.l10n.amount2(Units.formatWithSymbol(amount, amountDecimals, amountSymbol)),
       if (fee != null)
-        'Fee: ${Units.formatWithSymbol(fee!, network.decimals, network.symbol)}',
+        context.l10n.fee(Units.formatWithSymbol(fee!, network.decimals, network.symbol)),
     ].join('\n');
 
     await Clipboard.setData(ClipboardData(text: details));
     if (context.mounted) {
       showAppSnackBar(
         context,
-        'Transfer details copied',
+        context.l10n.transferDetailsCopied,
         icon: Icons.copy_rounded,
       );
     }
@@ -2042,7 +2028,7 @@ class _PoisonWarning extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Text(
-                  'This address looks like another one you use',
+                  context.l10n.thisAddressLooksLikeAnother,
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
                         color: scheme.onErrorContainer,
                         fontWeight: FontWeight.w700,
@@ -2050,11 +2036,7 @@ class _PoisonWarning extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'It starts and ends like '
-                  '${AppFormat.shortAddress(knownAddress)}, which you have '
-                  'already sent to. Scammers copy the visible ends of a real '
-                  'address and wait for you to send funds to it. Check the '
-                  'middle of the address before continuing.',
+                  context.l10n.itStartsAndEndsLike(AppFormat.shortAddress(knownAddress)),
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: scheme.onErrorContainer,
                         height: 1.4,
@@ -2099,7 +2081,7 @@ class _RecipientWarning extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              check.message,
+              tr(check.message),
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: foreground,
                     height: 1.4,
@@ -2133,7 +2115,7 @@ class _FeePresetSelector extends StatelessWidget {
             ),
             const SizedBox(width: 10),
             Text(
-              'Network fee',
+              context.l10n.networkFee,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
@@ -2147,7 +2129,7 @@ class _FeePresetSelector extends StatelessWidget {
             for (final FeePreset preset in FeePreset.values)
               ButtonSegment<FeePreset>(
                 value: preset,
-                label: Text(preset.label),
+                label: Text(tr(preset.label)),
               ),
           ],
           selected: <FeePreset>{value},
@@ -2196,11 +2178,11 @@ class _CustomFeeDialogState extends State<_CustomFeeDialog> {
     final BigInt? tip = Units.parse(_tip.text, 9);
     final BigInt? cap = Units.parse(_cap.text, 9);
     if (tip == null || tip <= BigInt.zero) {
-      setState(() => _error = 'Enter a priority fee above 0.');
+      setState(() => _error = context.l10n.enterAPriorityFeeAbove);
       return;
     }
     if (cap == null || cap < tip) {
-      setState(() => _error = 'The fee cap must be at least the priority fee.');
+      setState(() => _error = context.l10n.theFeeCapMustBe);
       return;
     }
     Navigator.of(context).pop((tipWei: tip, capWei: cap));
@@ -2218,14 +2200,13 @@ class _CustomFeeDialogState extends State<_CustomFeeDialog> {
 
     return AlertDialog(
       icon: const Icon(Icons.tune_rounded),
-      title: const Text('Custom network fee'),
+      title: Text(context.l10n.customNetworkFee),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
-            'Current base fee: '
-            '${Units.format(widget.baseFeeWei, 9, group: false)} gwei.',
+            context.l10n.currentBaseFeeGwei(Units.format(widget.baseFeeWei, 9, group: false)),
             style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
           ),
           const SizedBox(height: 14),
@@ -2235,7 +2216,7 @@ class _CustomFeeDialogState extends State<_CustomFeeDialog> {
             inputFormatters: <TextInputFormatter>[
               FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
             ],
-            decoration: field('Priority fee (tip)'),
+            decoration: field(context.l10n.priorityFeeTip),
           ),
           const SizedBox(height: 12),
           TextField(
@@ -2244,7 +2225,7 @@ class _CustomFeeDialogState extends State<_CustomFeeDialog> {
             inputFormatters: <TextInputFormatter>[
               FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
             ],
-            decoration: field('Max fee (cap)'),
+            decoration: field(context.l10n.maxFeeCap),
           ),
           if (_error != null) ...<Widget>[
             const SizedBox(height: 12),
@@ -2258,11 +2239,11 @@ class _CustomFeeDialogState extends State<_CustomFeeDialog> {
       actions: <Widget>[
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(context.l10n.cancel),
         ),
         FilledButton(
           onPressed: _submit,
-          child: const Text('Apply'),
+          child: Text(context.l10n.apply),
         ),
       ],
     );
@@ -2293,11 +2274,11 @@ class _CustomBtcFeeDialogState extends State<_CustomBtcFeeDialog> {
   void _submit() {
     final int? rate = int.tryParse(_rate.text.trim());
     if (rate == null || rate < 1) {
-      setState(() => _error = 'Enter a fee rate of at least 1 sat/vB.');
+      setState(() => _error = context.l10n.enterAFeeRateOf);
       return;
     }
     if (rate > 10000) {
-      setState(() => _error = 'That fee rate is unreasonably high.');
+      setState(() => _error = context.l10n.thatFeeRateIsUnreasonably);
       return;
     }
     Navigator.of(context).pop(rate);
@@ -2310,14 +2291,13 @@ class _CustomBtcFeeDialogState extends State<_CustomBtcFeeDialog> {
 
     return AlertDialog(
       icon: const Icon(Icons.tune_rounded),
-      title: const Text('Custom fee rate'),
+      title: Text(context.l10n.customFeeRate),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
-            'The transfer pays this many satoshis per virtual byte. A higher '
-            'rate confirms sooner.',
+            context.l10n.theTransferPaysThisMany,
             style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
           ),
           const SizedBox(height: 14),
@@ -2327,8 +2307,8 @@ class _CustomBtcFeeDialogState extends State<_CustomBtcFeeDialog> {
             inputFormatters: <TextInputFormatter>[
               FilteringTextInputFormatter.digitsOnly,
             ],
-            decoration: const InputDecoration(
-              labelText: 'Fee rate',
+            decoration: InputDecoration(
+              labelText: context.l10n.feeRate,
               suffixText: 'sat/vB',
             ),
             onSubmitted: (_) => _submit(),
@@ -2342,9 +2322,9 @@ class _CustomBtcFeeDialogState extends State<_CustomBtcFeeDialog> {
       actions: <Widget>[
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(context.l10n.cancel),
         ),
-        FilledButton(onPressed: _submit, child: const Text('Apply')),
+        FilledButton(onPressed: _submit, child: Text(context.l10n.apply)),
       ],
     );
   }

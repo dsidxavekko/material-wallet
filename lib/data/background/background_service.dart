@@ -1,11 +1,13 @@
-import 'dart:ui' show DartPluginRegistrant;
+import 'dart:ui' show DartPluginRegistrant, PlatformDispatcher;
 
 import 'package:flutter/foundation.dart';
 import 'package:workmanager/workmanager.dart';
 
 import '../../core/utils/app_log.dart';
+import '../../l10n/messages.dart';
 import '../networks/chain_api.dart';
 import '../notifications/notification_service.dart';
+import '../wallet/wallet_storage.dart';
 import 'background_checker.dart';
 
 /// Name of the periodic job; registering it again replaces the old one.
@@ -18,13 +20,14 @@ const String _taskName = 'check_addresses';
 void backgroundDispatcher() {
   Workmanager().executeTask((String task, Map<String, dynamic>? input) async {
     DartPluginRegistrant.ensureInitialized();
+    await _adoptLanguage();
     final NotificationService notifications = NotificationService();
     final ChainApi chainApi = ChainApi();
     try {
       await notifications.initializeForBackground();
       final BackgroundChecker checker = BackgroundChecker(
         chainApi: chainApi,
-        sink: notifications.showIncomingOrConfirmed,
+        sink: notifications.showInBackground,
       );
       await checker.run();
       return true;
@@ -36,6 +39,18 @@ void backgroundDispatcher() {
       chainApi.dispose();
     }
   });
+}
+
+/// The worker has no UI to ask: use the language the user picked in Settings,
+/// else the phone's.
+Future<void> _adoptLanguage() async {
+  try {
+    final String? chosen = await const WalletStorage().readLanguage();
+    Messages.language =
+        chosen ?? PlatformDispatcher.instance.locale.languageCode;
+  } catch (_) {
+    Messages.language = 'en';
+  }
 }
 
 /// Switches the periodic background check on and off.

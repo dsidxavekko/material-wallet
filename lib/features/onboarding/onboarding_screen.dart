@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'create_wallet_screen.dart';
 import '../wallets/watch_wallet_screen.dart';
 import 'import_wallet_screen.dart';
+import '../../l10n/l10n.dart';
 
 /// First screen shown when no wallet exists on the device.
 class OnboardingScreen extends StatelessWidget {
@@ -48,8 +49,7 @@ class OnboardingScreen extends StatelessWidget {
               ),
               const SizedBox(height: 14),
               Text(
-                'A self-custodial wallet. Your keys never leave this device — '
-                'the recovery phrase is generated here and stored locally.',
+                context.l10n.aSelfCustodialWalletYour,
                 style: text.bodyLarge?.copyWith(
                   color: scheme.onSurfaceVariant,
                   height: 1.45,
@@ -63,7 +63,7 @@ class OnboardingScreen extends StatelessWidget {
                   ),
                 ),
                 icon: const Icon(Icons.add_circle_outline_rounded),
-                label: const Text('Create a new wallet'),
+                label: Text(context.l10n.createANewWallet),
               ),
               const SizedBox(height: 12),
               OutlinedButton.icon(
@@ -73,7 +73,7 @@ class OnboardingScreen extends StatelessWidget {
                   ),
                 ),
                 icon: const Icon(Icons.download_rounded),
-                label: const Text('I already have a wallet'),
+                label: Text(context.l10n.iAlreadyHaveAWallet),
               ),
               const SizedBox(height: 4),
               TextButton.icon(
@@ -83,7 +83,7 @@ class OnboardingScreen extends StatelessWidget {
                   ),
                 ),
                 icon: const Icon(Icons.visibility_outlined),
-                label: const Text('Just watch an address'),
+                label: Text(context.l10n.justWatchAnAddress),
               ),
               const SizedBox(height: 18),
               Center(

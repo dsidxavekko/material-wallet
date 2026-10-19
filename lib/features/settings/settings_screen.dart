@@ -22,6 +22,8 @@ import 'address_book_screen.dart';
 import 'addresses_screen.dart';
 import 'currency_picker.dart';
 import 'token_approvals_screen.dart';
+import '../../l10n/l10n.dart';
+import '../../l10n/messages.dart';
 
 /// Application preferences, wallet management and network switching.
 class SettingsScreen extends StatelessWidget {
@@ -32,34 +34,36 @@ class SettingsScreen extends StatelessWidget {
     final SettingsController settings = context.watch<SettingsController>();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
+      appBar: AppBar(title: Text(context.l10n.settings)),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
         children: <Widget>[
           const _ProfileCard(),
           const SizedBox(height: 26),
-          const _SectionTitle('Network'),
+          _SectionTitle(context.l10n.network),
           const _NetworkSection(),
           const SizedBox(height: 26),
-          const _SectionTitle('Wallet'),
+          _SectionTitle(context.l10n.wallet),
           const _WalletSection(),
           const SizedBox(height: 26),
-          const _SectionTitle('Security'),
+          _SectionTitle(context.l10n.security),
           const _SecuritySection(),
           const SizedBox(height: 26),
-          const _SectionTitle('Appearance'),
+          _SectionTitle(context.l10n.appearance),
           _ThemeModeSelector(
             value: settings.themeMode,
             onChanged: settings.setThemeMode,
           ),
+          const SizedBox(height: 12),
+          const _LanguageTile(),
           const SizedBox(height: 26),
-          const _SectionTitle('Currency'),
+          _SectionTitle(context.l10n.currency),
           _CurrencySelector(
             value: settings.currency,
             onChanged: settings.setCurrency,
           ),
           const SizedBox(height: 26),
-          const _SectionTitle('About'),
+          _SectionTitle(context.l10n.about),
           const _AboutCard(),
         ],
       ),
@@ -99,18 +103,18 @@ class _ProfileCard extends StatelessWidget {
                 children: <Widget>[
                   Text(
                     identity.hasVault
-                        ? 'Self-custodial wallet'
-                        : 'Watch-only mode',
+                        ? context.l10n.selfCustodialWallet
+                        : context.l10n.watchOnlyMode,
                     style:
                         text.titleMedium?.copyWith(fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     !identity.hasVault
-                        ? 'No keys on this device'
+                        ? context.l10n.noKeysOnThisDevice
                         : createdAt == null
-                            ? 'Encrypted on this device'
-                            : 'Created ${AppFormat.dayLabel(createdAt)}',
+                            ? context.l10n.encryptedOnThisDevice
+                            : context.l10n.created(AppFormat.dayLabel(createdAt)),
                     style: text.bodySmall
                         ?.copyWith(color: scheme.onSurfaceVariant),
                   ),
@@ -125,8 +129,8 @@ class _ProfileCard extends StatelessWidget {
                       const SizedBox(width: 4),
                       Text(
                         identity.hasVault
-                            ? 'Seed encrypted with AES-256-GCM'
-                            : 'Nothing secret is stored',
+                            ? context.l10n.seedEncryptedWithAes256
+                            : context.l10n.nothingSecretIsStored,
                         style: text.labelSmall?.copyWith(
                           color: scheme.primary,
                           fontWeight: FontWeight.w700,
@@ -213,10 +217,10 @@ class _NetworkSection extends StatelessWidget {
                   ),
             ),
           ),
-          title: const Text('Active network'),
+          title: Text(context.l10n.activeNetwork),
           subtitle: Text(
             network.isTestnet
-                ? '${network.name} · Testnet'
+                ? context.l10n.testnet2(network.name)
                 : network.name,
           ),
           trailing: const Icon(Icons.chevron_right_rounded),
@@ -283,8 +287,8 @@ class _SecuritySectionState extends State<_SecuritySection> {
       showAppSnackBar(
         context,
         enabled
-            ? 'Fingerprint unlock enabled.'
-            : 'Fingerprint unlock was not enabled.',
+            ? context.l10n.fingerprintUnlockEnabled
+            : context.l10n.fingerprintUnlockWasNotEnabled,
         icon: enabled
             ? Icons.fingerprint_rounded
             : Icons.error_outline_rounded,
@@ -294,8 +298,8 @@ class _SecuritySectionState extends State<_SecuritySection> {
 
   Future<String?> _confirmPin() => PinConfirmDialog.show(
         context,
-        title: 'Confirm your password',
-        confirmLabel: 'Enable',
+        title: context.l10n.confirmYourPassword,
+        confirmLabel: context.l10n.enable,
         icon: Icons.fingerprint_rounded,
       );
 
@@ -309,9 +313,9 @@ class _SecuritySectionState extends State<_SecuritySection> {
       children: <Widget>[
         ListTile(
           leading: const Icon(Icons.verified_user_outlined),
-          title: const Text('Token approvals'),
-          subtitle: const Text(
-            'Review and revoke what contracts may spend your tokens',
+          title: Text(context.l10n.tokenApprovals),
+          subtitle: Text(
+            context.l10n.reviewAndRevokeWhatContracts,
           ),
           trailing: const Icon(Icons.chevron_right_rounded),
           onTap: () => Navigator.of(context).push(
@@ -325,19 +329,19 @@ class _SecuritySectionState extends State<_SecuritySection> {
           onChanged: _supported == true
               ? (bool value) => _toggle(value)
               : null,
-          title: const Text('Unlock with fingerprint'),
+          title: Text(context.l10n.unlockWithFingerprint2),
           subtitle: Text(
             _supported == false
-                ? 'Not available on this device'
+                ? context.l10n.notAvailableOnThisDevice
                 : identity.biometricsEnabled
-                    ? 'Opens the wallet without typing the password'
-                    : 'Confirms your password once to set up',
+                    ? context.l10n.opensTheWalletWithoutTyping
+                    : context.l10n.confirmsYourPasswordOnceTo,
           ),
         ),
         if (identity.hasVault)
         ListTile(
           leading: const Icon(Icons.timer_outlined),
-          title: const Text('Auto-lock'),
+          title: Text(context.l10n.autoLock),
           subtitle: Text(_autoLockLabel(settings.autoLockSeconds)),
           trailing: const Icon(Icons.chevron_right_rounded),
           onTap: () => _pickAutoLock(settings),
@@ -346,9 +350,9 @@ class _SecuritySectionState extends State<_SecuritySection> {
           secondary: const Icon(Icons.notifications_active_outlined),
           value: settings.notificationsEnabled,
           onChanged: _toggleNotifications,
-          title: const Text('Transfer notifications'),
-          subtitle: const Text(
-            'Tells you when an outgoing transfer confirms',
+          title: Text(context.l10n.transferNotifications),
+          subtitle: Text(
+            context.l10n.tellsYouWhenAnOutgoing,
           ),
         ),
         if (BackgroundService.supported)
@@ -356,10 +360,9 @@ class _SecuritySectionState extends State<_SecuritySection> {
             secondary: const Icon(Icons.notifications_paused_outlined),
             value: settings.backgroundChecks && settings.notificationsEnabled,
             onChanged: _toggleBackground,
-            title: const Text('Notify when closed'),
-            subtitle: const Text(
-              'Checks for incoming funds and confirmed transfers about every '
-              '15 minutes, even with the app closed. Needs no password.',
+            title: Text(context.l10n.notifyWhenClosed),
+            subtitle: Text(
+              context.l10n.checksForIncomingFundsAnd,
             ),
           ),
       ],
@@ -381,8 +384,7 @@ class _SecuritySectionState extends State<_SecuritySection> {
       if (!granted) {
         showAppSnackBar(
           context,
-          'Notifications were not allowed. You can enable them in system '
-          'settings.',
+          context.l10n.notificationsWereNotAllowedYou,
           icon: Icons.notifications_off_rounded,
         );
         return;
@@ -412,8 +414,7 @@ class _SecuritySectionState extends State<_SecuritySection> {
     } else {
       showAppSnackBar(
         context,
-        'Notifications were not allowed. You can enable them in system '
-        'settings.',
+        context.l10n.notificationsWereNotAllowedYou,
         icon: Icons.notifications_off_rounded,
       );
     }
@@ -421,22 +422,22 @@ class _SecuritySectionState extends State<_SecuritySection> {
 
   String _autoLockLabel(int? seconds) {
     if (seconds == null) {
-      return 'Never';
+      return context.l10n.never;
     }
     if (seconds == 0) {
-      return 'Immediately';
+      return context.l10n.immediately;
     }
     if (seconds < 60) {
-      return 'After $seconds seconds';
+      return context.l10n.secondOtherSeconds(seconds);
     }
-    return 'After ${seconds ~/ 60} minute${seconds == 60 ? '' : 's'}';
+    return context.l10n.minuteOtherMinutes(seconds ~/ 60);
   }
 
   Future<void> _pickAutoLock(SettingsController settings) async {
     final AutoLockDelay? chosen = await showDialog<AutoLockDelay>(
       context: context,
       builder: (dialogContext) => SimpleDialog(
-        title: const Text('Auto-lock after'),
+        title: Text(context.l10n.autoLockAfter),
         children: <Widget>[
           RadioGroup<AutoLockDelay>(
             groupValue: _delayFor(settings.autoLockSeconds),
@@ -448,7 +449,7 @@ class _SecuritySectionState extends State<_SecuritySection> {
                 for (final AutoLockDelay delay in AutoLockDelay.values)
                   RadioListTile<AutoLockDelay>(
                     value: delay,
-                    title: Text(delay.label),
+                    title: Text(tr(delay.label)),
                   ),
               ],
             ),
@@ -491,10 +492,9 @@ class _WalletSection extends StatelessWidget {
                     ? Icons.visibility_outlined
                     : Icons.account_balance_wallet_outlined,
               ),
-              title: const Text('Wallets'),
+              title: Text(context.l10n.wallets),
               subtitle: Text(
-                '${identity.activeWallet?.name ?? '—'}'
-                ' · ${identity.wallets.length} on this device',
+                context.l10n.walletOnThisDeviceOther(identity.activeWallet?.name ?? '—', identity.wallets.length),
               ),
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: () => Navigator.of(context).push(
@@ -504,10 +504,9 @@ class _WalletSection extends StatelessWidget {
             if (!identity.isWatchOnly)
               ListTile(
                 leading: const Icon(Icons.switch_account_rounded),
-                title: const Text('Active account'),
+                title: Text(context.l10n.activeAccount),
                 subtitle: Text(
-                  '${context.watch<SettingsController>().accountName(identity.accountIndex, walletId: identity.activeWalletId)}'
-                  ' · ${identity.accountIndex + 1} of ${identity.accountCount}',
+                  context.l10n.ofLabel(context.watch<SettingsController>().accountName(identity.accountIndex, walletId: identity.activeWalletId), identity.accountIndex + 1, identity.accountCount),
                 ),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () => _pickAccount(context, identity),
@@ -516,14 +515,14 @@ class _WalletSection extends StatelessWidget {
               leading: const Icon(Icons.qr_code_2_rounded),
               isThreeLine: true,
               title: Text(
-                identity.isWatchOnly ? 'Followed address' : 'Receive address',
+                identity.isWatchOnly ? context.l10n.followedAddress : context.l10n.receiveAddress,
               ),
               subtitle: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   Text(
                     address ??
-                        (identity.isWatchOnly ? 'No address' : 'Wallet locked'),
+                        (identity.isWatchOnly ? context.l10n.noAddress : context.l10n.walletLocked),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: text.bodyMedium?.copyWith(height: 1.35),
@@ -531,17 +530,17 @@ class _WalletSection extends StatelessWidget {
                   const SizedBox(height: 4),
                   Text(
                     address == null && identity.isWatchOnly
-                        ? 'This wallet follows no address on the active network'
+                        ? context.l10n.thisWalletFollowsNoAddress
                         : identity.isWatchOnly
-                            ? 'Watch-only — cannot send'
-                            : 'Derived for the active network',
+                            ? context.l10n.watchOnlyCannotSend
+                            : context.l10n.derivedForTheActiveNetwork,
                     style: text.bodySmall
                         ?.copyWith(color: scheme.onSurfaceVariant),
                   ),
                 ],
               ),
               trailing: IconButton(
-                tooltip: 'Copy address',
+                tooltip: context.l10n.copyAddress,
                 icon: const Icon(Icons.copy_rounded),
                 onPressed: address == null
                     ? null
@@ -550,8 +549,8 @@ class _WalletSection extends StatelessWidget {
             ),
             ListTile(
               leading: const Icon(Icons.qr_code_scanner_rounded),
-              title: const Text('Your addresses'),
-              subtitle: const Text('All chains, with QR codes'),
+              title: Text(context.l10n.yourAddresses),
+              subtitle: Text(context.l10n.allChainsWithQrCodes),
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
@@ -567,11 +566,11 @@ class _WalletSection extends StatelessWidget {
             if (!identity.isWatchOnly)
               ListTile(
                 leading: const Icon(Icons.key_rounded),
-                title: const Text('Recovery phrase'),
+                title: Text(context.l10n.recoveryPhrase),
                 subtitle: Text(
                   identity.account == null
-                      ? 'Locked'
-                      : '${identity.words.length}-word BIP-39 phrase',
+                      ? context.l10n.locked
+                      : context.l10n.wordBip39Phrase(identity.words.length),
                 ),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: identity.account == null
@@ -581,7 +580,7 @@ class _WalletSection extends StatelessWidget {
             if (identity.hasVault)
               ListTile(
                 leading: const Icon(Icons.password_rounded),
-                title: const Text('Change password'),
+                title: Text(context.l10n.changePassword),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () => showModalBottomSheet<void>(
                   context: context,
@@ -592,8 +591,8 @@ class _WalletSection extends StatelessWidget {
               ),
             ListTile(
               leading: const Icon(Icons.contacts_rounded),
-              title: const Text('Address book'),
-              subtitle: const Text('Saved recipients and labels'),
+              title: Text(context.l10n.addressBook),
+              subtitle: Text(context.l10n.savedRecipientsAndLabels),
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
@@ -604,20 +603,19 @@ class _WalletSection extends StatelessWidget {
             if (identity.hasVault)
               ListTile(
                 leading: const Icon(Icons.lock_outline_rounded),
-                title: const Text('Lock wallet'),
-                subtitle: const Text('Clear the decrypted seed from memory'),
+                title: Text(context.l10n.lockWallet),
+                subtitle: Text(context.l10n.clearTheDecryptedSeedFrom),
                 onTap: identity.lock,
               ),
             if (identity.hasVault)
               ListTile(
                 leading: Icon(Icons.delete_outline_rounded, color: scheme.error),
                 title: Text(
-                  'Erase recovery phrases',
+                  context.l10n.eraseRecoveryPhrases,
                   style: text.titleMedium?.copyWith(color: scheme.error),
                 ),
-                subtitle: const Text(
-                  'Deletes every encrypted seed and the password; '
-                  'watch-only wallets stay',
+                subtitle: Text(
+                  context.l10n.deletesEveryEncryptedSeedAnd,
                 ),
                 onTap: () => _removeWallet(context),
               ),
@@ -632,7 +630,7 @@ class _WalletSection extends StatelessWidget {
     if (context.mounted) {
       showAppSnackBar(
         context,
-        'Address copied to clipboard',
+        context.l10n.addressCopiedToClipboard,
         icon: Icons.check_circle_outline_rounded,
       );
     }
@@ -650,7 +648,7 @@ class _WalletSection extends StatelessWidget {
     final int? chosen = await showDialog<int>(
       context: context,
       builder: (dialogContext) => SimpleDialog(
-        title: const Text('Active account'),
+        title: Text(context.l10n.activeAccount),
         children: <Widget>[
           RadioGroup<int>(
             groupValue: identity.accountIndex,
@@ -667,9 +665,9 @@ class _WalletSection extends StatelessWidget {
                             walletId: identity.activeWalletId,
                           ),
                     ),
-                    subtitle: i == 0 ? const Text('Default') : null,
+                    subtitle: i == 0 ? Text(context.l10n.defaultLabel) : null,
                     secondary: IconButton(
-                      tooltip: 'Rename',
+                      tooltip: context.l10n.rename,
                       icon: const Icon(Icons.edit_outlined),
                       onPressed: () async {
                         final SettingsController settings =
@@ -704,8 +702,8 @@ class _WalletSection extends StatelessWidget {
           ),
           ListTile(
             leading: const Icon(Icons.add_rounded),
-            title: const Text('Add account'),
-            subtitle: const Text('A fresh set of addresses from the same seed'),
+            title: Text(context.l10n.addAccount),
+            subtitle: Text(context.l10n.aFreshSetOfAddresses),
             onTap: () => Navigator.of(dialogContext).pop(addNew),
           ),
         ],
@@ -729,26 +727,26 @@ class _WalletSection extends StatelessWidget {
     final String? name = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Account name'),
+        title: Text(context.l10n.accountName),
         content: TextField(
           controller: controller,
           autofocus: true,
           maxLength: 30,
           textCapitalization: TextCapitalization.sentences,
-          decoration: const InputDecoration(
-            hintText: 'e.g. Savings (empty = default)',
+          decoration: InputDecoration(
+            hintText: context.l10n.eGSavingsEmptyDefault,
           ),
           onSubmitted: (String v) => Navigator.of(dialogContext).pop(v),
         ),
         actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
+            child: Text(context.l10n.cancel),
           ),
           FilledButton(
             onPressed: () =>
                 Navigator.of(dialogContext).pop(controller.text),
-            child: const Text('Save'),
+            child: Text(context.l10n.save),
           ),
         ],
       ),
@@ -769,19 +767,18 @@ class _WalletSection extends StatelessWidget {
       context: context,
       builder: (dialogContext) => AlertDialog(
         icon: const Icon(Icons.key_rounded),
-        title: const Text('Reveal recovery phrase?'),
-        content: const Text(
-          'Make sure nobody can see your screen. Anyone who reads these words '
-          'can take your funds.',
+        title: Text(context.l10n.revealRecoveryPhrase),
+        content: Text(
+          context.l10n.makeSureNobodyCanSee,
         ),
         actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancel'),
+            child: Text(context.l10n.cancel),
           ),
           FilledButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Reveal'),
+            child: Text(context.l10n.reveal),
           ),
         ],
       ),
@@ -798,9 +795,9 @@ class _WalletSection extends StatelessWidget {
     // fingerprint must not be locked out of their own funds.
     if (!await authorizeSensitiveAction(
       context,
-      reason: 'Reveal recovery phrase',
-      title: 'Confirm your password',
-      confirmLabel: 'Reveal',
+      reason: context.l10n.revealRecoveryPhrase2,
+      title: context.l10n.confirmYourPassword,
+      confirmLabel: context.l10n.reveal,
       icon: Icons.key_rounded,
       allowPinFallback: true,
     )) {
@@ -825,13 +822,13 @@ class _WalletSection extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Text(
-                  'Recovery phrase',
+                  context.l10n.recoveryPhrase,
                   style:
                       text.titleLarge?.copyWith(fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  '${words.length} words · keep them offline.',
+                  context.l10n.wordKeepItOfflineOther(words.length),
                   style: text.bodyMedium
                       ?.copyWith(color: scheme.onSurfaceVariant),
                 ),
@@ -853,10 +850,7 @@ class _WalletSection extends StatelessWidget {
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
-                            'This wallet also uses a BIP-39 passphrase (25th '
-                            'word). Restoring needs both: the words alone open '
-                            'a different, empty wallet. The passphrase is not '
-                            'shown here.',
+                            context.l10n.thisWalletAlsoUsesA,
                             style: text.bodySmall?.copyWith(
                               color: scheme.onTertiaryContainer,
                               height: 1.4,
@@ -885,17 +879,14 @@ class _WalletSection extends StatelessWidget {
       context: context,
       builder: (dialogContext) => AlertDialog(
         icon: const Icon(Icons.warning_amber_rounded),
-        title: const Text('Erase every recovery phrase?'),
-        content: const Text(
-          'This deletes all recovery phrases and the password from this '
-          'device. Without the backups the funds are unrecoverable. Watch-only '
-          'wallets are kept. Make sure you have your backups before '
-          'continuing.',
+        title: Text(context.l10n.eraseEveryRecoveryPhrase),
+        content: Text(
+          context.l10n.thisDeletesAllRecoveryPhrases,
         ),
         actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancel'),
+            child: Text(context.l10n.cancel),
           ),
           FilledButton(
             style: FilledButton.styleFrom(
@@ -903,7 +894,7 @@ class _WalletSection extends StatelessWidget {
               foregroundColor: Theme.of(dialogContext).colorScheme.onError,
             ),
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Remove'),
+            child: Text(context.l10n.remove),
           ),
         ],
       ),
@@ -914,7 +905,7 @@ class _WalletSection extends StatelessWidget {
     }
     showAppSnackBar(
       context,
-      'Recovery phrases erased from this device.',
+      context.l10n.recoveryPhrasesErasedFromThis,
       icon: Icons.delete_outline_rounded,
     );
     await identity.removeWallet();
@@ -961,19 +952,19 @@ class _ChangePinSheetState extends State<_ChangePinSheet> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               Text(
-                'Change password',
+                context.l10n.changePassword,
                 style: text.titleLarge?.copyWith(fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 8),
               Text(
-                'The recovery phrase is re-encrypted with the new password.',
+                context.l10n.theRecoveryPhraseIsRe,
                 style:
                     text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
               ),
               const SizedBox(height: 20),
               PinField(
                 controller: _currentController,
-                label: 'Current password',
+                label: context.l10n.currentPassword,
                 autofocus: true,
                 enabled: !_busy,
                 errorText: _error,
@@ -982,7 +973,7 @@ class _ChangePinSheetState extends State<_ChangePinSheet> {
               const SizedBox(height: 14),
               PinField(
                 controller: _nextController,
-                label: 'New password (min. $_minLength characters)',
+                label: context.l10n.newPasswordMinCharacters(_minLength),
                 enabled: !_busy,
                 onChanged: (_) => setState(() {}),
               ),
@@ -990,7 +981,7 @@ class _ChangePinSheetState extends State<_ChangePinSheet> {
               const SizedBox(height: 14),
               PinField(
                 controller: _confirmController,
-                label: 'Confirm new password',
+                label: context.l10n.confirmNewPassword,
                 enabled: !_busy,
                 textInputAction: TextInputAction.done,
                 onSubmitted: (_) => _submit(),
@@ -1005,7 +996,7 @@ class _ChangePinSheetState extends State<_ChangePinSheet> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.password_rounded),
-                label: Text(_busy ? 'Re-encrypting…' : 'Save new password'),
+                label: Text(_busy ? context.l10n.reEncrypting : context.l10n.saveNewPassword),
               ),
             ],
           ),
@@ -1018,11 +1009,11 @@ class _ChangePinSheetState extends State<_ChangePinSheet> {
     final String next = _nextController.text;
 
     if (next.length < _minLength) {
-      setState(() => _error = 'Use at least $_minLength characters');
+      setState(() => _error = context.l10n.useAtLeastCharacters(_minLength));
       return;
     }
     if (next != _confirmController.text) {
-      setState(() => _error = 'New passwords do not match');
+      setState(() => _error = context.l10n.newPasswordsDoNotMatch);
       return;
     }
 
@@ -1043,7 +1034,7 @@ class _ChangePinSheetState extends State<_ChangePinSheet> {
       if (mounted) {
         setState(() {
           _busy = false;
-          _error = error.message;
+          _error = tr(error.message);
         });
       }
       return;
@@ -1051,7 +1042,7 @@ class _ChangePinSheetState extends State<_ChangePinSheet> {
       if (mounted) {
         setState(() {
           _busy = false;
-          _error = 'Could not change the password.';
+          _error = context.l10n.couldNotChangeThePassword;
         });
       }
       return;
@@ -1066,10 +1057,67 @@ class _ChangePinSheetState extends State<_ChangePinSheet> {
       SnackBar(
         content: Text(
           hadFingerprint && !fingerprintKept
-              ? 'Password updated. Fingerprint unlock was turned off — '
-                  'enable it again in Settings.'
-              : 'Password updated successfully.',
+              ? context.l10n.passwordUpdatedFingerprintUnlockWas
+              : context.l10n.passwordUpdatedSuccessfully,
         ),
+      ),
+    );
+  }
+}
+
+/// Picks the app language: follow the system, English or Ukrainian.
+class _LanguageTile extends StatelessWidget {
+  const _LanguageTile();
+
+  @override
+  Widget build(BuildContext context) {
+    final SettingsController settings = context.watch<SettingsController>();
+    final String current = switch (settings.locale?.languageCode) {
+      'en' => context.l10n.languageEnglish,
+      'uk' => context.l10n.languageUkrainian,
+      _ => context.l10n.languageSystem,
+    };
+    return Card(
+      child: ListTile(
+        leading: const Icon(Icons.translate_rounded),
+        title: Text(context.l10n.language),
+        subtitle: Text(current),
+        trailing: const Icon(Icons.chevron_right_rounded),
+        onTap: () async {
+          final String? code = await showDialog<String>(
+            context: context,
+            builder: (BuildContext dialogContext) => SimpleDialog(
+              title: Text(dialogContext.l10n.chooseLanguage),
+              children: <Widget>[
+                RadioGroup<String>(
+                  groupValue: settings.locale?.languageCode ?? 'system',
+                  onChanged: (String? value) =>
+                      Navigator.of(dialogContext).pop(value),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      RadioListTile<String>(
+                        value: 'system',
+                        title: Text(dialogContext.l10n.languageSystem),
+                      ),
+                      RadioListTile<String>(
+                        value: 'en',
+                        title: Text(dialogContext.l10n.languageEnglish),
+                      ),
+                      RadioListTile<String>(
+                        value: 'uk',
+                        title: Text(dialogContext.l10n.languageUkrainian),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+          if (code != null) {
+            settings.setLocale(code == 'system' ? null : Locale(code));
+          }
+        },
       ),
     );
   }
@@ -1090,18 +1138,18 @@ class _ThemeModeSelector extends StatelessWidget {
           width: double.infinity,
           child: SegmentedButton<ThemeMode>(
             showSelectedIcon: false,
-            segments: const <ButtonSegment<ThemeMode>>[
+            segments: <ButtonSegment<ThemeMode>>[
               ButtonSegment<ThemeMode>(
                 value: ThemeMode.system,
-                label: Text('System'),
+                label: Text(context.l10n.system),
               ),
               ButtonSegment<ThemeMode>(
                 value: ThemeMode.light,
-                label: Text('Light'),
+                label: Text(context.l10n.light),
               ),
               ButtonSegment<ThemeMode>(
                 value: ThemeMode.dark,
-                label: Text('Dark'),
+                label: Text(context.l10n.dark),
               ),
             ],
             selected: <ThemeMode>{value},
@@ -1128,8 +1176,8 @@ class _CurrencySelector extends StatelessWidget {
       children: <Widget>[
         ListTile(
           leading: const Icon(Icons.payments_outlined),
-          title: const Text('Display currency'),
-          subtitle: const Text('Prices are converted from USD'),
+          title: Text(context.l10n.displayCurrency),
+          subtitle: Text(context.l10n.pricesAreConvertedFromUsd),
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
@@ -1176,22 +1224,20 @@ class _AboutCard extends StatelessWidget {
           children: <Widget>[
             ListTile(
               leading: const Icon(Icons.info_outline_rounded),
-              title: const Text('Version'),
-              subtitle: const Text('Self-custodial · BIP-39 / BIP-84 / BIP-44'),
+              title: Text(context.l10n.version),
+              subtitle: Text(context.l10n.selfCustodialBip39Bip),
               trailing: const Text('$appVersion ($appBuildNumber)'),
               onTap: () => showAppSnackBar(
                 context,
-                'Material Wallet $appVersion — built with Flutter & Material 3.',
+                context.l10n.materialWalletBuiltWithFlutter(appVersion),
                 icon: Icons.info_outline_rounded,
               ),
             ),
             ListTile(
               leading: const Icon(Icons.cloud_outlined),
-              title: const Text('Data sources'),
-              subtitle: const Text(
-                'mempool.space · Blockscout · CoinGecko · PublicNode · dRPC · 1RPC · '
-                'official chain RPCs (Base, Arbitrum, Polygon, BNB) · Solana RPC · Aptos fullnode · '
-                'Aptos Labs indexer (Aptos token balances)',
+              title: Text(context.l10n.dataSources),
+              subtitle: Text(
+                context.l10n.mempoolSpaceBlockscoutCoingeckoPublicnode,
               ),
               isThreeLine: true,
             ),
@@ -1199,7 +1245,7 @@ class _AboutCard extends StatelessWidget {
         ),
         const SizedBox(height: 20),
         Text(
-          'Material Wallet · demo build',
+          context.l10n.materialWalletDemoBuild,
           style: Theme.of(context)
               .textTheme
               .bodySmall

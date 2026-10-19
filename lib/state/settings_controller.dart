@@ -8,6 +8,7 @@ import '../core/utils/formatters.dart';
 import '../data/networks/network_config.dart';
 import '../data/wallet/wallet_entry.dart';
 import '../data/wallet/wallet_storage.dart';
+import '../l10n/messages.dart';
 
 /// How long the app may stay in the background before it locks itself.
 ///
@@ -38,6 +39,7 @@ class SettingsController extends ChangeNotifier {
   bool _notificationsEnabled = false;
   bool _hideBalances = false;
   bool _backgroundChecks = false;
+  Locale? _locale;
   Map<String, String> _accountNames = const <String, String>{};
 
   ThemeMode get themeMode => _themeMode;
@@ -55,6 +57,15 @@ class SettingsController extends ChangeNotifier {
   /// Whether confirmation notifications are turned on.
   bool get notificationsEnabled => _notificationsEnabled;
 
+  /// The language the user picked, or `null` to follow the system.
+  Locale? get locale => _locale;
+
+  /// Languages the app is translated into.
+  static const List<Locale> supportedLocales = <Locale>[
+    Locale('en'),
+    Locale('uk'),
+  ];
+
   /// Privacy mode: amounts are shown as dots on every screen.
   bool get hideBalances => _hideBalances;
 
@@ -70,7 +81,7 @@ class SettingsController extends ChangeNotifier {
   /// The display name of account [index] in wallet [walletId]: the user's own,
   /// else `Account N`.
   String accountName(int index, {String walletId = primaryWalletId}) =>
-      _accountNames[_nameKey(index, walletId)] ?? 'Account ${index + 1}';
+      _accountNames[_nameKey(index, walletId)] ?? tr('Account ${index + 1}');
 
   /// Whether the user gave account [index] a name of their own.
   bool hasCustomAccountName(int index, {String walletId = primaryWalletId}) =>
@@ -86,6 +97,7 @@ class SettingsController extends ChangeNotifier {
       final bool? notifications = await _storage.readNotificationsEnabled();
       final bool? hide = await _storage.readHideBalances();
       final bool? background = await _storage.readBackgroundEnabled();
+      final String? language = await _storage.readLanguage();
       final String? namesJson = await _storage.readAccountNames();
       bool changed = false;
 
@@ -134,6 +146,16 @@ class SettingsController extends ChangeNotifier {
 
       if (hide != null && hide != _hideBalances) {
         _hideBalances = hide;
+        changed = true;
+      }
+
+      final Locale? locale = language == null
+          ? null
+          : supportedLocales
+              .where((Locale l) => l.languageCode == language)
+              .firstOrNull;
+      if (locale != _locale) {
+        _locale = locale;
         changed = true;
       }
 
@@ -208,6 +230,16 @@ class SettingsController extends ChangeNotifier {
     _hideBalances = hidden;
     notifyListeners();
     unawaited(_storage.writeHideBalances(hidden));
+  }
+
+  /// Switches the app language; `null` follows the system.
+  void setLocale(Locale? locale) {
+    if (_locale == locale) {
+      return;
+    }
+    _locale = locale;
+    notifyListeners();
+    unawaited(_storage.writeLanguage(locale?.languageCode));
   }
 
   /// Turns background checks on or off and persists the choice. Starting and

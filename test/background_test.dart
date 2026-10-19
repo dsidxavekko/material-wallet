@@ -91,7 +91,12 @@ void main() {
       BackgroundChecker(
         chainApi: chain,
         storage: storage,
-        sink: ({required int id, required String title, required String body}) async =>
+        sink: ({
+          required int id,
+          required String title,
+          required String body,
+          required bool incoming,
+        }) async =>
             sent.add(_Sent(id, title, body)),
       );
 

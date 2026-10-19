@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../l10n/messages.dart';
 
 /// Shows a floating snack bar with an optional leading icon.
 ///
@@ -16,7 +17,7 @@ void showAppSnackBar(BuildContext context, String message, {IconData? icon}) {
             Icon(icon, color: onSurface, size: 20),
             const SizedBox(width: 12),
           ],
-          Expanded(child: Text(message)),
+          Expanded(child: Text(tr(message))),
         ],
       ),
       duration: const Duration(seconds: 3),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../l10n/messages.dart';
 
 /// Friendly placeholder shown when a list has no items to display.
 class EmptyState extends StatelessWidget {
@@ -34,13 +35,13 @@ class EmptyState extends StatelessWidget {
           ),
           const SizedBox(height: 20),
           Text(
-            title,
+            tr(title),
             textAlign: TextAlign.center,
             style: text.titleMedium?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 8),
           Text(
-            message,
+            tr(message),
             textAlign: TextAlign.center,
             style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
           ),

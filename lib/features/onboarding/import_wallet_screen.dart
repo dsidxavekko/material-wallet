@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../state/wallet_identity_controller.dart';
 import '../wallets/add_wallet_screen.dart';
+import '../../l10n/l10n.dart';
 
 /// Restores an existing wallet from a BIP-39 recovery phrase.
 class ImportWalletScreen extends StatefulWidget {
@@ -43,7 +44,7 @@ class _ImportWalletScreenState extends State<ImportWalletScreen> {
     final ColorScheme scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Import wallet')),
+      appBar: AppBar(title: Text(context.l10n.importWallet)),
       body: SafeArea(
         child: Column(
           children: <Widget>[
@@ -52,14 +53,13 @@ class _ImportWalletScreenState extends State<ImportWalletScreen> {
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
                 children: <Widget>[
                   Text(
-                    'Enter your recovery phrase',
+                    context.l10n.enterYourRecoveryPhrase,
                     style: text.titleLarge
                         ?.copyWith(fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Type or paste the 12 or 24 words separated by spaces. The '
-                    'checksum is verified locally before anything is stored.',
+                    context.l10n.typeOrPasteThe12,
                     style: text.bodyMedium?.copyWith(
                       color: scheme.onSurfaceVariant,
                       height: 1.45,
@@ -75,9 +75,9 @@ class _ImportWalletScreenState extends State<ImportWalletScreen> {
                     autocorrect: false,
                     enableSuggestions: false,
                     onChanged: (_) => setState(() {}),
-                    decoration: const InputDecoration(
-                      labelText: 'Recovery phrase',
-                      hintText: 'word one word two word three …',
+                    decoration: InputDecoration(
+                      labelText: context.l10n.recoveryPhrase,
+                      hintText: context.l10n.wordOneWordTwoWord,
                     ),
                   ),
                   const SizedBox(height: 20),
@@ -87,9 +87,9 @@ class _ImportWalletScreenState extends State<ImportWalletScreen> {
                     enableSuggestions: false,
                     obscureText: true,
                     onChanged: (_) => setState(() {}),
-                    decoration: const InputDecoration(
-                      labelText: 'Passphrase (25th word) — optional',
-                      hintText: 'leave empty if you never set one',
+                    decoration: InputDecoration(
+                      labelText: context.l10n.passphrase25thWordOptional,
+                      hintText: context.l10n.leaveEmptyIfYouNever,
                     ),
                   ),
                   const SizedBox(height: 10),
@@ -108,10 +108,10 @@ class _ImportWalletScreenState extends State<ImportWalletScreen> {
                       Expanded(
                         child: Text(
                           _wordCount == 0
-                              ? 'Waiting for your phrase'
+                              ? context.l10n.waitingForYourPhrase
                               : _isValid
-                                  ? 'Valid $_wordCount-word phrase'
-                                  : '$_wordCount word(s) — checksum not valid yet',
+                                  ? context.l10n.validWordPhrase(_wordCount)
+                                  : context.l10n.wordSChecksumNotValid(_wordCount),
                           style: text.bodySmall?.copyWith(
                             color: _isValid
                                 ? scheme.primary
@@ -128,7 +128,7 @@ class _ImportWalletScreenState extends State<ImportWalletScreen> {
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
               child: FilledButton(
                 onPressed: _isValid ? _continue : null,
-                child: const Text('Continue'),
+                child: Text(context.l10n.continueLabel),
               ),
             ),
           ],
@@ -174,9 +174,7 @@ class _PassphraseNotice extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              'If your phrase was created with a passphrase (a 25th word), '
-              'enter it below — a missing or mistyped one derives different '
-              'addresses and every balance would show as zero.',
+              context.l10n.ifYourPhraseWasCreated,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: scheme.onTertiaryContainer,
                     height: 1.4,

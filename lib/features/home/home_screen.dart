@@ -29,6 +29,8 @@ import 'widgets/account_balance_card.dart';
 import 'widgets/address_card.dart';
 import 'widgets/state_cards.dart';
 import 'widgets/token_list.dart';
+import '../../l10n/l10n.dart';
+import '../../l10n/messages.dart';
 
 /// Wallet tab: live balance, address and recent on-chain activity.
 class HomeScreen extends StatefulWidget {
@@ -56,7 +58,7 @@ class _HomeScreenState extends State<HomeScreen> {
         SnackBar(
           content: Text('${token.symbol} ${hide ? 'hidden' : 'shown'}'),
           action: SnackBarAction(
-            label: 'Undo',
+            label: context.l10n.undo,
             onPressed: () => hiddenTokens.setHidden(networkId, token, !hide),
           ),
         ),
@@ -80,7 +82,7 @@ class _HomeScreenState extends State<HomeScreen> {
         title: const Text('Material Wallet'),
         actions: <Widget>[
           IconButton(
-            tooltip: 'Refresh',
+            tooltip: context.l10n.refresh,
             onPressed: wallet.loading ? null : wallet.refresh,
             icon: wallet.loading
                 ? const SizedBox(
@@ -109,7 +111,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
             if (wallet.error != null) ...<Widget>[
               ErrorCard(
-                message: wallet.error!,
+                message: tr(wallet.error!),
                 onRetry: wallet.refresh,
                 showRetry: wallet.errorRetryable,
               ),
@@ -120,10 +122,8 @@ class _HomeScreenState extends State<HomeScreen> {
             else if (wallet.address == null && identity.isWatchOnly)
               EmptyState(
                 icon: Icons.visibility_off_outlined,
-                title: 'Nothing followed here',
-                message: 'This watch-only wallet has no address on '
-                    '${wallet.network.name}. Pick another network, or follow '
-                    'an address of this kind from Settings → Wallets.',
+                title: context.l10n.nothingFollowedHere,
+                message: context.l10n.thisWatchOnlyWalletHas(wallet.network.name),
               )
             else
               const LoadingCard(),
@@ -180,12 +180,12 @@ class _HomeScreenState extends State<HomeScreen> {
         if (snapshot.tokens.isNotEmpty) ...<Widget>[
           const SizedBox(height: 26),
           SectionHeader(
-            title: 'Tokens',
+            title: context.l10n.tokens,
             // Approvals are the safety net for a token balance the user has
             // already lost the right to: put it where the tokens are. They are
             // an ERC-20 mechanic, so other chains do not get the shortcut.
             actionLabel:
-                snapshot.network.chain == ChainKind.evm ? 'Approvals' : null,
+                snapshot.network.chain == ChainKind.evm ? context.l10n.approvals : null,
             onAction: snapshot.network.chain == ChainKind.evm
                 ? () => _push(context, const TokenApprovalsScreen())
                 : null,
@@ -216,8 +216,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     setState(() => _showHiddenTokens = !_showHiddenTokens),
                 child: Text(
                   _showHiddenTokens
-                      ? 'Hide the $hiddenCount hidden'
-                      : 'Show $hiddenCount hidden',
+                      ? context.l10n.hideTheHidden(hiddenCount)
+                      : context.l10n.showHidden(hiddenCount),
                 ),
               ),
             ),
@@ -225,8 +225,8 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(height: 26),
         SectionHeader(
           title: context.read<WalletIdentityController>().isWatchOnly
-              ? 'Followed address'
-              : 'Your address',
+              ? context.l10n.followedAddress
+              : context.l10n.yourAddress,
         ),
         AddressCard(
           address: snapshot.address,
@@ -239,8 +239,8 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         const SizedBox(height: 26),
         SectionHeader(
-          title: 'Recent activity',
-          actionLabel: recent.isEmpty ? null : 'See all',
+          title: context.l10n.recentActivity,
+          actionLabel: recent.isEmpty ? null : context.l10n.seeAll,
           onAction: recent.isEmpty
               ? null
               : () => _push(context, const ActivityScreen()),
@@ -315,7 +315,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) {
       showAppSnackBar(
         context,
-        'Address copied to clipboard',
+        context.l10n.addressCopiedToClipboard,
         icon: Icons.check_circle_outline_rounded,
       );
     }
@@ -345,8 +345,8 @@ class _PortfolioCard extends StatelessWidget {
       child: ListTile(
         onTap: onTap,
         leading: Icon(Icons.pie_chart_outline_rounded, color: scheme.primary),
-        title: const Text('Portfolio'),
-        subtitle: const Text('Every network in one list'),
+        title: Text(context.l10n.portfolio),
+        subtitle: Text(context.l10n.everyNetworkInOneList),
         trailing: totalUsd == null
             ? const Icon(Icons.chevron_right_rounded)
             : Text(
@@ -374,8 +374,7 @@ class _NoActivity extends StatelessWidget {
             const SizedBox(width: 14),
             Expanded(
               child: Text(
-                'No transactions on this network yet. Receive some funds to '
-                'see them here.',
+                context.l10n.noTransactionsOnThisNetwork,
                 style: text.bodyMedium
                     ?.copyWith(color: scheme.onSurfaceVariant),
               ),
@@ -408,8 +407,7 @@ class _WatchOnlyBanner extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              '${name ?? 'Watch-only wallet'} — you can follow this address, '
-              'but not send from it.',
+              context.l10n.youCanFollowThisAddress(name ?? context.l10n.watchOnlyWallet),
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: scheme.onSecondaryContainer,
                     height: 1.4,

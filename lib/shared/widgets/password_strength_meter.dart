@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../core/utils/password_strength.dart';
+import '../../l10n/l10n.dart';
+import '../../l10n/messages.dart';
 
 /// A thin bar and a short label that reads how strong the typed password is.
 /// Advisory only; see [assessPassword].
@@ -17,10 +19,10 @@ class PasswordStrengthMeter extends StatelessWidget {
     final PasswordAssessment a = assessPassword(password);
     final ColorScheme scheme = Theme.of(context).colorScheme;
     final (String label, double value, Color color) = switch (a.strength) {
-      PasswordStrength.weak => ('Weak', 0.25, scheme.error),
-      PasswordStrength.fair => ('Fair', 0.5, scheme.tertiary),
-      PasswordStrength.good => ('Good', 0.75, scheme.primary),
-      PasswordStrength.strong => ('Strong', 1.0, scheme.primary),
+      PasswordStrength.weak => (context.l10n.weak, 0.25, scheme.error),
+      PasswordStrength.fair => (context.l10n.fair, 0.5, scheme.tertiary),
+      PasswordStrength.good => (context.l10n.good, 0.75, scheme.primary),
+      PasswordStrength.strong => (context.l10n.strong, 1.0, scheme.primary),
     };
 
     return Padding(
@@ -39,7 +41,7 @@ class PasswordStrengthMeter extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            a.hint == null ? label : '$label — ${a.hint}',
+            a.hint == null ? label : '$label — ${tr(a.hint!)}',
             style: Theme.of(context)
                 .textTheme
                 .bodySmall

@@ -21,6 +21,8 @@ import '../home/widgets/state_cards.dart';
 import '../send/replace_transfer.dart';
 import 'activity_search.dart';
 import 'widgets/transaction_tile.dart';
+import '../../l10n/l10n.dart';
+import '../../l10n/messages.dart';
 
 /// Filters available in the activity feed.
 enum ActivityFilter {
@@ -88,10 +90,10 @@ class _ActivityScreenState extends State<ActivityScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Activity'),
+        title: Text(context.l10n.activity),
         actions: <Widget>[
           IconButton(
-            tooltip: 'Export CSV',
+            tooltip: context.l10n.exportCsv,
             onPressed: snapshot == null || snapshot.transactions.isEmpty
                 ? null
                 : () => _exportCsv(context, snapshot, notes.all),
@@ -109,7 +111,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
                 child: ErrorCard(
-                  message: wallet.error!,
+                  message: tr(wallet.error!),
                   onRetry: wallet.refresh,
                 ),
               ),
@@ -134,12 +136,12 @@ class _ActivityScreenState extends State<ActivityScreen> {
                   onChanged: (_) => setState(() {}),
                   textInputAction: TextInputAction.search,
                   decoration: InputDecoration(
-                    hintText: 'Search address, label, note or hash',
+                    hintText: context.l10n.searchAddressLabelNoteOr,
                     prefixIcon: const Icon(Icons.search_rounded),
                     suffixIcon: _search.text.isEmpty
                         ? null
                         : IconButton(
-                            tooltip: 'Clear',
+                            tooltip: context.l10n.clear,
                             icon: const Icon(Icons.close_rounded),
                             onPressed: () => setState(_search.clear),
                           ),
@@ -156,7 +158,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
                           (filter) => Padding(
                             padding: const EdgeInsets.only(right: 8),
                             child: ChoiceChip(
-                              label: Text(filter.label),
+                              label: Text(tr(filter.label)),
                               selected: _filter == filter,
                               onSelected: (_) =>
                                   setState(() => _filter = filter),
@@ -171,11 +173,11 @@ class _ActivityScreenState extends State<ActivityScreen> {
                 EmptyState(
                   icon: Icons.receipt_long_outlined,
                   title: _search.text.trim().isEmpty
-                      ? 'No transactions yet'
-                      : 'Nothing matches',
+                      ? context.l10n.noTransactionsYet
+                      : context.l10n.nothingMatches,
                   message: _search.text.trim().isEmpty
-                      ? 'On-chain activity for this network shows up here.'
-                      : 'Try another address, label, note or hash.',
+                      ? context.l10n.onChainActivityForThis
+                      : context.l10n.tryAnotherAddressLabelNote,
                 )
               else
                 for (final Object item in items)
@@ -245,26 +247,26 @@ class _ActivityScreenState extends State<ActivityScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         icon: const Icon(Icons.sticky_note_2_outlined),
-        title: const Text('Private note'),
+        title: Text(context.l10n.privateNote),
         content: TextField(
           controller: controller,
           autofocus: true,
           maxLength: 200,
           maxLines: 3,
           textCapitalization: TextCapitalization.sentences,
-          decoration: const InputDecoration(
-            hintText: 'Visible only on this device and in your CSV export',
+          decoration: InputDecoration(
+            hintText: context.l10n.visibleOnlyOnThisDevice,
           ),
         ),
         actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
+            child: Text(context.l10n.cancel),
           ),
           FilledButton(
             onPressed: () =>
                 Navigator.of(dialogContext).pop(controller.text.trim()),
-            child: const Text('Save'),
+            child: Text(context.l10n.save),
           ),
         ],
       ),
@@ -292,7 +294,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
             ),
           ],
           fileNameOverrides: const <String>['material-wallet-activity.csv'],
-          subject: 'Material Wallet activity',
+          subject: tr('Material Wallet activity'),
         ),
       );
     } catch (error, stackTrace) {
@@ -300,7 +302,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
       if (context.mounted) {
         showAppSnackBar(
           context,
-          'Could not export the activity.',
+          context.l10n.couldNotExportTheActivity,
           icon: Icons.error_outline_rounded,
         );
       }
@@ -356,7 +358,7 @@ class _LoadMore extends StatelessWidget {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.expand_more_rounded),
-            label: Text(wallet.loadingMore ? 'Loading…' : 'Load more'),
+            label: Text(wallet.loadingMore ? context.l10n.loading : context.l10n.loadMore),
           ),
         ],
       ),
@@ -421,7 +423,7 @@ class _FlowSummary extends StatelessWidget {
           children: <Widget>[
             Expanded(
               child: _SummaryColumn(
-                label: 'Money in',
+                label: context.l10n.moneyIn,
                 value: _label(inflow),
                 icon: Icons.south_west_rounded,
               ),
@@ -433,7 +435,7 @@ class _FlowSummary extends StatelessWidget {
             ),
             Expanded(
               child: _SummaryColumn(
-                label: 'Money out',
+                label: context.l10n.moneyOut,
                 value: _label(outflow),
                 icon: Icons.north_east_rounded,
               ),

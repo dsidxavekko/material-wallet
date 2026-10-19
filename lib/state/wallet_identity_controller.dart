@@ -15,6 +15,7 @@ import '../data/wallet/wallet_book.dart';
 import '../data/wallet/wallet_entry.dart';
 import '../data/wallet/wallet_storage.dart';
 import '../data/wallet/watch_address.dart';
+import '../l10n/messages.dart';
 
 /// Lifecycle of the on-device wallet.
 enum WalletStatus {
@@ -115,7 +116,7 @@ class WalletIdentityController extends ChangeNotifier {
       for (int i = 0; i < seeds.length; i++)
         WalletEntry(
           id: seeds[i].id,
-          name: _book.names[seeds[i].id] ?? 'Wallet ${i + 1}',
+          name: _book.names[seeds[i].id] ?? tr('Wallet ${i + 1}'),
           kind: WalletKind.seed,
         ),
       ..._book.watch.map(
@@ -629,7 +630,7 @@ class WalletIdentityController extends ChangeNotifier {
     final String label = _clip(name.trim());
     final WalletEntry entry = WalletEntry(
       id: id,
-      name: label.isEmpty ? 'Watch-only' : label,
+      name: label.isEmpty ? tr('Watch-only') : label,
       kind: WalletKind.watchOnly,
       watched: Map<String, String>.unmodifiable(addresses),
     );
@@ -662,7 +663,7 @@ class WalletIdentityController extends ChangeNotifier {
     final List<WalletEntry> watch = List<WalletEntry>.of(_book.watch);
     watch[at] = WalletEntry(
       id: id,
-      name: label.isEmpty ? 'Watch-only' : label,
+      name: label.isEmpty ? tr('Watch-only') : label,
       kind: WalletKind.watchOnly,
       watched: Map<String, String>.unmodifiable(addresses),
     );

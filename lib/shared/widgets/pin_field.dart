@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../l10n/l10n.dart';
 
 /// Shortest password accepted when a new one is set or changed.
 ///
@@ -63,7 +64,7 @@ class _PinFieldState extends State<PinField> {
         counterText: '',
         prefixIcon: const Icon(Icons.lock_outline_rounded),
         suffixIcon: IconButton(
-          tooltip: _obscured ? 'Show' : 'Hide',
+          tooltip: _obscured ? context.l10n.showLabel : context.l10n.hideLabel,
           icon: Icon(
             _obscured
                 ? Icons.visibility_outlined

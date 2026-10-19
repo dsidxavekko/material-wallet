@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../l10n/l10n.dart';
 
 /// Card showing the full receive address with copy and explorer actions.
 class AddressCard extends StatelessWidget {
@@ -32,7 +33,7 @@ class AddressCard extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Your address · $networkLabel',
+                    context.l10n.yourAddress2(networkLabel),
                     style: text.labelLarge
                         ?.copyWith(color: scheme.onSurfaceVariant),
                   ),
@@ -51,7 +52,7 @@ class AddressCard extends StatelessWidget {
                   child: OutlinedButton.icon(
                     onPressed: onCopy,
                     icon: const Icon(Icons.copy_rounded, size: 18),
-                    label: const Text('Copy'),
+                    label: Text(context.l10n.copy),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -59,7 +60,7 @@ class AddressCard extends StatelessWidget {
                   child: OutlinedButton.icon(
                     onPressed: onExplorer,
                     icon: const Icon(Icons.open_in_new_rounded, size: 18),
-                    label: const Text('Explorer'),
+                    label: Text(context.l10n.explorer),
                   ),
                 ),
               ],

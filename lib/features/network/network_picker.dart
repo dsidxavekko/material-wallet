@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../data/networks/network_config.dart';
 import '../../state/settings_controller.dart';
+import '../../l10n/l10n.dart';
 
 /// Opens the network picker and applies the chosen network.
 Future<void> showNetworkPicker(BuildContext context) async {
@@ -55,13 +56,13 @@ Future<void> showNetworkPicker(BuildContext context) async {
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
                 child: Text(
-                  'Network',
+                  context.l10n.network,
                   style: text.titleLarge
                       ?.copyWith(fontWeight: FontWeight.w800),
                 ),
               ),
-              section('Mainnets', NetworkCatalog.mainnets),
-              section('Testnets', NetworkCatalog.testnets),
+              section(context.l10n.mainnets, NetworkCatalog.mainnets),
+              section(context.l10n.testnets, NetworkCatalog.testnets),
             ],
           ),
         ),
@@ -115,7 +116,7 @@ class _NetworkTile extends StatelessWidget {
         style: text.titleSmall?.copyWith(fontWeight: FontWeight.w700),
       ),
       subtitle: Text(
-        network.isTestnet ? '${network.group} · Testnet' : network.group,
+        network.isTestnet ? context.l10n.testnet(network.group) : network.group,
         style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
       ),
       trailing: selected

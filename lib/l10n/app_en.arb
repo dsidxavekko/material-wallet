@@ -1,0 +1,785 @@
+{
+  "@@locale": "en",
+  "languageSystem": "System default",
+  "languageEnglish": "English",
+  "languageUkrainian": "Українська",
+  "activity": "Activity",
+  "exportCsv": "Export CSV",
+  "searchAddressLabelNoteOr": "Search address, label, note or hash",
+  "clear": "Clear",
+  "noTransactionsYet": "No transactions yet",
+  "nothingMatches": "Nothing matches",
+  "onChainActivityForThis": "On-chain activity for this network shows up here.",
+  "tryAnotherAddressLabelNote": "Try another address, label, note or hash.",
+  "privateNote": "Private note",
+  "visibleOnlyOnThisDevice": "Visible only on this device and in your CSV export",
+  "cancel": "Cancel",
+  "save": "Save",
+  "couldNotExportTheActivity": "Could not export the activity.",
+  "loading": "Loading…",
+  "loadMore": "Load more",
+  "moneyIn": "Money in",
+  "moneyOut": "Money out",
+  "tokenApproval": "Token approval",
+  "failed": "Failed",
+  "pending": "Pending",
+  "viewOnExplorer": "View on explorer",
+  "moreActions": "More actions",
+  "addNote": "Add note",
+  "editNote": "Edit note",
+  "cancelTransaction": "Cancel transaction",
+  "speedUp": "Speed up",
+  "welcomeBack": "Welcome back",
+  "enterYourPasswordToDecrypt": "Enter your password to decrypt the wallet.",
+  "password": "Password",
+  "decrypting": "Decrypting…",
+  "unlock": "Unlock",
+  "theFingerprintsOnThisPhone": "The fingerprints on this phone changed, so fingerprint unlock was turned off. Enter your password, then enable it again in Settings.",
+  "unlockWithFingerprint": "Unlock with fingerprint",
+  "forgotPasswordEraseRecoveryPhrases": "Forgot password — erase recovery phrases",
+  "enterYourPassword": "Enter your password",
+  "couldNotUnlockTheWallet": "Could not unlock the wallet.",
+  "eraseTheRecoveryPhrases": "Erase the recovery phrases?",
+  "thisDeletesEveryRecoveryPhrase": "This deletes every recovery phrase and the password from this device. Without the backups the funds are unrecoverable. Watch-only wallets are kept. Make sure you have your backups before continuing.",
+  "erase": "Erase",
+  "recoveryPhrasesErasedFromThis": "Recovery phrases erased from this device.",
+  "security": "Security",
+  "setAPassword": "Set a password",
+  "yourRecoveryPhraseIsEncrypted": "Your recovery phrase is encrypted with AES-256-GCM using a key derived from this password, and you will need it every time you open the wallet. A passphrase of several words is much harder to guess than a short code.",
+  "passwordMinCharacters": "Password (min. {minLength} characters)",
+  "@passwordMinCharacters": {
+    "placeholders": {
+      "minLength": {}
+    }
+  },
+  "confirmPassword": "Confirm password",
+  "unlockWithFingerprint2": "Unlock with fingerprint",
+  "openTheWalletWithYour": "Open the wallet with your fingerprint instead of typing the password",
+  "thereIsNoPasswordRecovery": "There is no password recovery. If you forget it you will need your recovery phrase to restore the wallet.",
+  "encrypting": "Encrypting…",
+  "encryptContinue": "Encrypt & continue",
+  "useAtLeastCharacters": "Use at least {minLength} characters",
+  "@useAtLeastCharacters": {
+    "placeholders": {
+      "minLength": {}
+    }
+  },
+  "passwordsDoNotMatch": "Passwords do not match",
+  "walletEncryptedAndStoredOn": "Wallet encrypted and stored on this device.",
+  "enterYourCurrentPassword": "Enter your current password",
+  "walletAddedAndEncryptedOn": "Wallet added and encrypted on this device.",
+  "addWallet": "Add wallet",
+  "confirmWithYourPassword": "Confirm with your password",
+  "thisPhraseWillBeEncrypted": "This phrase will be encrypted next to your other wallets under the same password, so one unlock opens them all.",
+  "nameOptional": "Name (optional)",
+  "eGSavings": "e.g. Savings",
+  "currentPassword": "Current password",
+  "wallets": "Wallets",
+  "addAWallet": "Add a wallet",
+  "createANewWallet": "Create a new wallet",
+  "aFreshRecoveryPhrase": "A fresh recovery phrase",
+  "importARecoveryPhrase": "Import a recovery phrase",
+  "another12Or24Word": "Another 12 or 24-word wallet",
+  "watchAnAddress": "Watch an address",
+  "followABalanceWithoutThe": "Follow a balance without the keys",
+  "recoveryPhrase": "Recovery phrase",
+  "watchOnly": "Watch-only · {p0}",
+  "@watchOnly": {
+    "placeholders": {
+      "p0": {}
+    }
+  },
+  "walletOptions": "Wallet options",
+  "rename": "Rename",
+  "editAddresses": "Edit addresses",
+  "remove": "Remove",
+  "walletName": "Wallet name",
+  "remove2": "Remove {name}?",
+  "@remove2": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "theFollowedAddressesAreForgotten": "The followed addresses are forgotten. Nothing on the blockchain changes.",
+  "withoutItsRecoveryPhraseThe": "Without its recovery phrase the funds in this wallet are unrecoverable. Make sure you have your backup before continuing.",
+  "confirmYourPassword": "Confirm your password",
+  "enterAnAddressToFollow": "Enter an address to follow",
+  "thisNameHasCharactersThe": "This name has characters the wallet cannot read exactly",
+  "couldNotLookTheName": "Could not look the name up.",
+  "pointsToNoAddress": "{name} points to no address",
+  "@pointsToNoAddress": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "scanAnAddress": "Scan an address",
+  "addressOtherAddresses": "{count, plural, one{Following {count} address.} other{Following {count} addresses.}}",
+  "@addressOtherAddresses": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "walletUpdated": "Wallet updated.",
+  "watchOnlyWallet": "Watch-only wallet",
+  "editWatchOnlyWallet": "Edit watch-only wallet",
+  "followAnAddress": "Follow an address",
+  "seeTheBalanceTokensAnd": "See the balance, tokens and history of an address you do not hold the keys for — a cold wallet, a savings account or a friend's public address. Nothing secret is stored and this wallet can never send.",
+  "eGColdStorage": "e.g. Cold storage",
+  "address": "Address",
+  "bc10xNameEthSolana": "bc1…, 0x…, name.eth, Solana or Aptos address",
+  "paste": "Paste",
+  "scan": "Scan",
+  "addAddress": "Add address",
+  "remove3": "Remove",
+  "oneAddressPerKindAn": "One address per kind: an EVM address is the same on Ethereum, Base, Polygon, Arbitrum, BNB Chain and Sepolia.",
+  "follow": "Follow",
+  "network": "Network",
+  "mainnets": "Mainnets",
+  "testnets": "Testnets",
+  "testnet": "{group} · Testnet",
+  "@testnet": {
+    "placeholders": {
+      "group": {}
+    }
+  },
+  "wallet": "Wallet",
+  "settings": "Settings",
+  "portfolio": "Portfolio",
+  "refresh": "Refresh",
+  "totalAcrossNetworks": "Total across networks",
+  "someNetworksCouldNotBe": "Some networks could not be read, so this total may be too low.",
+  "unavailable": "Unavailable",
+  "tokenOtherTokens": "{native} · {count, plural, one{{count} token} other{{count} tokens}}",
+  "@tokenOtherTokens": {
+    "placeholders": {
+      "native": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "receive": "Receive",
+  "noWalletFound": "No wallet found",
+  "unlockYourWalletToGenerate": "Unlock your wallet to generate a receive address.",
+  "scanToPay": "Scan to pay {p0} {symbol}",
+  "@scanToPay": {
+    "placeholders": {
+      "p0": {},
+      "symbol": {}
+    }
+  },
+  "scanToReceive": "Scan to receive {symbol}",
+  "@scanToReceive": {
+    "placeholders": {
+      "symbol": {}
+    }
+  },
+  "onlySendOnToThis": "Only send {symbol} on {name} to this address.",
+  "@onlySendOnToThis": {
+    "placeholders": {
+      "symbol": {},
+      "name": {}
+    }
+  },
+  "requestAnAmountOptional": "Request an amount (optional)",
+  "enterAValidAmount": "Enter a valid amount",
+  "sharePaymentRequest": "Share payment request",
+  "yourAddress": "Your address",
+  "copyAddress": "Copy address",
+  "pleaseSendOnTo": "Please send {p0} {symbol} on {name} to {address}\n{link}",
+  "@pleaseSendOnTo": {
+    "placeholders": {
+      "p0": {},
+      "symbol": {},
+      "name": {},
+      "address": {},
+      "link": {}
+    }
+  },
+  "paymentRequest": "Payment request",
+  "couldNotShareTheRequest": "Could not share the request.",
+  "addressCopiedToClipboard": "Address copied to clipboard",
+  "addressBook": "Address book",
+  "add": "Add",
+  "noSavedRecipients": "No saved recipients",
+  "saveTheAddressesYouSend": "Save the addresses you send to often and they will appear here and in the send flow.",
+  "saved": "Saved “{label}”.",
+  "@saved": {
+    "placeholders": {
+      "label": {}
+    }
+  },
+  "newRecipient": "New recipient",
+  "label": "Label",
+  "saveRecipient": "Save recipient",
+  "yourAddresses": "Your addresses",
+  "beforeReceivingLargeAmountsCheck": "Before receiving large amounts, check these addresses against your recovery phrase on a second, trusted device.",
+  "locked": "Locked",
+  "onlySendOnHere": "Only send {symbol} on {name} here.",
+  "@onlySendOnHere": {
+    "placeholders": {
+      "symbol": {},
+      "name": {}
+    }
+  },
+  "displayCurrency": "Display currency",
+  "appearance": "Appearance",
+  "currency": "Currency",
+  "about": "About",
+  "selfCustodialWallet": "Self-custodial wallet",
+  "watchOnlyMode": "Watch-only mode",
+  "noKeysOnThisDevice": "No keys on this device",
+  "encryptedOnThisDevice": "Encrypted on this device",
+  "created": "Created {p0}",
+  "@created": {
+    "placeholders": {
+      "p0": {}
+    }
+  },
+  "seedEncryptedWithAes256": "Seed encrypted with AES-256-GCM",
+  "nothingSecretIsStored": "Nothing secret is stored",
+  "activeNetwork": "Active network",
+  "testnet2": "{name} · Testnet",
+  "@testnet2": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "fingerprintUnlockEnabled": "Fingerprint unlock enabled.",
+  "fingerprintUnlockWasNotEnabled": "Fingerprint unlock was not enabled.",
+  "enable": "Enable",
+  "tokenApprovals": "Token approvals",
+  "reviewAndRevokeWhatContracts": "Review and revoke what contracts may spend your tokens",
+  "notAvailableOnThisDevice": "Not available on this device",
+  "opensTheWalletWithoutTyping": "Opens the wallet without typing the password",
+  "confirmsYourPasswordOnceTo": "Confirms your password once to set up",
+  "autoLock": "Auto-lock",
+  "transferNotifications": "Transfer notifications",
+  "tellsYouWhenAnOutgoing": "Tells you when an outgoing transfer confirms",
+  "notifyWhenClosed": "Notify when closed",
+  "checksForIncomingFundsAnd": "Checks for incoming funds and confirmed transfers about every 15 minutes, even with the app closed. Needs no password.",
+  "notificationsWereNotAllowedYou": "Notifications were not allowed. You can enable them in system settings.",
+  "never": "Never",
+  "immediately": "Immediately",
+  "secondOtherSeconds": "{count, plural, one{After {count} second} other{After {count} seconds}}",
+  "@secondOtherSeconds": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "minuteOtherMinutes": "{count, plural, one{After {count} minute} other{After {count} minutes}}",
+  "@minuteOtherMinutes": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "autoLockAfter": "Auto-lock after",
+  "walletOnThisDeviceOther": "{name} · {count, plural, one{{count} wallet on this device} other{{count} wallets on this device}}",
+  "@walletOnThisDeviceOther": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "activeAccount": "Active account",
+  "ofLabel": "{name} · {index} of {count}",
+  "@ofLabel": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "index": {
+        "type": "int"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "followedAddress": "Followed address",
+  "receiveAddress": "Receive address",
+  "noAddress": "No address",
+  "walletLocked": "Wallet locked",
+  "thisWalletFollowsNoAddress": "This wallet follows no address on the active network",
+  "watchOnlyCannotSend": "Watch-only — cannot send",
+  "derivedForTheActiveNetwork": "Derived for the active network",
+  "allChainsWithQrCodes": "All chains, with QR codes",
+  "wordBip39Phrase": "{length}-word BIP-39 phrase",
+  "@wordBip39Phrase": {
+    "placeholders": {
+      "length": {}
+    }
+  },
+  "changePassword": "Change password",
+  "savedRecipientsAndLabels": "Saved recipients and labels",
+  "lockWallet": "Lock wallet",
+  "clearTheDecryptedSeedFrom": "Clear the decrypted seed from memory",
+  "eraseRecoveryPhrases": "Erase recovery phrases",
+  "deletesEveryEncryptedSeedAnd": "Deletes every encrypted seed and the password; watch-only wallets stay",
+  "defaultLabel": "Default",
+  "addAccount": "Add account",
+  "aFreshSetOfAddresses": "A fresh set of addresses from the same seed",
+  "accountName": "Account name",
+  "eGSavingsEmptyDefault": "e.g. Savings (empty = default)",
+  "revealRecoveryPhrase": "Reveal recovery phrase?",
+  "makeSureNobodyCanSee": "Make sure nobody can see your screen. Anyone who reads these words can take your funds.",
+  "reveal": "Reveal",
+  "revealRecoveryPhrase2": "Reveal recovery phrase",
+  "wordKeepItOfflineOther": "{count, plural, one{{count} word · keep it offline.} other{{count} words · keep them offline.}}",
+  "@wordKeepItOfflineOther": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "thisWalletAlsoUsesA": "This wallet also uses a BIP-39 passphrase (25th word). Restoring needs both: the words alone open a different, empty wallet. The passphrase is not shown here.",
+  "eraseEveryRecoveryPhrase": "Erase every recovery phrase?",
+  "thisDeletesAllRecoveryPhrases": "This deletes all recovery phrases and the password from this device. Without the backups the funds are unrecoverable. Watch-only wallets are kept. Make sure you have your backups before continuing.",
+  "theRecoveryPhraseIsRe": "The recovery phrase is re-encrypted with the new password.",
+  "newPasswordMinCharacters": "New password (min. {minLength} characters)",
+  "@newPasswordMinCharacters": {
+    "placeholders": {
+      "minLength": {}
+    }
+  },
+  "confirmNewPassword": "Confirm new password",
+  "reEncrypting": "Re-encrypting…",
+  "saveNewPassword": "Save new password",
+  "newPasswordsDoNotMatch": "New passwords do not match",
+  "couldNotChangeThePassword": "Could not change the password.",
+  "passwordUpdatedFingerprintUnlockWas": "Password updated. Fingerprint unlock was turned off — enable it again in Settings.",
+  "passwordUpdatedSuccessfully": "Password updated successfully.",
+  "system": "System",
+  "light": "Light",
+  "dark": "Dark",
+  "pricesAreConvertedFromUsd": "Prices are converted from USD",
+  "version": "Version",
+  "selfCustodialBip39Bip": "Self-custodial · BIP-39 / BIP-84 / BIP-44",
+  "materialWalletBuiltWithFlutter": "Material Wallet {appVersion} — built with Flutter & Material 3.",
+  "@materialWalletBuiltWithFlutter": {
+    "placeholders": {
+      "appVersion": {}
+    }
+  },
+  "dataSources": "Data sources",
+  "mempoolSpaceBlockscoutCoingeckoPublicnode": "mempool.space · Blockscout · CoinGecko · PublicNode · dRPC · 1RPC · official chain RPCs (Base, Arbitrum, Polygon, BNB) · Solana RPC · Aptos fullnode · Aptos Labs indexer (Aptos token balances)",
+  "materialWalletDemoBuild": "Material Wallet · demo build",
+  "couldNotLoadYourApprovals": "Could not load your approvals.",
+  "approvalsUnavailable": "Approvals unavailable",
+  "pullDownToTryAgain": "{error} Pull down to try again.",
+  "@pullDownToTryAgain": {
+    "placeholders": {
+      "error": {}
+    }
+  },
+  "noActiveApprovals": "No active approvals",
+  "noContractOnThisNetwork": "No contract on this network is allowed to spend your tokens. A scam site that asked for approval would show up here.",
+  "aWatchOnlyWalletCannot": "A watch-only wallet cannot revoke approvals.",
+  "revokeApproval": "Revoke {symbol} approval?",
+  "@revokeApproval": {
+    "placeholders": {
+      "symbol": {}
+    }
+  },
+  "thisSetsTheAllowanceFor": "This sets the allowance for {p0} to zero, so it can no longer move your {symbol}. Contracts that need the approval will stop working until you grant it again.",
+  "@thisSetsTheAllowanceFor": {
+    "placeholders": {
+      "p0": {},
+      "symbol": {}
+    }
+  },
+  "keepIt": "Keep it",
+  "revoke": "Revoke",
+  "revokeApproval2": "Revoke approval",
+  "confirmRevoke": "Confirm revoke",
+  "couldNotReachToPrice": "Could not reach {name} to price the revoke.",
+  "@couldNotReachToPrice": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "theRevokeCouldNotBe": "The revoke could not be sent. Nothing changed.",
+  "revokeSubmitted": "Revoke submitted.",
+  "approvedFor": "Approved for {p0}",
+  "@approvedFor": {
+    "placeholders": {
+      "p0": {}
+    }
+  },
+  "unlimitedThisContractCanMove": "Unlimited — this contract can move all of it at any time.",
+  "undo": "Undo",
+  "nothingFollowedHere": "Nothing followed here",
+  "thisWatchOnlyWalletHas": "This watch-only wallet has no address on {name}. Pick another network, or follow an address of this kind from Settings → Wallets.",
+  "@thisWatchOnlyWalletHas": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "tokens": "Tokens",
+  "approvals": "Approvals",
+  "hideTheHidden": "Hide the {hiddenCount} hidden",
+  "@hideTheHidden": {
+    "placeholders": {
+      "hiddenCount": {}
+    }
+  },
+  "showHidden": "Show {hiddenCount} hidden",
+  "@showHidden": {
+    "placeholders": {
+      "hiddenCount": {}
+    }
+  },
+  "recentActivity": "Recent activity",
+  "seeAll": "See all",
+  "everyNetworkInOneList": "Every network in one list",
+  "noTransactionsOnThisNetwork": "No transactions on this network yet. Receive some funds to see them here.",
+  "youCanFollowThisAddress": "{name} — you can follow this address, but not send from it.",
+  "@youCanFollowThisAddress": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "showBalance": "Show balance",
+  "hideBalance": "Hide balance",
+  "testnetNoMarketPrice": "Testnet — no market price",
+  "priceTemporarilyUnavailable": "Price temporarily unavailable",
+  "retry": "Retry",
+  "yourAddress2": "Your address · {networkLabel}",
+  "@yourAddress2": {
+    "placeholders": {
+      "networkLabel": {}
+    }
+  },
+  "copy": "Copy",
+  "explorer": "Explorer",
+  "loadingOnChainData": "Loading on-chain data…",
+  "couldNotLoadData": "Could not load data",
+  "tryAgain": "Try again",
+  "scanQrCode": "Scan QR code",
+  "toggleFlashlight": "Toggle flashlight",
+  "switchCamera": "Switch camera",
+  "pointTheCameraAtA": "Point the camera at a wallet QR code",
+  "yourRecoveryPhrase": "Your recovery phrase",
+  "writeTheseWordsDown": "Write these {length} words down",
+  "@writeTheseWordsDown": {
+    "placeholders": {
+      "length": {}
+    }
+  },
+  "theyAreTheOnlyWay": "They are the only way to restore your wallet. Store them offline — anyone who reads them can take your funds.",
+  "copyPhrase": "Copy phrase",
+  "neverShareThisPhraseMaterial": "Never share this phrase. Material Wallet will never ask you for it.",
+  "iHaveWrittenDownMy": "I have written down my recovery phrase",
+  "continueLabel": "Continue",
+  "recoveryPhraseCopiedClearedAutomatically": "Recovery phrase copied — cleared automatically",
+  "importWallet": "Import wallet",
+  "enterYourRecoveryPhrase": "Enter your recovery phrase",
+  "typeOrPasteThe12": "Type or paste the 12 or 24 words separated by spaces. The checksum is verified locally before anything is stored.",
+  "wordOneWordTwoWord": "word one word two word three …",
+  "passphrase25thWordOptional": "Passphrase (25th word) — optional",
+  "leaveEmptyIfYouNever": "leave empty if you never set one",
+  "waitingForYourPhrase": "Waiting for your phrase",
+  "validWordPhrase": "Valid {wordCount}-word phrase",
+  "@validWordPhrase": {
+    "placeholders": {
+      "wordCount": {}
+    }
+  },
+  "wordSChecksumNotValid": "{wordCount} word(s) — checksum not valid yet",
+  "@wordSChecksumNotValid": {
+    "placeholders": {
+      "wordCount": {}
+    }
+  },
+  "ifYourPhraseWasCreated": "If your phrase was created with a passphrase (a 25th word), enter it below — a missing or mistyped one derives different addresses and every balance would show as zero.",
+  "aSelfCustodialWalletYour": "A self-custodial wallet. Your keys never leave this device — the recovery phrase is generated here and stored locally.",
+  "iAlreadyHaveAWallet": "I already have a wallet",
+  "justWatchAnAddress": "Just watch an address",
+  "verifyBackup": "Verify backup",
+  "confirmYourRecoveryPhrase": "Confirm your recovery phrase",
+  "typeTheWordsBelowExactly": "Type the words below exactly as they appear in your backup. The positions are chosen at random every time, so you cannot predict which ones will be asked.",
+  "word": "Word #{p0}",
+  "@word": {
+    "placeholders": {
+      "p0": {}
+    }
+  },
+  "typeTheWord": "Type the word",
+  "aWatchOnlyWalletCannot2": "A watch-only wallet cannot send or replace transfers.",
+  "cancelThisTransfer": "Cancel this transfer?",
+  "speedThisTransferUp": "Speed this transfer up?",
+  "thisSends0ToYourself": "This sends 0 {symbol} to yourself and reuses the pending transaction's nonce, so it can never confirm. It only works while the transaction is still pending.",
+  "@thisSends0ToYourself": {
+    "placeholders": {
+      "symbol": {}
+    }
+  },
+  "thisReSendsTheIdentical": "This re-sends the identical token transfer to {counterparty} with a higher fee, reusing the pending transaction's nonce and calldata. Exactly one of the two will confirm.",
+  "@thisReSendsTheIdentical": {
+    "placeholders": {
+      "counterparty": {}
+    }
+  },
+  "thisSendsToAgainWith": "This sends {p0} to {counterparty} again with a higher fee, reusing the pending transaction's nonce. Exactly one of the two will confirm.",
+  "@thisSendsToAgainWith": {
+    "placeholders": {
+      "p0": {},
+      "counterparty": {}
+    }
+  },
+  "cancelTransfer": "Cancel transfer",
+  "confirmCancel": "Confirm cancel",
+  "confirmSpeedUp": "Confirm speed up",
+  "couldNotReachToPrice2": "Could not reach {name} to price the replacement.",
+  "@couldNotReachToPrice2": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "replacementSubmittedTheOriginalCan": "Replacement submitted — the original can no longer confirm.",
+  "fasterReplacementSubmitted": "Faster replacement submitted.",
+  "theReplacementCouldNotBe": "The replacement could not be sent. Nothing changed.",
+  "thisTransferCannotBeSped": "This transfer cannot be sped up.",
+  "theSamePaymentIsSent": "The same payment is sent again with a higher fee, paid out of your change: {p0} → {p1} ({feeRate} sat/vB). The recipient still gets the same amount; exactly one of the two transfers will confirm.",
+  "@theSamePaymentIsSent": {
+    "placeholders": {
+      "p0": {},
+      "p1": {},
+      "feeRate": {}
+    }
+  },
+  "send": "Send",
+  "thisWalletFollowsAnAddress": "This wallet follows an address but holds no keys, so it cannot send. Switch to a wallet with a recovery phrase in Settings → Wallets.",
+  "accountDataUnavailable": "Account data unavailable",
+  "theBalanceIsStillLoading": "The balance is still loading. Go back and try again.",
+  "send2": "Send {symbol}",
+  "@send2": {
+    "placeholders": {
+      "symbol": {}
+    }
+  },
+  "available": "Available",
+  "amountIn": "Amount in {code}",
+  "@amountIn": {
+    "placeholders": {
+      "code": {}
+    }
+  },
+  "amount": "Amount",
+  "notEnoughOrTooLittle": "Not enough {symbol}, or too little {p1} for the fee",
+  "@notEnoughOrTooLittle": {
+    "placeholders": {
+      "symbol": {},
+      "p1": {}
+    }
+  },
+  "notEnoughFundsForAmount": "Not enough funds for amount + fee",
+  "enterIn": "Enter in {symbol}",
+  "@enterIn": {
+    "placeholders": {
+      "symbol": {}
+    }
+  },
+  "enterIn2": "Enter in {code}",
+  "@enterIn2": {
+    "placeholders": {
+      "code": {}
+    }
+  },
+  "max": "MAX",
+  "recipientAddress": "Recipient address",
+  "base58Address": "Base58 address",
+  "resolvingTheName": "Resolving the name…",
+  "scanQrCode2": "Scan QR code",
+  "gweiTipGweiCap": "{p0} gwei tip · {p1} gwei cap",
+  "@gweiTipGweiCap": {
+    "placeholders": {
+      "p0": {},
+      "p1": {}
+    }
+  },
+  "networkFee": "Network fee",
+  "maxNetworkFee": "Max network fee",
+  "reviewTransfer": "Review transfer",
+  "thisIsWhatGetsSigned": "≈ {p0} (this is what gets signed)",
+  "@thisIsWhatGetsSigned": {
+    "placeholders": {
+      "p0": {}
+    }
+  },
+  "thisNameUsesCharactersThe": "This name uses characters the wallet cannot resolve safely.",
+  "doesNotPointToAn": "{name} does not point to an address.",
+  "@doesNotPointToAn": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "theResolverReturnedAnInvalid": "The resolver returned an invalid address.",
+  "couldNotLookUp": "Could not look up {name}: {message}",
+  "@couldNotLookUp": {
+    "placeholders": {
+      "name": {},
+      "message": {}
+    }
+  },
+  "clipboardIsEmpty": "Clipboard is empty.",
+  "thisPaymentLinkIsNot": "This payment link is not supported — nothing was filled in.",
+  "differentNetwork": "Different network",
+  "thisLinkTargetsButThe": "This link targets {name}, but the send screen is set to {p1}. Switch?",
+  "@thisLinkTargetsButThe": {
+    "placeholders": {
+      "name": {},
+      "p1": {}
+    }
+  },
+  "switchLabel": "Switch",
+  "thisLinkPaysWithA": "This link pays with a token that is not in your {name} balance. Open the network, let it sync and scan the code again.",
+  "@thisLinkPaysWithA": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "couldNotReachToPrice3": "Could not reach {name} to price this transfer. Nothing was sent.",
+  "@couldNotReachToPrice3": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "includesTheOneTimeDeposit": "Includes the one-time deposit that opens the recipient's {symbol} account. The recipient has no account for this token yet.",
+  "@includesTheOneTimeDeposit": {
+    "placeholders": {
+      "symbol": {}
+    }
+  },
+  "confirmTransfer": "Confirm transfer",
+  "theTransferFailedNothingWas": "The transfer failed. Nothing was sent.",
+  "hasNoTransactionHistoryIn": "{name} has no transaction history in this wallet. You can send, but a stuck transfer cannot be sped up or cancelled here, you will not get a confirmation notification, and the recipient is not checked against your past payments or scam lists. Double-check the address.",
+  "@hasNoTransactionHistoryIn": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "saveARecipientFromThe": "Save a recipient from the transfer summary and it will show up here.",
+  "eGExchange": "e.g. Exchange",
+  "estimating": "Estimating…",
+  "total": "Total",
+  "transferPrepared": "Transfer prepared",
+  "validatedAgainstTheLiveBalance": "Validated against the live balance on {name}.",
+  "@validatedAgainstTheLiveBalance": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "ensName": "ENS name",
+  "to": "To",
+  "sendingIsBlockedUntilYou": "Sending is blocked until you fix the recipient above.",
+  "sendingIsNotSupportedOn": "Sending is not supported on {name} yet. Restore your recovery phrase in a signing wallet to move funds.",
+  "@sendingIsNotSupportedOn": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "theTransferIsSignedOn": "The transfer is signed on this device and sent straight to {name}. It cannot be undone.",
+  "@theTransferIsSignedOn": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "send3": "Send {amountSymbol}",
+  "@send3": {
+    "placeholders": {
+      "amountSymbol": {}
+    }
+  },
+  "copyDetails": "Copy details",
+  "viewRecipientOnExplorer": "View recipient on explorer",
+  "to2": "To: {recipient}",
+  "@to2": {
+    "placeholders": {
+      "recipient": {}
+    }
+  },
+  "amount2": "Amount: {p0}",
+  "@amount2": {
+    "placeholders": {
+      "p0": {}
+    }
+  },
+  "fee": "Fee: {p0}",
+  "@fee": {
+    "placeholders": {
+      "p0": {}
+    }
+  },
+  "transferDetailsCopied": "Transfer details copied",
+  "thisAddressLooksLikeAnother": "This address looks like another one you use",
+  "itStartsAndEndsLike": "It starts and ends like {p0}, which you have already sent to. Scammers copy the visible ends of a real address and wait for you to send funds to it. Check the middle of the address before continuing.",
+  "@itStartsAndEndsLike": {
+    "placeholders": {
+      "p0": {}
+    }
+  },
+  "enterAPriorityFeeAbove": "Enter a priority fee above 0.",
+  "theFeeCapMustBe": "The fee cap must be at least the priority fee.",
+  "customNetworkFee": "Custom network fee",
+  "currentBaseFeeGwei": "Current base fee: {p0} gwei.",
+  "@currentBaseFeeGwei": {
+    "placeholders": {
+      "p0": {}
+    }
+  },
+  "priorityFeeTip": "Priority fee (tip)",
+  "maxFeeCap": "Max fee (cap)",
+  "apply": "Apply",
+  "enterAFeeRateOf": "Enter a fee rate of at least 1 sat/vB.",
+  "thatFeeRateIsUnreasonably": "That fee rate is unreasonably high.",
+  "customFeeRate": "Custom fee rate",
+  "theTransferPaysThisMany": "The transfer pays this many satoshis per virtual byte. A higher rate confirms sooner.",
+  "feeRate": "Fee rate",
+  "transfer": "Transfer",
+  "transferConfirmed": "Transfer confirmed",
+  "transferSent": "Transfer sent",
+  "theFundsLeftYourWallet": "The funds left your wallet and the transaction is mined.",
+  "theTransactionWasAcceptedAnd": "The transaction was accepted and will confirm shortly. You can follow it on the explorer.",
+  "done": "Done",
+  "transaction": "Transaction",
+  "copyTransactionHash": "Copy transaction hash",
+  "transactionHashCopied": "Transaction hash copied",
+  "transferSubmitted": "Transfer submitted",
+  "sending": "Sending…",
+  "signingOnThisDevice": "Signing on this device…",
+  "waitingForToConfirm": "Waiting for {shortTo} to confirm…",
+  "@waitingForToConfirm": {
+    "placeholders": {
+      "shortTo": {}
+    }
+  },
+  "confirmedOnChain": "Confirmed on-chain.",
+  "broadcasting": "Broadcasting…",
+  "close": "Close",
+  "weak": "Weak",
+  "fair": "Fair",
+  "good": "Good",
+  "strong": "Strong",
+  "showLabel": "Show",
+  "hideLabel": "Hide",
+  "couldNotOpenYourWallet": "Could not open your wallet",
+  "theSecureStorageOnThis": "The secure storage on this device did not respond. Your wallet is not lost — try again.",
+  "language": "Language",
+  "chooseLanguage": "Choose language"
+}

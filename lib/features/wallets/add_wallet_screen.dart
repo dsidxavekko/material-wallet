@@ -6,6 +6,8 @@ import '../../data/wallet/seed_vault.dart';
 import '../../shared/widgets/pin_field.dart';
 import '../../state/wallet_identity_controller.dart';
 import '../lock/set_pin_screen.dart';
+import '../../l10n/l10n.dart';
+import '../../l10n/messages.dart';
 
 /// The step after a phrase has been created or typed in: where it is secured.
 ///
@@ -53,7 +55,7 @@ class _AddWalletScreenState extends State<AddWalletScreen> {
 
   Future<void> _submit() async {
     if (_passwordController.text.isEmpty) {
-      setState(() => _error = 'Enter your current password');
+      setState(() => _error = context.l10n.enterYourCurrentPassword);
       return;
     }
     setState(() => _busy = true);
@@ -68,7 +70,7 @@ class _AddWalletScreenState extends State<AddWalletScreen> {
       if (mounted) {
         setState(() {
           _busy = false;
-          _error = error.message;
+          _error = tr(error.message);
         });
       }
       return;
@@ -78,7 +80,7 @@ class _AddWalletScreenState extends State<AddWalletScreen> {
     }
     showAppSnackBar(
       context,
-      'Wallet added and encrypted on this device.',
+      context.l10n.walletAddedAndEncryptedOn,
       icon: Icons.verified_user_outlined,
     );
     Navigator.of(context).popUntil((Route<dynamic> route) => route.isFirst);
@@ -90,7 +92,7 @@ class _AddWalletScreenState extends State<AddWalletScreen> {
     final ColorScheme scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Add wallet')),
+      appBar: AppBar(title: Text(context.l10n.addWallet)),
       body: SafeArea(
         child: Column(
           children: <Widget>[
@@ -99,13 +101,12 @@ class _AddWalletScreenState extends State<AddWalletScreen> {
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
                 children: <Widget>[
                   Text(
-                    'Confirm with your password',
+                    context.l10n.confirmWithYourPassword,
                     style: text.titleLarge?.copyWith(fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'This phrase will be encrypted next to your other wallets '
-                    'under the same password, so one unlock opens them all.',
+                    context.l10n.thisPhraseWillBeEncrypted,
                     style: text.bodyMedium?.copyWith(
                       color: scheme.onSurfaceVariant,
                       height: 1.45,
@@ -117,9 +118,9 @@ class _AddWalletScreenState extends State<AddWalletScreen> {
                     maxLength: 30,
                     enabled: !_busy,
                     textCapitalization: TextCapitalization.sentences,
-                    decoration: const InputDecoration(
-                      labelText: 'Name (optional)',
-                      hintText: 'e.g. Savings',
+                    decoration: InputDecoration(
+                      labelText: context.l10n.nameOptional,
+                      hintText: context.l10n.eGSavings,
                       prefixIcon: Icon(Icons.label_outline_rounded),
                       counterText: '',
                     ),
@@ -127,7 +128,7 @@ class _AddWalletScreenState extends State<AddWalletScreen> {
                   const SizedBox(height: 16),
                   PinField(
                     controller: _passwordController,
-                    label: 'Current password',
+                    label: context.l10n.currentPassword,
                     autofocus: true,
                     enabled: !_busy,
                     errorText: _error,
@@ -149,7 +150,7 @@ class _AddWalletScreenState extends State<AddWalletScreen> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.enhanced_encryption_rounded),
-                label: Text(_busy ? 'Encrypting…' : 'Add wallet'),
+                label: Text(_busy ? context.l10n.encrypting : context.l10n.addWallet),
               ),
             ),
           ],

@@ -7,6 +7,7 @@ import '../../core/utils/formatters.dart';
 import '../../data/networks/network_config.dart';
 import '../../shared/widgets/qr_card.dart';
 import '../../state/wallet_identity_controller.dart';
+import '../../l10n/l10n.dart';
 
 /// Every receive address the wallet derives, one per supported network.
 ///
@@ -23,7 +24,7 @@ class AddressesScreen extends StatelessWidget {
     final ColorScheme scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Your addresses')),
+      appBar: AppBar(title: Text(context.l10n.yourAddresses)),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: <Widget>[
@@ -38,9 +39,7 @@ class AddressesScreen extends StatelessWidget {
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      'Before receiving large amounts, check these addresses '
-                      'against your recovery phrase on a second, trusted '
-                      'device.',
+                      context.l10n.beforeReceivingLargeAmountsCheck,
                       style: text.bodySmall?.copyWith(
                         color: scheme.onTertiaryContainer,
                         height: 1.45,
@@ -96,7 +95,7 @@ class _AddressTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final TextTheme text = Theme.of(context).textTheme;
     final ColorScheme scheme = Theme.of(context).colorScheme;
-    final String value = address ?? 'Locked';
+    final String value = address ?? context.l10n.locked;
     final bool hasAddress = address != null;
 
     return Card(
@@ -133,7 +132,7 @@ class _AddressTile extends StatelessWidget {
           ),
         ),
         trailing: IconButton(
-          tooltip: 'Copy address',
+          tooltip: context.l10n.copyAddress,
           icon: const Icon(Icons.copy_rounded),
           onPressed: hasAddress ? () => _copy(context, value) : null,
         ),
@@ -154,7 +153,7 @@ class _AddressTile extends StatelessWidget {
     if (context.mounted) {
       showAppSnackBar(
         context,
-        'Address copied to clipboard',
+        context.l10n.addressCopiedToClipboard,
         icon: Icons.check_circle_outline_rounded,
       );
     }
@@ -192,7 +191,7 @@ class _QrSheet extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'Only send ${network.symbol} on ${network.name} here.',
+              context.l10n.onlySendOnHere(network.symbol, network.name),
               textAlign: TextAlign.center,
               style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
             ),

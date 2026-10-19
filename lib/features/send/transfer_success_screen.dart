@@ -7,6 +7,7 @@ import '../../core/utils/feedback.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/units.dart';
 import '../../data/networks/network_config.dart';
+import '../../l10n/l10n.dart';
 
 /// Full-screen confirmation shown once a transfer has been accepted by the
 /// node. Replaces the send form so "Done" returns straight to the wallet.
@@ -45,7 +46,7 @@ class TransferSuccessScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: false,
-        title: const Text('Transfer'),
+        title: Text(context.l10n.transfer),
       ),
       body: SafeArea(
         child: Padding(
@@ -60,7 +61,7 @@ class TransferSuccessScreen extends StatelessWidget {
                       _SuccessMark(color: semantic.positive),
                       const SizedBox(height: 24),
                       Text(
-                        confirmed ? 'Transfer confirmed' : 'Transfer sent',
+                        confirmed ? context.l10n.transferConfirmed : context.l10n.transferSent,
                         textAlign: TextAlign.center,
                         style: text.headlineSmall
                             ?.copyWith(fontWeight: FontWeight.w800),
@@ -68,10 +69,8 @@ class TransferSuccessScreen extends StatelessWidget {
                       const SizedBox(height: 10),
                       Text(
                         confirmed
-                            ? 'The funds left your wallet and the transaction '
-                                'is mined.'
-                            : 'The transaction was accepted and will confirm '
-                                'shortly. You can follow it on the explorer.',
+                            ? context.l10n.theFundsLeftYourWallet
+                            : context.l10n.theTransactionWasAcceptedAnd,
                         textAlign: TextAlign.center,
                         style: text.bodyMedium
                             ?.copyWith(color: scheme.onSurfaceVariant),
@@ -84,7 +83,7 @@ class TransferSuccessScreen extends StatelessWidget {
                           child: Column(
                             children: <Widget>[
                               _Row(
-                                label: 'Amount',
+                                label: context.l10n.amount,
                                 value: Units.formatWithSymbol(
                                   amount,
                                   amountDecimals,
@@ -94,11 +93,11 @@ class TransferSuccessScreen extends StatelessWidget {
                               ),
                               const SizedBox(height: 14),
                               _Row(
-                                label: 'To',
+                                label: context.l10n.to,
                                 value: AppFormat.shortAddress(recipient),
                               ),
                               const SizedBox(height: 14),
-                              _Row(label: 'Network', value: network.name),
+                              _Row(label: context.l10n.network, value: network.name),
                             ],
                           ),
                         ),
@@ -114,12 +113,12 @@ class TransferSuccessScreen extends StatelessWidget {
                 onPressed: () =>
                     openExplorer(context, network.explorerTx(hash)),
                 icon: const Icon(Icons.open_in_new_rounded),
-                label: const Text('View on explorer'),
+                label: Text(context.l10n.viewOnExplorer),
               ),
               const SizedBox(height: 10),
               FilledButton(
                 onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Done'),
+                child: Text(context.l10n.done),
               ),
             ],
           ),
@@ -207,7 +206,7 @@ class _HashCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   Text(
-                    'Transaction',
+                    context.l10n.transaction,
                     style: text.labelMedium
                         ?.copyWith(color: scheme.onSurfaceVariant),
                   ),
@@ -221,14 +220,14 @@ class _HashCard extends StatelessWidget {
               ),
             ),
             IconButton(
-              tooltip: 'Copy transaction hash',
+              tooltip: context.l10n.copyTransactionHash,
               icon: const Icon(Icons.copy_rounded),
               onPressed: () async {
                 await Clipboard.setData(ClipboardData(text: hash));
                 if (context.mounted) {
                   showAppSnackBar(
                     context,
-                    'Transaction hash copied',
+                    context.l10n.transactionHashCopied,
                     icon: Icons.copy_rounded,
                   );
                 }

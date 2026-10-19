@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
+import '../../l10n/messages.dart';
+
 /// Thin wrapper around local notifications, used to tell the user a transfer
 /// confirmed while they were away.
 ///
@@ -60,14 +62,15 @@ class NotificationService {
     return _enabled;
   }
 
-  /// Routes a background notification to the right channel by its title, so
-  /// the checker needs only one callback.
-  Future<void> showIncomingOrConfirmed({
+  /// Posts a background notification on the channel for funds arriving
+  /// ([incoming]) or for a transfer confirming.
+  Future<void> showInBackground({
     required int id,
     required String title,
     required String body,
+    required bool incoming,
   }) =>
-      title == 'Funds received'
+      incoming
           ? showIncoming(id: id, title: title, body: body)
           : show(id: id, title: title, body: body);
 
@@ -82,11 +85,11 @@ class NotificationService {
         id: id,
         title: title,
         body: body,
-        details: const AndroidNotificationDetails(
+        details: AndroidNotificationDetails(
           'incoming_funds',
-          'Incoming funds',
-          channelDescription: 'Tells you when funds arrive, even if the app '
-              'is closed.',
+          tr('Incoming funds'),
+          channelDescription:
+              tr('Tells you when funds arrive, even if the app is closed.'),
           importance: Importance.high,
           priority: Priority.high,
         ),
@@ -102,10 +105,10 @@ class NotificationService {
         id: id,
         title: title,
         body: body,
-        details: const AndroidNotificationDetails(
+        details: AndroidNotificationDetails(
           'transfer_confirmations',
-          'Transfer confirmations',
-          channelDescription: 'Tells you when an outgoing transfer confirms.',
+          tr('Transfer confirmations'),
+          channelDescription: tr('Tells you when an outgoing transfer confirms.'),
           importance: Importance.high,
           priority: Priority.high,
         ),

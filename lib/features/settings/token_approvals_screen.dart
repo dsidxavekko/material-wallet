@@ -14,6 +14,7 @@ import '../../state/wallet_controller.dart';
 import '../../state/wallet_identity_controller.dart';
 import '../lock/sensitive_auth.dart';
 import '../send/widgets/transfer_progress_dialog.dart';
+import '../../l10n/l10n.dart';
 
 /// ERC-20 approvals this wallet has granted, with a way to revoke each one.
 ///
@@ -74,7 +75,7 @@ class _TokenApprovalsScreenState extends State<TokenApprovalsScreen> {
       // unexpected, and must not leave the screen spinning forever.
       AppLog.warning('Could not load token approvals', error, stackTrace);
       if (mounted) {
-        setState(() => _error = 'Could not load your approvals.');
+        setState(() => _error = context.l10n.couldNotLoadYourApprovals);
       }
     }
   }
@@ -84,20 +85,19 @@ class _TokenApprovalsScreenState extends State<TokenApprovalsScreen> {
     final List<TokenApproval>? approvals = _approvals;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Token approvals')),
+      appBar: AppBar(title: Text(context.l10n.tokenApprovals)),
       body: switch ((_error, approvals)) {
         (final String error, _) => EmptyState(
             icon: Icons.cloud_off_rounded,
-            title: 'Approvals unavailable',
-            message: '$error Pull down to try again.',
+            title: context.l10n.approvalsUnavailable,
+            message: context.l10n.pullDownToTryAgain(error),
           ),
         (_, null) => const Center(child: CircularProgressIndicator()),
-        (_, final List<TokenApproval> list) when list.isEmpty => const EmptyState(
+        (_, final List<TokenApproval> list) when list.isEmpty => EmptyState(
             icon: Icons.verified_user_outlined,
-            title: 'No active approvals',
+            title: context.l10n.noActiveApprovals,
             message:
-                'No contract on this network is allowed to spend your tokens. '
-                'A scam site that asked for approval would show up here.',
+                context.l10n.noContractOnThisNetwork,
           ),
         (_, final List<TokenApproval> list) => RefreshIndicator(
             onRefresh: _load,
@@ -130,7 +130,7 @@ class _TokenApprovalsScreenState extends State<TokenApprovalsScreen> {
     if (!identity.canSign) {
       showAppSnackBar(
         context,
-        'A watch-only wallet cannot revoke approvals.',
+        context.l10n.aWatchOnlyWalletCannot,
         icon: Icons.visibility_outlined,
       );
       return;
@@ -140,21 +140,18 @@ class _TokenApprovalsScreenState extends State<TokenApprovalsScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         icon: const Icon(Icons.block_rounded),
-        title: Text('Revoke ${approval.symbol} approval?'),
+        title: Text(context.l10n.revokeApproval(approval.symbol)),
         content: Text(
-          'This sets the allowance for '
-          '${AppFormat.shortAddress(approval.spender)} to zero, so it can no '
-          'longer move your ${approval.symbol}. Contracts that need the '
-          'approval will stop working until you grant it again.',
+          context.l10n.thisSetsTheAllowanceFor(AppFormat.shortAddress(approval.spender), approval.symbol),
         ),
         actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Keep it'),
+            child: Text(context.l10n.keepIt),
           ),
           FilledButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Revoke'),
+            child: Text(context.l10n.revoke),
           ),
         ],
       ),
@@ -165,9 +162,9 @@ class _TokenApprovalsScreenState extends State<TokenApprovalsScreen> {
 
     final bool authorized = await authorizeSensitiveAction(
       context,
-      reason: 'Revoke approval',
-      title: 'Confirm revoke',
-      confirmLabel: 'Revoke',
+      reason: context.l10n.revokeApproval2,
+      title: context.l10n.confirmRevoke,
+      confirmLabel: context.l10n.revoke,
       icon: Icons.block_rounded,
     );
     if (!authorized || !mounted) {
@@ -197,7 +194,7 @@ class _TokenApprovalsScreenState extends State<TokenApprovalsScreen> {
       if (mounted) {
         showAppSnackBar(
           context,
-          'Could not reach ${network.name} to price the revoke.',
+          context.l10n.couldNotReachToPrice(network.name),
           icon: Icons.cloud_off_rounded,
         );
       }
@@ -243,7 +240,7 @@ class _TokenApprovalsScreenState extends State<TokenApprovalsScreen> {
     if (!revoked) {
       showAppSnackBar(
         context,
-        error ?? 'The revoke could not be sent. Nothing changed.',
+        error ?? context.l10n.theRevokeCouldNotBe,
         icon: Icons.error_outline_rounded,
       );
       return;
@@ -255,7 +252,7 @@ class _TokenApprovalsScreenState extends State<TokenApprovalsScreen> {
     }
     showAppSnackBar(
       context,
-      'Revoke submitted.',
+      context.l10n.revokeSubmitted,
       icon: Icons.check_circle_outline_rounded,
     );
   }
@@ -306,7 +303,7 @@ class _ApprovalCard extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              'Approved for ${AppFormat.shortAddress(approval.spender)}',
+              context.l10n.approvedFor(AppFormat.shortAddress(approval.spender)),
               style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
             ),
             if (approval.isUnlimited) ...[
@@ -318,7 +315,7 @@ class _ApprovalCard extends StatelessWidget {
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      'Unlimited — this contract can move all of it at any time.',
+                      context.l10n.unlimitedThisContractCanMove,
                       style: text.bodySmall?.copyWith(color: scheme.error),
                     ),
                   ),
@@ -337,7 +334,7 @@ class _ApprovalCard extends StatelessWidget {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.block_rounded, size: 18),
-                label: const Text('Revoke'),
+                label: Text(context.l10n.revoke),
               ),
             ),
           ],

@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../../core/utils/app_log.dart';
+import '../../l10n/messages.dart';
 import '../networks/activity_merge.dart';
 import '../networks/chain_api.dart';
 import '../networks/chain_models.dart';
@@ -10,10 +11,12 @@ import '../wallet/wallet_storage.dart';
 import 'background_targets.dart';
 
 /// Posts one notification; the real one talks to the OS, tests record calls.
+/// [incoming] picks the channel (funds arriving vs. a transfer confirming).
 typedef NotificationSink = Future<void> Function({
   required int id,
   required String title,
   required String body,
+  required bool incoming,
 });
 
 /// One pass of the background worker: look at each remembered address and tell
@@ -106,10 +109,11 @@ class BackgroundChecker {
             posted++;
             await sink(
               id: _id(tx.hash),
-              title: 'Transfer confirmed',
-              body: privacy
+              incoming: false,
+              title: tr('Transfer confirmed'),
+              body: tr(privacy
                   ? 'A transfer is confirmed on ${network.name}.'
-                  : '${tx.amountLabel(network)} is confirmed on ${network.name}.',
+                  : '${tx.amountLabel(network)} is confirmed on ${network.name}.'),
             );
           }
           continue;
@@ -127,10 +131,11 @@ class BackgroundChecker {
             : network.name;
         await sink(
           id: _id(tx.hash),
-          title: 'Funds received',
-          body: privacy
+          incoming: true,
+          title: tr('Funds received'),
+          body: tr(privacy
               ? 'New incoming transfer on $where.'
-              : '${tx.amountLabel(network)} on $where.',
+              : '${tx.amountLabel(network)} on $where.'),
         );
       }
 

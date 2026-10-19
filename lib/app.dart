@@ -3,9 +3,12 @@ import 'dart:async';
 import 'package:app_links/app_links.dart';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import 'core/theme/app_theme.dart';
+import 'l10n/l10n.dart';
+import 'l10n/messages.dart';
 import 'core/utils/feedback.dart';
 import 'core/utils/units.dart';
 import 'data/deep_links/payment_link.dart';
@@ -204,9 +207,7 @@ class _AppViewState extends State<_AppView> with WidgetsBindingObserver {
         if (ui != null) {
           showAppSnackBar(
             ui,
-            'This link pays with a token that is not in your '
-            '${link.network.name} balance. Open the network, let it sync and '
-            'scan the code again.',
+            context.l10n.thisLinkPaysWithA(link.network.name),
             icon: Icons.link_off_rounded,
           );
         }
@@ -309,6 +310,8 @@ class _AppViewState extends State<_AppView> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final ThemeMode themeMode =
         context.select<SettingsController, ThemeMode>((s) => s.themeMode);
+    final Locale? locale =
+        context.select<SettingsController, Locale?>((s) => s.locale);
 
     // Colors come from the system (Material You, Android 12+) where it
     // provides them; elsewhere the brand seed is used.
@@ -319,6 +322,9 @@ class _AppViewState extends State<_AppView> with WidgetsBindingObserver {
           debugShowCheckedModeBanner: false,
           navigatorKey: appNavigatorKey,
           themeMode: themeMode,
+          locale: locale,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: SettingsController.supportedLocales,
           theme: AppTheme.light(lightDynamic),
           darkTheme: AppTheme.dark(darkDynamic),
           home: const RootGate(),
@@ -337,6 +343,11 @@ class RootGate extends StatelessWidget {
   Widget build(BuildContext context) {
     final WalletIdentityController identity =
         context.watch<WalletIdentityController>();
+    // Messages made outside widgets (errors, labels, dates) follow the language
+    // in effect here; this build reruns when the language changes.
+    final String language = Localizations.localeOf(context).languageCode;
+    Messages.language = language;
+    Intl.defaultLocale = language;
 
     return switch (identity.status) {
       WalletStatus.loading => const _SplashScreen(),
@@ -371,14 +382,13 @@ class _LoadFailedScreen extends StatelessWidget {
               Icon(Icons.error_outline_rounded, size: 44, color: scheme.error),
               const SizedBox(height: 16),
               Text(
-                'Could not open your wallet',
+                context.l10n.couldNotOpenYourWallet,
                 textAlign: TextAlign.center,
                 style: text.titleLarge?.copyWith(fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 8),
               Text(
-                'The secure storage on this device did not respond. Your '
-                'wallet is not lost — try again.',
+                context.l10n.theSecureStorageOnThis,
                 textAlign: TextAlign.center,
                 style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
               ),
@@ -387,7 +397,7 @@ class _LoadFailedScreen extends StatelessWidget {
                 onPressed: () =>
                     context.read<WalletIdentityController>().load(),
                 icon: const Icon(Icons.refresh_rounded),
-                label: const Text('Try again'),
+                label: Text(context.l10n.tryAgain),
               ),
             ],
           ),

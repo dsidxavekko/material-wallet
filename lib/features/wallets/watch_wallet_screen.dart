@@ -11,6 +11,8 @@ import '../../data/wallet/watch_address.dart';
 import '../../state/wallet_controller.dart';
 import '../../state/wallet_identity_controller.dart';
 import '../scan/scan_screen.dart';
+import '../../l10n/l10n.dart';
+import '../../l10n/messages.dart';
 
 /// Follows addresses without holding any key: balances, tokens and history,
 /// but never a send.
@@ -73,8 +75,8 @@ class _WatchWalletScreenState extends State<WatchWalletScreen> {
     }
     final WatchAddress? found = WatchAddresses.detect(text);
     if (found == null) {
-      setState(() => _addressError = WatchAddresses.explain(text) ??
-          'Enter an address to follow');
+      setState(() => _addressError = (WatchAddresses.explain(text) == null ? null : tr(WatchAddresses.explain(text)!)) ??
+          context.l10n.enterAnAddressToFollow);
       return;
     }
     setState(() {
@@ -87,10 +89,11 @@ class _WatchWalletScreenState extends State<WatchWalletScreen> {
   /// Resolves `name.eth` to the address it points to *now*. Only that address is
   /// kept, so the wallet keeps following it even if the name is repointed.
   Future<void> _addEns(String input) async {
+    final AppLocalizations l10n = context.l10n;
     final String? name = Ens.normalize(input);
     if (name == null) {
       setState(() => _addressError =
-          'This name has characters the wallet cannot read exactly');
+          context.l10n.thisNameHasCharactersThe);
       return;
     }
     setState(() {
@@ -102,9 +105,9 @@ class _WatchWalletScreenState extends State<WatchWalletScreen> {
     try {
       address = await context.read<WalletController>().resolveEns(name);
     } on ChainApiException catch (error) {
-      failure = error.message;
+      failure = tr(error.message);
     } catch (_) {
-      failure = 'Could not look the name up.';
+      failure = l10n.couldNotLookTheName;
     }
     if (!mounted) {
       return;
@@ -114,7 +117,7 @@ class _WatchWalletScreenState extends State<WatchWalletScreen> {
     setState(() {
       _busy = false;
       if (found == null) {
-        _addressError = failure ?? '$name points to no address';
+        _addressError = failure ?? l10n.pointsToNoAddress(name);
         return;
       }
       _added[found.family] = found;
@@ -135,7 +138,7 @@ class _WatchWalletScreenState extends State<WatchWalletScreen> {
   Future<void> _scan() async {
     final String? value = await Navigator.of(context).push<String>(
       MaterialPageRoute<String>(
-        builder: (_) => const ScanScreen(title: 'Scan an address'),
+        builder: (_) => ScanScreen(title: context.l10n.scanAnAddress),
       ),
     );
     if (value != null && mounted) {
@@ -153,7 +156,7 @@ class _WatchWalletScreenState extends State<WatchWalletScreen> {
       }
     }
     if (_added.isEmpty) {
-      setState(() => _addressError = 'Enter an address to follow');
+      setState(() => _addressError = context.l10n.enterAnAddressToFollow);
       return;
     }
     setState(() => _busy = true);
@@ -178,7 +181,7 @@ class _WatchWalletScreenState extends State<WatchWalletScreen> {
       if (mounted) {
         setState(() {
           _busy = false;
-          _addressError = error.message;
+          _addressError = tr(error.message);
         });
       }
       return;
@@ -189,8 +192,8 @@ class _WatchWalletScreenState extends State<WatchWalletScreen> {
     showAppSnackBar(
       context,
       editing == null
-          ? 'Following ${_added.length} address${_added.length == 1 ? '' : 'es'}.'
-          : 'Wallet updated.',
+          ? context.l10n.addressOtherAddresses(_added.length)
+          : context.l10n.walletUpdated,
       icon: Icons.visibility_outlined,
     );
     if (editing == null) {
@@ -208,8 +211,8 @@ class _WatchWalletScreenState extends State<WatchWalletScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.editing == null
-            ? 'Watch-only wallet'
-            : 'Edit watch-only wallet'),
+            ? context.l10n.watchOnlyWallet
+            : context.l10n.editWatchOnlyWallet),
       ),
       body: SafeArea(
         child: Column(
@@ -219,15 +222,12 @@ class _WatchWalletScreenState extends State<WatchWalletScreen> {
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
                 children: <Widget>[
                   Text(
-                    'Follow an address',
+                    context.l10n.followAnAddress,
                     style: text.titleLarge?.copyWith(fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'See the balance, tokens and history of an address you do '
-                    'not hold the keys for — a cold wallet, a savings account '
-                    'or a friend\'s public address. Nothing secret is stored '
-                    'and this wallet can never send.',
+                    context.l10n.seeTheBalanceTokensAnd,
                     style: text.bodyMedium?.copyWith(
                       color: scheme.onSurfaceVariant,
                       height: 1.45,
@@ -239,9 +239,9 @@ class _WatchWalletScreenState extends State<WatchWalletScreen> {
                     maxLength: 30,
                     enabled: !_busy,
                     textCapitalization: TextCapitalization.sentences,
-                    decoration: const InputDecoration(
-                      labelText: 'Name (optional)',
-                      hintText: 'e.g. Cold storage',
+                    decoration: InputDecoration(
+                      labelText: context.l10n.nameOptional,
+                      hintText: context.l10n.eGColdStorage,
                       prefixIcon: Icon(Icons.label_outline_rounded),
                       counterText: '',
                     ),
@@ -257,20 +257,20 @@ class _WatchWalletScreenState extends State<WatchWalletScreen> {
                     onChanged: (_) => setState(() => _addressError = null),
                     onSubmitted: (String v) => _addFrom(v),
                     decoration: InputDecoration(
-                      labelText: 'Address',
-                      hintText: 'bc1…, 0x…, name.eth, Solana or Aptos address',
+                      labelText: context.l10n.address,
+                      hintText: context.l10n.bc10xNameEthSolana,
                       errorText: _addressError,
                       prefixIcon: const Icon(Icons.visibility_outlined),
                       suffixIcon: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: <Widget>[
                           IconButton(
-                            tooltip: 'Paste',
+                            tooltip: context.l10n.paste,
                             icon: const Icon(Icons.content_paste_rounded),
                             onPressed: _busy ? null : _paste,
                           ),
                           IconButton(
-                            tooltip: 'Scan',
+                            tooltip: context.l10n.scan,
                             icon: const Icon(Icons.qr_code_scanner_rounded),
                             onPressed: _busy ? null : _scan,
                           ),
@@ -286,7 +286,7 @@ class _WatchWalletScreenState extends State<WatchWalletScreen> {
                           ? null
                           : () => _addFrom(_addressController.text),
                       icon: const Icon(Icons.add_rounded),
-                      label: const Text('Add address'),
+                      label: Text(context.l10n.addAddress),
                     ),
                   ),
                   if (_added.isNotEmpty) ...<Widget>[
@@ -295,7 +295,7 @@ class _WatchWalletScreenState extends State<WatchWalletScreen> {
                       Card(
                         child: ListTile(
                           leading: const Icon(Icons.check_circle_outline_rounded),
-                          title: Text(a.label),
+                          title: Text(tr(a.label)),
                           subtitle: Text(
                             _ensNames[a.address] == null
                                 ? a.address
@@ -304,7 +304,7 @@ class _WatchWalletScreenState extends State<WatchWalletScreen> {
                             overflow: TextOverflow.ellipsis,
                           ),
                           trailing: IconButton(
-                            tooltip: 'Remove',
+                            tooltip: context.l10n.remove3,
                             icon: const Icon(Icons.close_rounded),
                             onPressed: _busy
                                 ? null
@@ -314,9 +314,7 @@ class _WatchWalletScreenState extends State<WatchWalletScreen> {
                       ),
                     const SizedBox(height: 4),
                     Text(
-                      'One address per kind: an EVM address is the same on '
-                      'Ethereum, Base, Polygon, Arbitrum, BNB Chain and '
-                      'Sepolia.',
+                      context.l10n.oneAddressPerKindAn,
                       style: text.bodySmall
                           ?.copyWith(color: scheme.onSurfaceVariant),
                     ),
@@ -329,7 +327,7 @@ class _WatchWalletScreenState extends State<WatchWalletScreen> {
               child: FilledButton.icon(
                 onPressed: _busy ? null : _save,
                 icon: const Icon(Icons.visibility_rounded),
-                label: Text(widget.editing == null ? 'Follow' : 'Save'),
+                label: Text(widget.editing == null ? context.l10n.follow : context.l10n.save),
               ),
             ),
           ],

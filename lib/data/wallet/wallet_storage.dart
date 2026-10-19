@@ -29,6 +29,7 @@ class WalletStorage {
   static const String _throttleKey = 'nova.wallet.unlockThrottle';
   static const String _autoLockKey = 'nova.wallet.autoLockSeconds';
   static const String _themeKey = 'nova.wallet.themeMode';
+  static const String _languageKey = 'nova.wallet.language';
   static const String _contactsKey = 'nova.wallet.contacts';
   static const String _cachePrefix = 'nova.wallet.cache.';
   static const String _notificationsKey = 'nova.wallet.notificationsEnabled';
@@ -140,6 +141,21 @@ class WalletStorage {
   Future<void> writeThemeMode(String name) async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.setString(_themeKey, name);
+  }
+
+  /// The chosen app language (`en` / `uk`), or `null` to follow the system.
+  Future<String?> readLanguage() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_languageKey);
+  }
+
+  Future<void> writeLanguage(String? code) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    if (code == null) {
+      await prefs.remove(_languageKey);
+    } else {
+      await prefs.setString(_languageKey, code);
+    }
   }
 
   /// Whether the user turned transfer-confirmation notifications on, or `null`

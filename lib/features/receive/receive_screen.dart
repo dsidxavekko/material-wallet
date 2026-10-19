@@ -13,6 +13,7 @@ import '../../shared/widgets/empty_state.dart';
 import '../../shared/widgets/qr_card.dart';
 import '../../state/settings_controller.dart';
 import '../../state/wallet_controller.dart';
+import '../../l10n/l10n.dart';
 
 /// Shows the wallet's **real** receive address for the active network, both as
 /// text and as a scannable QR code.
@@ -58,17 +59,17 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
 
     if (address == null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Receive')),
-        body: const EmptyState(
+        appBar: AppBar(title: Text(context.l10n.receive)),
+        body: EmptyState(
           icon: Icons.key_off_rounded,
-          title: 'No wallet found',
-          message: 'Unlock your wallet to generate a receive address.',
+          title: context.l10n.noWalletFound,
+          message: context.l10n.unlockYourWalletToGenerate,
         ),
       );
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Receive')),
+      appBar: AppBar(title: Text(context.l10n.receive)),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: <Widget>[
@@ -98,7 +99,7 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
               ),
               subtitle: Text(
                 network.isTestnet
-                    ? '${network.group} · Testnet'
+                    ? context.l10n.testnet(network.group)
                     : network.group,
               ),
             ),
@@ -109,16 +110,15 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
           Center(
             child: Text(
               hasRequest
-                  ? 'Scan to pay ${Units.format(requested, network.decimals)} '
-                      '${network.symbol}'
-                  : 'Scan to receive ${network.symbol}',
+                  ? context.l10n.scanToPay(Units.format(requested, network.decimals), network.symbol)
+                  : context.l10n.scanToReceive(network.symbol),
               style: text.titleSmall?.copyWith(fontWeight: FontWeight.w700),
             ),
           ),
           const SizedBox(height: 6),
           Center(
             child: Text(
-              'Only send ${network.symbol} on ${network.name} to this address.',
+              context.l10n.onlySendOnToThis(network.symbol, network.name),
               textAlign: TextAlign.center,
               style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
             ),
@@ -128,10 +128,10 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
             controller: _amount,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             decoration: InputDecoration(
-              labelText: 'Request an amount (optional)',
+              labelText: context.l10n.requestAnAmountOptional,
               suffixText: network.symbol,
               helperText: _amount.text.trim().isNotEmpty && !hasRequest
-                  ? 'Enter a valid amount'
+                  ? context.l10n.enterAValidAmount
                   : null,
             ),
             onChanged: (_) => setState(() {}),
@@ -147,7 +147,7 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
                 link: payload,
               ),
               icon: const Icon(Icons.ios_share_rounded),
-              label: const Text('Share payment request'),
+              label: Text(context.l10n.sharePaymentRequest),
             ),
           ],
           const SizedBox(height: 26),
@@ -158,7 +158,7 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   Text(
-                    'Your address',
+                    context.l10n.yourAddress,
                     style: text.labelLarge
                         ?.copyWith(color: scheme.onSurfaceVariant),
                   ),
@@ -176,7 +176,7 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
           OutlinedButton.icon(
             onPressed: () => _copy(context, address),
             icon: const Icon(Icons.copy_rounded),
-            label: const Text('Copy address'),
+            label: Text(context.l10n.copyAddress),
           ),
           const SizedBox(height: 10),
           FilledButton.tonalIcon(
@@ -185,7 +185,7 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
               network.explorerAddress(address),
             ),
             icon: const Icon(Icons.open_in_new_rounded),
-            label: const Text('View on explorer'),
+            label: Text(context.l10n.viewOnExplorer),
           ),
         ],
       ),
@@ -202,10 +202,8 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
     try {
       await SharePlus.instance.share(
         ShareParams(
-          text: 'Please send '
-              '${Units.format(amount, network.decimals)} ${network.symbol} '
-              'on ${network.name} to $address\n$link',
-          subject: 'Payment request',
+          text: context.l10n.pleaseSendOnTo(Units.format(amount, network.decimals), network.symbol, network.name, address, link),
+          subject: context.l10n.paymentRequest,
         ),
       );
     } catch (error, stackTrace) {
@@ -213,7 +211,7 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
       if (context.mounted) {
         showAppSnackBar(
           context,
-          'Could not share the request.',
+          context.l10n.couldNotShareTheRequest,
           icon: Icons.error_outline_rounded,
         );
       }
@@ -225,7 +223,7 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
     if (context.mounted) {
       showAppSnackBar(
         context,
-        'Address copied to clipboard',
+        context.l10n.addressCopiedToClipboard,
         icon: Icons.check_circle_outline_rounded,
       );
     }

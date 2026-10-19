@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 
 import '../wallets/add_wallet_screen.dart';
+import '../../l10n/l10n.dart';
 
 /// Asks the user to re-type a few **randomly chosen** words to prove the
 /// recovery phrase was backed up.
@@ -69,7 +70,7 @@ class _VerifyMnemonicScreenState extends State<VerifyMnemonicScreen> {
     final ColorScheme scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Verify backup')),
+      appBar: AppBar(title: Text(context.l10n.verifyBackup)),
       body: SafeArea(
         child: Column(
           children: <Widget>[
@@ -78,15 +79,13 @@ class _VerifyMnemonicScreenState extends State<VerifyMnemonicScreen> {
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
                 children: <Widget>[
                   Text(
-                    'Confirm your recovery phrase',
+                    context.l10n.confirmYourRecoveryPhrase,
                     style: text.titleLarge
                         ?.copyWith(fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Type the words below exactly as they appear in your '
-                    'backup. The positions are chosen at random every time, so '
-                    'you cannot predict which ones will be asked.',
+                    context.l10n.typeTheWordsBelowExactly,
                     style: text.bodyMedium?.copyWith(
                       color: scheme.onSurfaceVariant,
                       height: 1.45,
@@ -101,8 +100,8 @@ class _VerifyMnemonicScreenState extends State<VerifyMnemonicScreen> {
                       textInputAction: TextInputAction.next,
                       onChanged: (_) => setState(() {}),
                       decoration: InputDecoration(
-                        labelText: 'Word #${_indices[i] + 1}',
-                        hintText: 'Type the word',
+                        labelText: context.l10n.word(_indices[i] + 1),
+                        hintText: context.l10n.typeTheWord,
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -114,7 +113,7 @@ class _VerifyMnemonicScreenState extends State<VerifyMnemonicScreen> {
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
               child: FilledButton(
                 onPressed: _isValid ? _continue : null,
-                child: const Text('Continue'),
+                child: Text(context.l10n.continueLabel),
               ),
             ),
           ],
