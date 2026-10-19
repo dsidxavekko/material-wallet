@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../core/utils/app_log.dart';
 import '../core/utils/units.dart';
+import '../data/models/chain_kind.dart';
 import '../data/networks/chain_api.dart';
 import '../data/networks/chain_models.dart';
 import '../data/networks/network_config.dart';
@@ -182,11 +183,15 @@ class PortfolioController extends ChangeNotifier {
         _chainApi.fetchBalance(network, address),
         _chainApi.fetchTokenBalances(network, address),
       ]);
+      List<TokenBalance> tokens = results[1] as List<TokenBalance>;
+      if (network.chain == ChainKind.solana && tokens.isNotEmpty) {
+        tokens = await _priceApi.enrichSplTokens(tokens);
+      }
       return PortfolioEntry(
         network: network,
         address: address,
         balance: results[0] as BigInt,
-        tokens: results[1] as List<TokenBalance>,
+        tokens: tokens,
       );
     } on ChainApiException catch (error) {
       AppLog.warning('Portfolio: ${network.name} unavailable', error);

@@ -26,13 +26,16 @@ class TransferProgressDialog extends StatefulWidget {
     this.tokenAmount,
     this.bitcoinPlan,
     this.replacesTxid,
+    this.nativeAmount,
   }) : assert(
           bitcoinPlan != null ||
+              nativeAmount != null ||
               (maxPriorityFeePerGas != null &&
                   maxFeePerGas != null &&
                   gasLimit != null),
           'An EVM transfer needs maxPriorityFeePerGas, maxFeePerGas and '
-          'gasLimit; a Bitcoin transfer needs bitcoinPlan.',
+          'gasLimit; a Bitcoin transfer needs bitcoinPlan; a Solana or Aptos '
+          'transfer needs nativeAmount.',
         );
 
   final String to;
@@ -64,6 +67,10 @@ class TransferProgressDialog extends StatefulWidget {
   /// With [bitcoinPlan]: the pending transfer this one replaces (RBF).
   final String? replacesTxid;
 
+  /// A Solana or Aptos transfer of this many smallest units to [to]; the fee
+  /// and the rest are read from the chain at signing time.
+  final BigInt? nativeAmount;
+
   @override
   State<TransferProgressDialog> createState() => _TransferProgressDialogState();
 }
@@ -79,6 +86,11 @@ class _TransferProgressDialogState extends State<TransferProgressDialog> {
         return;
       }
       final SendController controller = context.read<SendController>();
+      final BigInt? nativeAmount = widget.nativeAmount;
+      if (nativeAmount != null) {
+        controller.sendNative(to: widget.to, amount: nativeAmount);
+        return;
+      }
       final BitcoinPlan? plan = widget.bitcoinPlan;
       if (plan != null) {
         final String? replaces = widget.replacesTxid;

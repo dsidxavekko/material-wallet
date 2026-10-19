@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../core/utils/explorer.dart';
 import '../../core/utils/feedback.dart';
 import '../../core/utils/formatters.dart';
+import '../../data/models/chain_kind.dart';
 import '../../data/networks/chain_models.dart';
 import '../../shared/widgets/quick_actions.dart';
 import '../../shared/widgets/section_header.dart';
@@ -133,16 +134,23 @@ class _HomeScreenState extends State<HomeScreen> {
           SectionHeader(
             title: 'Tokens',
             // Approvals are the safety net for a token balance the user has
-            // already lost the right to: put it where the tokens are.
-            actionLabel: 'Approvals',
-            onAction: () => _push(context, const TokenApprovalsScreen()),
+            // already lost the right to: put it where the tokens are. They are
+            // an ERC-20 mechanic, so other chains do not get the shortcut.
+            actionLabel:
+                snapshot.network.chain == ChainKind.evm ? 'Approvals' : null,
+            onAction: snapshot.network.chain == ChainKind.evm
+                ? () => _push(context, const TokenApprovalsScreen())
+                : null,
           ),
           TokenList(
             tokens: snapshot.tokens,
             currency: currency,
             hidden: _hideBalance,
-            onTokenTap: (TokenBalance token) =>
-                _push(context, SendScreen(token: token)),
+            // Only ERC-20 tokens can be sent; SPL tokens are shown, not sent.
+            onTokenTap: snapshot.network.chain == ChainKind.evm
+                ? (TokenBalance token) =>
+                    _push(context, SendScreen(token: token))
+                : null,
           ),
         ],
         const SizedBox(height: 26),

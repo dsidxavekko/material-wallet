@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:convert/convert.dart';
 import 'package:http/http.dart' as http;
 
+import '../../core/crypto/base58.dart';
 import '../../core/crypto/ens.dart';
 import '../../core/crypto/hashing.dart';
 import '../../core/utils/app_log.dart';
@@ -561,6 +562,289 @@ class ChainApi {
     return null;
   }
 
+  // --- Solana transaction submission ----------------------------------------
+
+  /// What a System account with no data must hold to stay alive (the
+  /// rent-exempt minimum), used when the node cannot be asked. This is the
+  /// protocol's value for a 0-byte account today.
+  static final BigInt solanaRentExemptFallback = BigInt.from(890880);
+
+  /// A recent blockhash, as the raw 32 bytes the message embeds. A transaction
+  /// is only valid for ~150 slots after it, so this is fetched immediately
+  /// before signing, never earlier.
+  Future<Uint8List> fetchSolanaBlockhash(NetworkConfig network) async {
+    final Object? result = await _rpc(
+      network.apiBase,
+      'getLatestBlockhash',
+      <Object?>[
+        <String, Object?>{'commitment': 'confirmed'},
+      ],
+    );
+    final Object? value = result is Map ? result['value'] : null;
+    final String? blockhash = value is Map ? value['blockhash'] as String? : null;
+    final Uint8List? bytes = blockhash == null ? null : Base58.decode(blockhash);
+    if (bytes == null || bytes.length != 32) {
+      throw const ChainApiException(
+        'The node returned no usable blockhash.',
+        retryable: false,
+      );
+    }
+    return bytes;
+  }
+
+  /// The minimum balance a data-less account must keep (0 allowed), falling
+  /// back to [solanaRentExemptFallback] when the node does not answer.
+  Future<BigInt> fetchSolanaRentExemptMinimum(NetworkConfig network) async {
+    try {
+      final Object? result = await _rpc(
+        network.apiBase,
+        'getMinimumBalanceForRentExemption',
+        <Object?>[0],
+      );
+      if (result is num && result > 0) {
+        return BigInt.from(result.toInt());
+      }
+    } on ChainApiException catch (error) {
+      AppLog.warning('Rent minimum unavailable, using the default', error);
+    }
+    return solanaRentExemptFallback;
+  }
+
+  /// The exact fee the cluster will charge for [message], or `null` when it
+  /// cannot say (the caller then uses the flat 5 000 lamports).
+  Future<BigInt?> fetchSolanaMessageFee(
+    NetworkConfig network,
+    Uint8List message,
+  ) async {
+    try {
+      final Object? result = await _rpc(
+        network.apiBase,
+        'getFeeForMessage',
+        <Object?>[
+          base64Encode(message),
+          <String, Object?>{'commitment': 'confirmed'},
+        ],
+      );
+      final Object? value = result is Map ? result['value'] : null;
+      return value is num ? BigInt.from(value.toInt()) : null;
+    } on ChainApiException {
+      return null;
+    }
+  }
+
+  /// Broadcasts a signed transaction and returns its signature (the txid).
+  Future<String> sendSolanaTransaction(
+    NetworkConfig network,
+    Uint8List transaction,
+  ) async {
+    final Object? result = await _rpc(
+      network.apiBase,
+      'sendTransaction',
+      <Object?>[
+        base64Encode(transaction),
+        <String, Object?>{
+          'encoding': 'base64',
+          'preflightCommitment': 'confirmed',
+        },
+      ],
+    );
+    if (result is! String || result.isEmpty) {
+      throw const ChainApiException(
+        'The node accepted the transaction but returned no signature.',
+        retryable: false,
+      );
+    }
+    return result;
+  }
+
+  /// Waits until [signature] is confirmed, returning whether it succeeded.
+  /// Gives up with `null` rather than claiming failure.
+  Future<bool?> waitForSolanaConfirmation(
+    NetworkConfig network,
+    String signature, {
+    int attempts = 20,
+  }) async {
+    for (int i = 0; i < attempts; i++) {
+      await Future<void>.delayed(const Duration(seconds: 2));
+      try {
+        final Object? result = await _rpc(
+          network.apiBase,
+          'getSignatureStatuses',
+          <Object?>[
+            <String>[signature],
+            <String, Object?>{'searchTransactionHistory': true},
+          ],
+        );
+        final Object? values = result is Map ? result['value'] : null;
+        final Object? status =
+            values is List && values.isNotEmpty ? values.first : null;
+        if (status is Map) {
+          if (status['err'] != null) {
+            return false;
+          }
+          final Object? level = status['confirmationStatus'];
+          if (level == 'confirmed' || level == 'finalized') {
+            return true;
+          }
+        }
+      } on ChainApiException {
+        // A transient error is not a verdict; keep waiting.
+      }
+    }
+    return null;
+  }
+
+  // --- Aptos transaction submission -----------------------------------------
+
+  /// The account's next sequence number, or `null` for an account that has
+  /// never been funded (the node answers 404).
+  Future<int?> fetchAptosSequenceNumber(
+    NetworkConfig network,
+    String address,
+  ) async {
+    final Object? json = await _get('${network.apiBase}/accounts/$address');
+    if (json is! Map) {
+      return null;
+    }
+    return int.tryParse('${json['sequence_number']}');
+  }
+
+  /// The chain id and the ledger's own clock in seconds — the expiry is set
+  /// from the ledger, not from the phone, so a skewed device clock cannot
+  /// produce an already-expired transaction.
+  Future<({int chainId, int ledgerTimeSecs})> fetchAptosLedger(
+    NetworkConfig network,
+  ) async {
+    final Object? json = await _get(network.apiBase);
+    final int? chainId = json is Map ? (json['chain_id'] as num?)?.toInt() : null;
+    final int? micros =
+        json is Map ? int.tryParse('${json['ledger_timestamp']}') : null;
+    if (chainId == null || micros == null) {
+      throw const ChainApiException(
+        'The node returned no ledger information.',
+        retryable: false,
+      );
+    }
+    return (chainId: chainId, ledgerTimeSecs: micros ~/ 1000000);
+  }
+
+  /// Gas price in octas per unit, as the network currently estimates it.
+  Future<int> fetchAptosGasUnitPrice(NetworkConfig network) async {
+    final Object? json = await _get('${network.apiBase}/estimate_gas_price');
+    final int? price =
+        json is Map ? (json['gas_estimate'] as num?)?.toInt() : null;
+    if (price == null || price <= 0) {
+      throw const ChainApiException(
+        'The node returned no gas price.',
+        retryable: false,
+      );
+    }
+    return price;
+  }
+
+  /// Dry-runs a transaction signed with an all-zero signature and returns what
+  /// it would do. Nothing is submitted.
+  Future<({bool success, String vmStatus, int gasUsed})> simulateAptos(
+    NetworkConfig network,
+    Uint8List signedTransaction,
+  ) async {
+    final Object? json = await _postBcs(
+      '${network.apiBase}/transactions/simulate',
+      signedTransaction,
+    );
+    final Object? first = json is List && json.isNotEmpty ? json.first : null;
+    if (first is! Map) {
+      throw const ChainApiException(
+        'The simulation returned no result.',
+        retryable: false,
+      );
+    }
+    return (
+      success: first['success'] == true,
+      vmStatus: '${first['vm_status']}',
+      gasUsed: int.tryParse('${first['gas_used']}') ?? 0,
+    );
+  }
+
+  /// Submits a signed transaction and returns its hash.
+  Future<String> submitAptos(
+    NetworkConfig network,
+    Uint8List signedTransaction,
+  ) async {
+    final Object? json = await _postBcs(
+      '${network.apiBase}/transactions',
+      signedTransaction,
+    );
+    final String? hash = json is Map ? json['hash'] as String? : null;
+    if (hash == null || hash.isEmpty) {
+      throw const ChainApiException(
+        'The node accepted the transaction but returned no hash.',
+        retryable: false,
+      );
+    }
+    return hash;
+  }
+
+  /// Waits until [hash] is committed, returning whether it executed
+  /// successfully. Gives up with `null` rather than claiming failure.
+  Future<bool?> waitForAptosTransaction(
+    NetworkConfig network,
+    String hash, {
+    int attempts = 20,
+  }) async {
+    for (int i = 0; i < attempts; i++) {
+      await Future<void>.delayed(const Duration(seconds: 2));
+      try {
+        final Object? json =
+            await _get('${network.apiBase}/transactions/by_hash/$hash');
+        if (json is Map && json['type'] != 'pending_transaction') {
+          return json['success'] == true;
+        }
+      } on ChainApiException {
+        // Keep waiting.
+      }
+    }
+    return null;
+  }
+
+  Future<Object?> _postBcs(String url, Uint8List body) async {
+    final http.Response response;
+    try {
+      response = await _client
+          .post(
+            Uri.parse(url),
+            headers: const <String, String>{
+              'Content-Type': 'application/x.aptos.signed_transaction+bcs',
+              'Accept': 'application/json',
+            },
+            body: body,
+          )
+          .timeout(timeout);
+    } on TimeoutException {
+      throw const ChainApiException('The network request timed out.');
+    } catch (_) {
+      throw const ChainApiException(
+        'Could not reach the blockchain API. Check your connection.',
+      );
+    }
+
+    Object? decoded;
+    try {
+      decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    } catch (_) {
+      decoded = null;
+    }
+    if (response.statusCode >= 400) {
+      // The Aptos node explains a refusal in `message`; show it.
+      final String? message = decoded is Map ? decoded['message'] as String? : null;
+      throw ChainApiException(
+        message ?? 'The node rejected the request (HTTP ${response.statusCode}).',
+        retryable: response.statusCode >= 500 || response.statusCode == 429,
+      );
+    }
+    return decoded;
+  }
+
   // --- Bitcoin transaction submission --------------------------------------
 
   /// Unspent outputs paying [address], newest chain tip first.
@@ -830,6 +1114,14 @@ class ChainApi {
     NetworkConfig network,
     String address,
   ) async {
+    if (network.chain == ChainKind.solana) {
+      try {
+        return await _fetchSplBalances(network, address);
+      } catch (error) {
+        AppLog.warning('SPL balances unavailable for ${network.name}', error);
+        return const <TokenBalance>[];
+      }
+    }
     if (network.chain != ChainKind.evm || network.rpcUrl != null) {
       return const <TokenBalance>[];
     }
@@ -968,6 +1260,79 @@ class ChainApi {
     }
     return _hexToBigInt('0x${body.substring(0, 64)}');
   }
+
+  /// The classic SPL Token program and Token-2022 (Token Extensions).
+  static const List<String> _splPrograms = <String>[
+    'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
+    'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb',
+  ];
+
+  /// SPL token balances of [owner]: every token account of both programs,
+  /// merged per mint. Symbol and price are not on-chain — [PriceApi.enrichSplTokens]
+  /// adds them; until then a token is labelled by its shortened mint.
+  Future<List<TokenBalance>> _fetchSplBalances(
+    NetworkConfig network,
+    String owner,
+  ) async {
+    final Map<String, ({BigInt amount, int decimals})> byMint =
+        <String, ({BigInt amount, int decimals})>{};
+    for (final String program in _splPrograms) {
+      final Object? result = await _rpc(
+        network.apiBase,
+        'getTokenAccountsByOwner',
+        <Object?>[
+          owner,
+          <String, Object?>{'programId': program},
+          <String, Object?>{'encoding': 'jsonParsed'},
+        ],
+      );
+      final Object? accounts = result is Map ? result['value'] : null;
+      if (accounts is! List) {
+        continue;
+      }
+      for (final Object? entry in accounts) {
+        final Object? data = entry is Map
+            ? (entry['account'] is Map ? (entry['account'] as Map)['data'] : null)
+            : null;
+        final Object? parsed = data is Map ? data['parsed'] : null;
+        final Object? info = parsed is Map ? parsed['info'] : null;
+        if (info is! Map) {
+          continue;
+        }
+        final String? mint = info['mint'] as String?;
+        final Object? tokenAmount = info['tokenAmount'];
+        if (mint == null || tokenAmount is! Map) {
+          continue;
+        }
+        final BigInt? amount = BigInt.tryParse('${tokenAmount['amount']}');
+        final int? decimals = (tokenAmount['decimals'] as num?)?.toInt();
+        if (amount == null || decimals == null || amount <= BigInt.zero) {
+          continue;
+        }
+        final ({BigInt amount, int decimals})? existing = byMint[mint];
+        byMint[mint] = (
+          amount: (existing?.amount ?? BigInt.zero) + amount,
+          decimals: decimals,
+        );
+      }
+    }
+    return <TokenBalance>[
+      for (final MapEntry<String, ({BigInt amount, int decimals})> e
+          in byMint.entries)
+        TokenBalance(
+          symbol: splPlaceholderSymbol(e.key),
+          name: '',
+          decimals: e.value.decimals,
+          balance: e.value.amount,
+          contractAddress: e.key,
+        ),
+    ];
+  }
+
+  /// How an SPL token is labelled before its real ticker is known: the start
+  /// of its mint, which is what a block explorer would show.
+  static String splPlaceholderSymbol(String mint) =>
+      mint.length > 8 ? '${mint.substring(0, 4)}…${mint.substring(mint.length - 4)}' : mint;
 
   static List<TokenBalance> _parseTokenBalances(Object? json) {
     if (json is! Map<String, Object?>) {

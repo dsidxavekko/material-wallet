@@ -88,13 +88,13 @@ class NetworkConfig {
   /// `true` when the wallet can build and broadcast a transaction here.
   ///
   /// Bitcoin always can (mempool.space accepts and serves both mainnet and
-  /// testnet); an EVM chain needs a bound [chainId] and a [sendRpcUrl] — which
-  /// is why the JSON-RPC-only BNB Chain is read-only. Solana and Aptos can not
-  /// sign yet.
+  /// testnet); an EVM chain needs a bound [chainId] and at least one send node;
+  /// Solana and Aptos send their native coin.
   bool get canSign => switch (chain) {
         ChainKind.bitcoin => true,
         ChainKind.evm => chainId != null && sendRpcUrls.isNotEmpty,
-        ChainKind.solana || ChainKind.aptos => false,
+        // ed25519 transfers of the native coin (no tokens yet).
+        ChainKind.solana || ChainKind.aptos => true,
       };
 
   /// Whether this network has an address-history index. Without one (the
@@ -302,6 +302,22 @@ class NetworkCatalog {
     priceId: 'solana',
   );
 
+  /// Devnet exists to prove the send path without real money: faucet SOL, a
+  /// real cluster, and `tool/verify_solana.dart` runs against it.
+  static const NetworkConfig solanaDevnet = NetworkConfig(
+    id: 'solana-devnet',
+    name: 'Solana Devnet',
+    chain: ChainKind.solana,
+    symbol: 'SOL',
+    decimals: 9,
+    apiBase: 'https://api.devnet.solana.com',
+    explorerBase: 'https://explorer.solana.com',
+    color: Color(0xFF9945FF),
+    isTestnet: true,
+    addressPath: '/address/{address}?cluster=devnet',
+    txPath: '/tx/{hash}?cluster=devnet',
+  );
+
   // --- Aptos ---------------------------------------------------------------
 
   static const NetworkConfig aptos = NetworkConfig(
@@ -328,6 +344,7 @@ class NetworkCatalog {
     polygon,
     arbitrum,
     solana,
+    solanaDevnet,
     aptos,
   ];
 

@@ -145,6 +145,35 @@ class AddressDeriver {
     return '0x${hex.encode(authenticationKey)}';
   }
 
+  /// The ed25519 signing seed and public key for Solana account [account].
+  ///
+  /// The caller owns [privateSeed] and must zero it as soon as the signature
+  /// exists.
+  static ({Uint8List privateSeed, Uint8List publicKey}) solanaKeyPairFromSeed(
+    Uint8List seed, {
+    int account = 0,
+  }) =>
+      _ed25519KeyPair(seed, Slip10.solanaPathFor(account));
+
+  /// The ed25519 signing seed and public key for Aptos account [account].
+  static ({Uint8List privateSeed, Uint8List publicKey}) aptosKeyPairFromSeed(
+    Uint8List seed, {
+    int account = 0,
+  }) =>
+      _ed25519KeyPair(seed, Slip10.aptosPathFor(account));
+
+  static ({Uint8List privateSeed, Uint8List publicKey}) _ed25519KeyPair(
+    Uint8List seed,
+    List<int> path,
+  ) {
+    final Uint8List privateSeed = Slip10.deriveEd25519Seed(seed, path);
+    final ed.PrivateKey key = ed.newKeyFromSeed(privateSeed);
+    return (
+      privateSeed: privateSeed,
+      publicKey: Uint8List.fromList(ed.public(key).bytes),
+    );
+  }
+
   /// Lower-cases and collapses whitespace so pasted phrases validate reliably.
   static String normalize(String mnemonic) => mnemonic
       .trim()

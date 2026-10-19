@@ -272,7 +272,14 @@ class WalletController extends ChangeNotifier {
 
       final BigInt balance = results[0]! as BigInt;
       final ActivityPage page = results[1]! as ActivityPage;
-      final List<TokenBalance> tokens = results[2]! as List<TokenBalance>;
+      List<TokenBalance> tokens = results[2]! as List<TokenBalance>;
+      if (network.chain == ChainKind.solana && tokens.isNotEmpty) {
+        // The chain knows mints only; tickers and prices come from CoinGecko.
+        tokens = await _priceApi.enrichSplTokens(tokens);
+        if (token != _requestToken) {
+          return;
+        }
+      }
       final CoinPrice? fetchedPrice = results[3] as CoinPrice?;
       final List<double> fetchedChart = results[4]! as List<double>;
 

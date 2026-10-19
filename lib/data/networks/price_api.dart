@@ -133,6 +133,83 @@ class PriceApi {
     return result;
   }
 
+  /// Tickers and names already looked up for SPL mints (these never change).
+  final Map<String, ({String symbol, String name})> _splMeta =
+      <String, ({String symbol, String name})>{};
+
+  /// How many unknown mints one call may look up individually, to stay inside
+  /// the free tier's rate limit.
+  static const int _splLookupsPerCall = 5;
+
+  /// Fills in ticker, name and USD price for SPL [tokens].
+  ///
+  /// The chain only knows a mint, an amount and decimals. Prices come from one
+  /// batched CoinGecko request; a ticker the wallet has not seen yet costs one
+  /// extra lookup (a few per call at most). Anything CoinGecko does not know
+  /// keeps its shortened-mint label and has no price — never a guessed one.
+  Future<List<TokenBalance>> enrichSplTokens(List<TokenBalance> tokens) async {
+    if (tokens.isEmpty) {
+      return tokens;
+    }
+    final Map<String, double> prices = <String, double>{};
+    try {
+      final String mints = tokens.map((TokenBalance t) => t.contractAddress).join(',');
+      final Map<String, Object?>? json = await _getJson(
+        '$_base/simple/token_price/solana?contract_addresses=$mints'
+        '&vs_currencies=usd',
+      );
+      for (final MapEntry<String, Object?> e
+          in (json ?? const <String, Object?>{}).entries) {
+        final Object? value = e.value;
+        final num? usd = value is Map ? value['usd'] as num? : null;
+        if (usd != null) {
+          prices[e.key.toLowerCase()] = usd.toDouble();
+        }
+      }
+    } catch (error) {
+      AppLog.warning('SPL prices unavailable', error);
+    }
+
+    int lookups = 0;
+    final List<TokenBalance> result = <TokenBalance>[];
+    for (final TokenBalance token in tokens) {
+      final String mint = token.contractAddress;
+      ({String symbol, String name})? meta = _splMeta[mint];
+      if (meta == null && lookups < _splLookupsPerCall) {
+        lookups++;
+        try {
+          final Map<String, Object?>? json =
+              await _getJson('$_base/coins/solana/contract/$mint');
+          final String symbol = (json?['symbol'] as String? ?? '').trim();
+          if (symbol.isNotEmpty) {
+            meta = (
+              symbol: symbol.toUpperCase(),
+              name: json?['name'] as String? ?? '',
+            );
+            _splMeta[mint] = meta;
+          }
+        } catch (error) {
+          AppLog.warning('SPL metadata unavailable for $mint', error);
+        }
+      }
+      result.add(
+        TokenBalance(
+          symbol: meta?.symbol ?? token.symbol,
+          name: meta?.name ?? token.name,
+          decimals: token.decimals,
+          balance: token.balance,
+          contractAddress: mint,
+          usdRate: prices[mint.toLowerCase()],
+        ),
+      );
+    }
+    result.sort((TokenBalance a, TokenBalance b) {
+      final int byValue = (b.usdValue ?? -1).compareTo(a.usdValue ?? -1);
+      return byValue != 0 ? byValue : a.symbol.compareTo(b.symbol);
+    });
+    return result;
+  }
+
   /// Normalised 24h price series used for the chart, or an empty list.
   ///
   /// A cached value younger than [cacheTtl] is returned without a request.

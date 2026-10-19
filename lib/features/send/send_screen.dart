@@ -34,8 +34,9 @@ import 'widgets/transfer_progress_dialog.dart';
 
 /// Sends the native currency of the active network, or an ERC-20 [token].
 ///
-/// EVM networks are signed on-device and broadcast for real; every other chain
-/// still stops at a validated, copyable summary.
+/// Every supported network is signed on-device and broadcast for real:
+/// Bitcoin, the EVM chains (native coin and ERC-20), and the native coin of
+/// Solana and Aptos.
 class SendScreen extends StatefulWidget {
   const SendScreen({
     super.key,
@@ -70,6 +71,10 @@ class _SendScreenState extends State<SendScreen> {
   /// network's published confirmation tiers they were priced from.
   BitcoinPlan? _btcPlan;
   BitcoinFeeTiers? _btcTiers;
+
+  /// Solana/Aptos: the live fee for the entered amount and recipient, plus the
+  /// reason the chain would refuse the transfer (rent rules, gas reserve…).
+  ({BigInt? fee, String? problem})? _nativeQuote;
 
   /// Fallback sat/vB when the network published no tiers at all — the lowest
   /// rate a node will relay.
@@ -126,6 +131,10 @@ class _SendScreenState extends State<SendScreen> {
   }
 
   bool get _isBitcoin => _network.chain == ChainKind.bitcoin;
+
+  /// Solana and Aptos: ed25519 chains whose fee comes from the chain itself.
+  bool get _isNative =>
+      _network.chain == ChainKind.solana || _network.chain == ChainKind.aptos;
 
   int get _decimals => widget.token?.decimals ?? _network.decimals;
 
@@ -216,6 +225,9 @@ class _SendScreenState extends State<SendScreen> {
       // The plan's fee is exact (sat/vB × vsize), not a cap.
       return _btcPlan?.fee ?? _estimate ?? BigInt.zero;
     }
+    if (_isNative) {
+      return _nativeQuote?.fee ?? _estimate ?? BigInt.zero;
+    }
     if (_quote != null) {
       // The cap is the most per gas the transfer can cost, times the limit.
       return _cap * _quote!.gasLimit;
@@ -277,7 +289,11 @@ class _SendScreenState extends State<SendScreen> {
   /// On a chain the wallet can broadcast, an unavailable quote blocks sending:
   /// guessing a fee risks a transaction the user never approved.
   bool get _feeKnown {
-    final bool quoteReady = _isBitcoin ? _btcPlan != null : _quote != null;
+    final bool quoteReady = _isBitcoin
+        ? _btcPlan != null
+        : _isNative
+            ? _nativeQuote?.fee != null
+            : _quote != null;
     return quoteReady || (_estimate != null && !_network.canSign);
   }
 
@@ -307,6 +323,20 @@ class _SendScreenState extends State<SendScreen> {
       network: network,
       address: context.read<WalletController>().address ?? '',
     );
+
+    if (_isNative) {
+      final ({BigInt? fee, String? problem}) quote =
+          await controller.prepareNative(to: recipient, amount: _nativeOut);
+      controller.dispose();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _nativeQuote = quote;
+        _loadingFee = false;
+      });
+      return;
+    }
 
     if (_isBitcoin) {
       _btcTiers ??= await controller.recommendedBitcoinFeeTiers();
@@ -534,7 +564,8 @@ class _SendScreenState extends State<SendScreen> {
                     amountDecimals: _decimals,
                     amountSymbol: _symbol,
                     showTotal: !_isToken,
-                    feeLabel: _isBitcoin ? 'Network fee' : 'Max network fee',
+                    feeLabel:
+                        _isBitcoin || _isNative ? 'Network fee' : 'Max network fee',
                     fee: _feeKnown ? _effectiveFee : null,
                     loadingFee: _loadingFee,
                   ),
@@ -941,7 +972,19 @@ class _SendScreenState extends State<SendScreen> {
       if (!mounted) {
         return;
       }
-      final bool ready = _isBitcoin ? _btcPlan != null : _quote != null;
+      final bool ready = _isBitcoin
+          ? _btcPlan != null
+          : _isNative
+              ? _nativeQuote?.fee != null
+              : _quote != null;
+      if (_isNative && _nativeQuote?.problem != null) {
+        showAppSnackBar(
+          context,
+          _nativeQuote!.problem!,
+          icon: Icons.error_outline_rounded,
+        );
+        return;
+      }
       if (!ready) {
         showAppSnackBar(
           context,
@@ -956,7 +999,12 @@ class _SendScreenState extends State<SendScreen> {
     final ContactsController contacts = context.read<ContactsController>();
     final String recipient = _recipient;
     final bool alreadySaved = contacts.contains(recipient, network.id);
-    final bool canSend = network.canSign && (_isBitcoin ? _btcPlan != null : _quote != null);
+    final bool canSend = network.canSign &&
+        (_isBitcoin
+            ? _btcPlan != null
+            : _isNative
+                ? _nativeQuote?.fee != null
+                : _quote != null);
 
     // Ask the explorer about the recipient while the sheet opens, so a scam
     // flag or a token-contract address is seen before the signature, not after
@@ -985,7 +1033,9 @@ class _SendScreenState extends State<SendScreen> {
         ? null
         : _isBitcoin
             ? () => _signAndSendBitcoin(recipient)
-            : () => _signAndSend(recipient, _signingFees());
+            : _isNative
+                ? () => _signAndSendNative(recipient)
+                : () => _signAndSend(recipient, _signingFees());
 
     await showModalBottomSheet<void>(
       context: context,
@@ -1000,7 +1050,7 @@ class _SendScreenState extends State<SendScreen> {
         amountDecimals: _decimals,
         amountSymbol: _symbol,
         showTotal: !_isToken,
-        feeLabel: _isBitcoin ? 'Network fee' : 'Max network fee',
+        feeLabel: _isBitcoin || _isNative ? 'Network fee' : 'Max network fee',
         fee: _effectiveFee,
         explorerUrl: network.explorerAddress(recipient),
         alreadySaved: alreadySaved,
@@ -1115,6 +1165,81 @@ class _SendScreenState extends State<SendScreen> {
       amount: amount,
       amountDecimals: amountDecimals,
       amountSymbol: amountSymbol,
+    );
+  }
+
+  /// Confirms, signs and broadcasts a Solana or Aptos transfer.
+  Future<void> _signAndSendNative(String recipient) async {
+    final NetworkConfig network = _network;
+    final WalletIdentityController identity =
+        context.read<WalletIdentityController>();
+    final String? address = identity.addressFor(network);
+    final BigInt amount = _enteredAmount;
+    if (address == null || amount <= BigInt.zero) {
+      return;
+    }
+
+    final bool authorized = await authorizeSensitiveAction(
+      context,
+      reason: 'Confirm transfer',
+      title: 'Confirm transfer',
+      confirmLabel: 'Send',
+      icon: Icons.key_rounded,
+    );
+    if (!authorized || !mounted) {
+      return;
+    }
+
+    Navigator.of(context).pop(); // close the summary sheet
+
+    final SendController controller = SendController(
+      identity: identity,
+      network: network,
+      address: address,
+    );
+
+    unawaited(
+      _runNativeTransfer(
+        controller,
+        network: network,
+        recipient: recipient,
+        amount: amount,
+      ),
+    );
+  }
+
+  Future<void> _runNativeTransfer(
+    SendController controller, {
+    required NetworkConfig network,
+    required String recipient,
+    required BigInt amount,
+  }) async {
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => ChangeNotifierProvider<SendController>.value(
+        value: controller,
+        child: TransferProgressDialog(
+          to: recipient,
+          value: amount,
+          nativeAmount: amount,
+        ),
+      ),
+    );
+    final String? hash = controller.txHash;
+    final bool confirmed = controller.stage == SendStage.confirmed;
+    final String? error = controller.error;
+    controller.dispose();
+
+    await _finishTransfer(
+      network: network,
+      recipient: recipient,
+      hash: hash,
+      confirmed: confirmed,
+      error: error,
+      amount: amount,
+      amountDecimals: network.decimals,
+      amountSymbol: network.symbol,
     );
   }
 

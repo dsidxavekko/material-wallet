@@ -1,0 +1,159 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:ed25519_edwards/ed25519_edwards.dart' as ed;
+
+import '../../core/crypto/hashing.dart';
+
+/// Thrown when an Aptos transfer cannot be built or signed.
+class AptosSigningException implements Exception {
+  const AptosSigningException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+/// Builds and signs an APT transfer (`0x1::aptos_account::transfer`) as a BCS
+/// `SignedTransaction`.
+///
+/// `aptos_account::transfer` (unlike `coin::transfer`) creates the recipient
+/// account if it does not exist, so a first payment to a fresh address works.
+/// Pinned by a vector generated with the official `aptos-sdk`.
+class AptosSigner {
+  const AptosSigner._();
+
+  /// Domain separator mixed into everything that is signed:
+  /// `sha3_256("APTOS::RawTransaction")`.
+  static final Uint8List _rawTransactionPrefix = Hashing.sha3_256(
+    Uint8List.fromList(utf8.encode('APTOS::RawTransaction')),
+  );
+
+  /// ULEB128, BCS's length encoding.
+  static Uint8List uleb128(int value) {
+    final List<int> out = <int>[];
+    int rest = value;
+    do {
+      int byte = rest & 0x7f;
+      rest >>= 7;
+      if (rest != 0) {
+        byte |= 0x80;
+      }
+      out.add(byte);
+    } while (rest != 0);
+    return Uint8List.fromList(out);
+  }
+
+  static Uint8List _u64(BigInt value) {
+    if (value.isNegative || value >= (BigInt.one << 64)) {
+      throw const AptosSigningException('Amount out of range.');
+    }
+    final Uint8List out = Uint8List(8);
+    for (int i = 0; i < 8; i++) {
+      out[i] = ((value >> (8 * i)) & BigInt.from(0xff)).toInt();
+    }
+    return out;
+  }
+
+  /// A 32-byte account address from `0x…` hex (shorter forms such as `0x1` are
+  /// left-padded, as Aptos does).
+  static Uint8List addressBytes(String address) {
+    String body = address.trim().toLowerCase();
+    if (body.startsWith('0x')) {
+      body = body.substring(2);
+    }
+    if (body.isEmpty || body.length > 64 || !RegExp(r'^[0-9a-f]+$').hasMatch(body)) {
+      throw const AptosSigningException('Invalid Aptos address.');
+    }
+    body = body.padLeft(64, '0');
+    return Uint8List.fromList(<int>[
+      for (int i = 0; i < 64; i += 2) int.parse(body.substring(i, i + 2), radix: 16),
+    ]);
+  }
+
+  /// BCS `RawTransaction` for sending [amount] octas to [to].
+  static Uint8List rawTransfer({
+    required Uint8List sender,
+    required int sequenceNumber,
+    required Uint8List to,
+    required BigInt amount,
+    required int maxGasAmount,
+    required int gasUnitPrice,
+    required int expirationTimestampSecs,
+    required int chainId,
+  }) {
+    if (sender.length != 32 || to.length != 32) {
+      throw const AptosSigningException('Malformed address.');
+    }
+    if (amount <= BigInt.zero) {
+      throw const AptosSigningException('Invalid amount.');
+    }
+    if (chainId < 0 || chainId > 255) {
+      throw const AptosSigningException('Invalid chain id.');
+    }
+    final List<int> module = utf8.encode('aptos_account');
+    final List<int> function = utf8.encode('transfer');
+    return Uint8List.fromList(<int>[
+      ...sender,
+      ..._u64(BigInt.from(sequenceNumber)),
+      2, // TransactionPayload::EntryFunction
+      ...Uint8List(31), 1, // module address 0x1
+      ...uleb128(module.length), ...module,
+      ...uleb128(function.length), ...function,
+      0, // no type arguments
+      2, // two arguments
+      ...uleb128(32), ...to,
+      ...uleb128(8), ..._u64(amount),
+      ..._u64(BigInt.from(maxGasAmount)),
+      ..._u64(BigInt.from(gasUnitPrice)),
+      ..._u64(BigInt.from(expirationTimestampSecs)),
+      chainId,
+    ]);
+  }
+
+  /// The bytes that are actually signed.
+  static Uint8List signingMessage(Uint8List rawTransaction) =>
+      Uint8List.fromList(<int>[..._rawTransactionPrefix, ...rawTransaction]);
+
+  /// `SignedTransaction`: the raw transaction plus an ed25519 authenticator
+  /// (`0x00 ‖ len ‖ publicKey ‖ len ‖ signature`).
+  static Uint8List signedTransaction({
+    required Uint8List rawTransaction,
+    required Uint8List publicKey,
+    required Uint8List signature,
+  }) =>
+      Uint8List.fromList(<int>[
+        ...rawTransaction,
+        0, // TransactionAuthenticator::Ed25519
+        ...uleb128(publicKey.length), ...publicKey,
+        ...uleb128(signature.length), ...signature,
+      ]);
+
+  /// Signs [rawTransaction] with the ed25519 [privateSeed].
+  static Uint8List sign({
+    required Uint8List privateSeed,
+    required Uint8List rawTransaction,
+  }) {
+    final ed.PrivateKey key = ed.newKeyFromSeed(privateSeed);
+    final Uint8List publicKey = Uint8List.fromList(ed.public(key).bytes);
+    final Uint8List signature = ed.sign(key, signingMessage(rawTransaction));
+    return signedTransaction(
+      rawTransaction: rawTransaction,
+      publicKey: publicKey,
+      signature: signature,
+    );
+  }
+
+  /// A signed transaction carrying an all-zero signature, which is what the
+  /// `/transactions/simulate` endpoint expects (it rejects a real signature).
+  static Uint8List simulationTransaction({
+    required Uint8List rawTransaction,
+    required Uint8List publicKey,
+  }) =>
+      signedTransaction(
+        rawTransaction: rawTransaction,
+        publicKey: publicKey,
+        signature: Uint8List(64),
+      );
+}
