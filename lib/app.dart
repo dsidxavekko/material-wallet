@@ -8,6 +8,7 @@ import 'core/theme/app_theme.dart';
 import 'core/utils/feedback.dart';
 import 'core/utils/units.dart';
 import 'data/deep_links/payment_link.dart';
+import 'data/background/background_service.dart';
 import 'data/notifications/notification_service.dart';
 import 'data/networks/chain_api.dart';
 import 'data/networks/chain_models.dart';
@@ -17,6 +18,7 @@ import 'features/lock/lock_screen.dart';
 import 'features/onboarding/onboarding_screen.dart';
 import 'features/send/send_screen.dart';
 import 'features/shell/app_shell.dart';
+import 'state/background_targets_sync.dart';
 import 'state/confirmation_watcher.dart';
 import 'state/contacts_controller.dart';
 import 'state/hidden_tokens_controller.dart';
@@ -79,6 +81,7 @@ class MaterialWalletApp extends StatelessWidget {
           ),
         ),
         Provider<NotificationService>(create: (_) => NotificationService()),
+        Provider<BackgroundService>(create: (_) => const BackgroundService()),
       ],
       child: const _AppView(),
     );
@@ -98,6 +101,10 @@ class _AppViewState extends State<_AppView> with WidgetsBindingObserver {
   final AppLinks _appLinks = AppLinks();
   StreamSubscription<Uri>? _linkSubscription;
   ConfirmationWatcher? _watcher;
+  BackgroundTargetsSync? _backgroundTargets;
+  late final SettingsController _settings;
+  late final BackgroundService _background;
+  late bool _backgroundApplied;
   late final WalletIdentityController _identity;
 
   /// A link that arrived before the wallet was unlocked, deferred until it is.
@@ -124,6 +131,14 @@ class _AppViewState extends State<_AppView> with WidgetsBindingObserver {
 
     _identity = context.read<WalletIdentityController>();
     _identity.addListener(_flushPendingLink);
+
+    // The background worker has no seed: hand it the public addresses while the
+    // wallet is open, and keep its schedule in step with the setting.
+    _backgroundTargets = BackgroundTargetsSync(identity: _identity);
+    _settings = settings;
+    _background = context.read<BackgroundService>();
+    _backgroundApplied = settings.backgroundChecks;
+    settings.addListener(_applyBackgroundSetting);
     unawaited(_initDeepLinks());
   }
 
@@ -132,9 +147,22 @@ class _AppViewState extends State<_AppView> with WidgetsBindingObserver {
     _autoLockTimer?.cancel();
     _linkSubscription?.cancel();
     _watcher?.dispose();
+    _backgroundTargets?.dispose();
+    _settings.removeListener(_applyBackgroundSetting);
     _identity.removeListener(_flushPendingLink);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  /// Starts or cancels the WorkManager job when the setting changes — including
+  /// the change from "default" to the stored value when the app starts.
+  void _applyBackgroundSetting() {
+    final bool wanted = _settings.backgroundChecks;
+    if (wanted == _backgroundApplied) {
+      return;
+    }
+    _backgroundApplied = wanted;
+    unawaited(wanted ? _background.enable() : _background.disable());
   }
 
   /// Reads the launch link and subscribes to links that arrive while running.

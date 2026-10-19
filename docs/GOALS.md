@@ -1,6 +1,6 @@
 # Material Wallet — analysis and project goals
 
-Date: 18 October 2026 (updated 19 October 2026 — every goal in §4 is implemented in code, and the live checks were run the same day: see §8) · version in `pubspec.yaml`: `0.4.0+5`
+Date: 18 October 2026 (updated 19 October 2026 — every goal in §4 is implemented in code, the live checks were run the same day (§8), and milestone F — watch-only, several recovery phrases, hardware-bound fingerprint, background notifications, hidden tokens in totals — was added and built) · version in `pubspec.yaml`: `0.5.0+6`
 
 This document has four parts: the main goal and the principles that must not
 be broken; what already exists; what was found during the review (facts from
@@ -32,13 +32,14 @@ The principles are constraints on every goal in this document:
 
 | | |
 |---|---|
-| Size | `lib/` ≈ 20.5k lines, `test/` ≈ 9.2k, 413 tests |
+| Size | `lib/` ≈ 22.9k lines, `test/` ≈ 10.7k, 476 tests, 283 lines of Kotlin |
 | Networks | 11: Bitcoin (+ testnet), Ethereum, Sepolia, Base, Polygon, Arbitrum, BNB, Solana (+ Devnet), Aptos |
 | Sending | every network: EVM and BNB (EIP-1559, ERC-20, speed-up / cancel, revoke), Bitcoin (P2WPKH, RBF speed-up), SOL and APT (native coin). SPL tokens — view only |
-| Security | AES-256-GCM + PBKDF2 600k, password of at least 8 characters (old 6–8 digit PINs still unlock), biometrics, auto-lock, backoff after wrong PINs, `FLAG_SECURE`, re-authentication before every send |
+| Wallets | several recovery phrases in one vault under one password; watch-only wallets (no key, no password of their own) |
+| Security | AES-256-GCM + PBKDF2 600k, password of at least 8 characters (old 6–8 digit PINs still unlock), fingerprint unlock bound to an Android Keystore key (per-use authentication), auto-lock, backoff after wrong PINs, `FLAG_SECURE`, re-authentication before every send |
 | Providers | mempool.space, Blockscout, CoinGecko, PublicNode, dRPC, 1RPC, official RPCs (Base, Arbitrum, Polygon, BNB), Solana RPC, Aptos fullnode |
-| `ponytail:` markers | 8 |
-| Automation | GitHub Actions: `flutter analyze` + `flutter test` on every push and PR; a manual workflow runs the no-spend live checks of §8 |
+| `ponytail:` markers | 7 |
+| Automation | GitHub Actions: `flutter analyze` + `flutter test` and a debug build of the Android app on every push and PR; a manual workflow runs the no-spend live checks of §8 |
 
 Three things are done unusually well:
 
@@ -381,20 +382,44 @@ Goals that came out of the review of A–D rather than from the original analysi
 | E2. Run the live checks | done except two | See §8. The run found a real bug (the Aptos gas floor). |
 | E3. Live checks that fail loudly | done | Every `tool/verify_*.dart` now sets a non-zero exit code on `FAIL`, so a workflow cannot go green on a failed check; `.github/workflows/live-checks.yml` runs them by hand. `tool/verify_ens.dart` is new. |
 | E4. Derivation vectors beyond the pinned ones | done | The official SLIP-0010 ed25519 vectors (`test/slip10_vectors_test.dart`) pin the derivation function for any path; Bitcoin accounts 1–2, the testnet prefix and EVM accounts 1–2 are pinned with values from an independent BIP-32 implementation that reproduces the published account-0 vectors. Both are in `test/`. |
-| E5. Manual "hide token" | done | Long-press a token on the home list; "Show N hidden" restores it; stored per network and contract. **Known limit** (`ponytail:`): hiding trims the list only, the totals still count a priced hidden token. |
+| E5. Manual "hide token" | done | Long-press a token on the home list; "Show N hidden" restores it; stored per network and contract. The one known limit (the totals still counted a priced hidden token) was removed by F1. |
+
+### Milestone F — "Beyond one seed" · done 2026-10-19 (code, tests and Android builds; device checks open)
+
+Five items that were listed here as larger ideas, plus the one known limit left from E5. The code is covered by tests and the Android app builds in debug and release; the two features that depend on a real phone are **not exercised on hardware** (§8).
+
+**F1. Hidden tokens leave the totals** · done
+`PortfolioEntry.visibleTokens` and `WalletController.hiddenTokens` drop a hidden token from `portfolioFiat` and from the Portfolio screen's total and token count, and hiding or showing a token recomputes the total at once. The token stays in the snapshot and in the CSV: hiding is about what the wallet shows and adds up, not about what is on-chain. The `ponytail:` marker of E5 became a doc comment. *Done when:* a test: $5 ETH + $1000 USDC + $500 priced airdrop, airdrop hidden → $1005, shown again → back.
+
+**F2. Several recovery phrases** · done
+
+> **As built:** one vault, one password, one unlock. The vault payload stays `{"m","p"}` for the first wallet and adds `i` (its id, when it is not `main`) and `x` (the other phrases, each `{i, m, p}`); a vault with one wallet serialises exactly as before and every older vault, including the bare-mnemonic v1, still opens. Adding or removing a phrase checks the password first and re-encrypts the whole vault; a duplicate (same phrase and passphrase) is refused, the last phrase cannot be removed one by one (erasing is its own action). Names, the active wallet and the watch-only wallets live in a non-secret book (`nova.wallet.book`); each wallet has its own account index and count (the first keeps the original keys, so existing installs read their old values), and account names are scoped `walletId:index`. Wallet ids are time-based and never reused. Switching derives the new seed first and swaps it in one step, so no caller sees the new id with the old seed. Changing the password re-encrypts every phrase. UI: Settings → Wallets (switch, rename, remove, add); the create/import flows end in the usual "set a password" step on a fresh device and in "confirm your password" when a vault already exists.
+
+*Done when:* tests for adding, wrong password leaving the vault untouched, duplicates, per-wallet accounts, password change, removal (including promoting the next phrase), and opening a pre-F vault.
+
+**F3. Watch-only wallets** · done
+
+> **As built:** a wallet holds at most one address per family (`btc`, `btc-test`, `evm`, `sol`, `apt`), recognised from the pasted or scanned address (`WatchAddresses.detect`, payment links are unwrapped). The one ambiguity: an Aptos address of exactly 40 hex digits reads as EVM. A watch-only wallet needs no vault: a device with only watch-only wallets opens straight onto them, `lock()` does nothing, and the password, fingerprint and auto-lock settings are hidden; adding a phrase later creates the vault and asks for a password then. Erasing the recovery phrases leaves watch-only wallets in place. **Signing is refused in layers:** `canSign` is false (no seed in memory), the Send screen shows an explanation instead of the form, every `SendController` entry point refuses before touching the network, and Speed up / Cancel / Revoke are hidden and guarded. A network the wallet follows no address on shows "Nothing followed here" rather than an empty balance. The foreground confirmation watcher ignores a followed address (its outgoing transfers are not ones the user is waiting on).
+
+*Done when:* tests for opening without a password, surviving a restart, sitting next to a seed wallet, refusing to send, and detecting every address family and rejecting a bad checksum.
+
+**F4. Fingerprint bound to the hardware** · done (compiled; not run on a device)
+
+> **As built:** `BoundSecret.kt` keeps the password under an AES-256-GCM Keystore key created with `setUserAuthenticationRequired(true)` and **no validity window** (timeout 0 on API 30+, per-use before), `BIOMETRIC_STRONG` only, `setInvalidatedByBiometricEnrollment(true)`, and every encrypt/decrypt goes through a `BiometricPrompt` `CryptoObject`. Each write makes a fresh key. The Dart `SecurePinStore` therefore turns a read into proof that a finger was presented: `unlockWithBiometrics` and `confirmWithBiometrics` are one prompt, with no separate "did the dialog pass" flag to skip. A non-secret preference marks that a secret exists, so the lock screen does not prompt just to find out. If the fingerprints change the key is dead: the feature switches itself off and the lock screen says why. Changing the password needs one fingerprint to update the stored copy; cancelling drops the stale copy and turns the feature off rather than leave an old password replayable. The unbound copy older versions kept in `flutter_secure_storage` is deleted at launch (users enable the feature once more). `local_auth` was removed. The web build has no fingerprint unlock.
+
+*Done when:* tests of the Dart half against a scripted channel (supported, write, cancel, invalidated, clear) and of the controller (single prompt, reset notice, stale copy dropped, password change); the Kotlin compiles into debug and release APKs. **Not done:** a run on a phone — see §8.
+
+**F5. Notifications while closed** · done (logic tested; scheduling not run on a device)
+
+> **As built:** an opt-in WorkManager periodic job (15 minutes is the platform minimum; network required), Android only. `BackgroundChecker` is plain Dart: for every stored `BackgroundTarget` (an address and its network — public data written while the wallet was unlocked; watch-only addresses always) it reads the first activity page and (a) announces a watched outgoing transfer that has confirmed, removing it from the same persisted set the foreground watcher uses so only one of them speaks, and (b) announces a new incoming transfer. The first look at an address only learns its history, so turning the feature on does not replay old transfers; a failed node changes nothing and is retried next pass; at most 120 hashes are remembered per address. A native receipt counts when positive; a token counts only if the user already held it at the last snapshot and did not hide it, so an unsolicited airdrop does not ping the phone. Privacy mode keeps the amount out of the text; with several wallets the wallet's name is added. There is no seed, password or signing in the background. Settings → "Notify when closed" asks for the notification permission when needed.
+
+*Done when:* tests for first look vs later arrivals, once-only announcement, privacy mode, failed/zero rows, unreachable node, shared addresses, wallet names, token rules, confirmation of a watched transfer, and the target list following wallets in and out; the app builds with the plugin.
 
 ### Larger ideas — separate branches
 
 - **Sending SPL tokens and Aptos fungible assets** — balances are shown today. SPL needs the recipient's associated token account (created on demand, with its own rent) and a new vector from an external implementation, plus a devnet simulation, before it may sign (§7 rule 3).
-- **Watch-only addresses** — follow a cold wallet without keys. Requires
-  separating "address" from "seed" in `WalletIdentityController`.
-- **Multiple seed phrases** — currently one vault per device.
-- **Background notifications** via WorkManager — a new dependency and battery
-  cost, but a real "you received funds" while the app is closed.
 - **Ukrainian localisation** — all strings are currently English in code;
   2–3 days of mechanical ARB work.
-- **Biometrics with cryptographic binding** (a Keystore key requiring user
-  authentication) — needs a different plugin than `local_auth`.
 
 ---
 
@@ -415,7 +440,7 @@ Goals that came out of the review of A–D rather than from the original analysi
 
 The first four rows are about two days of work, after which the wallet stops
 showing wrong amounts and catches the most expensive sending mistakes.
-Rows 1–4 and all of row 5 except B3 (Bitcoin RBF) are done as of 2026-10-18. Rows 6–10 (A7, C1, D1, B3 Speed up, C2, C3 → C6, D2–D7) were done on 2026-10-19: everything is in code and tests. The live checks in §8 were run the same day; two of them still need a funded testnet wallet.
+Rows 1–4 and all of row 5 except B3 (Bitcoin RBF) are done as of 2026-10-18. Rows 6–10 (A7, C1, D1, B3 Speed up, C2, C3 → C6, D2–D7) were done on 2026-10-19: everything is in code and tests. The live checks in §8 were run the same day; two of them still need a funded testnet wallet. Milestone F (F1–F5) was added and built on the same day; its two phone-dependent items still need a device.
 
 ---
 
@@ -432,7 +457,7 @@ Rows 1–4 and all of row 5 except B3 (Bitcoin RBF) are done as of 2026-10-18. R
 - **Replacing our own signing with large libraries** (web3dart etc.). The
   project's value is ~800 lines of in-house signing (`evm_signer.dart`,
   `bitcoin_signer.dart`) pinned by vectors.
-- **Own push server** — breaks "no backend".
+- **Own push server** — breaks "no backend". (F5 does not need one: the phone polls public data itself, at the cost of up to ~15 minutes of delay.)
 
 ---
 
@@ -451,6 +476,14 @@ Rows 1–4 and all of row 5 except B3 (Bitcoin RBF) are done as of 2026-10-18. R
 7. **Known limits are marked with a `ponytail:` comment next to the code, and
    the marker is updated together with the code.** Sections 3.3 and 3.6 show
    that markers go stale.
+8. **Anything that can sign goes through the active wallet's `canSign`.** A
+   watch-only wallet has no seed in memory, and every send entry point says so
+   before it touches the network.
+9. **A secret kept for convenience is bound to the hardware, not to a flag.**
+   The fingerprint-unlock password lives behind a Keystore key that needs the
+   finger for every use; do not add another way to read it.
+10. **The background worker never holds a secret.** It reads public data for
+    addresses the app stored while unlocked, and nothing there can sign.
 
 ---
 
@@ -472,4 +505,16 @@ Outbound traffic to chain nodes was blocked while the code of §4 was written, s
 
 The same checks can be run from GitHub: **Actions → Live checks → Run workflow**.
 
-Still worth doing before real funds: a Bitcoin testnet speed-up, and one send of a few cents on each network the wallet signs.
+**Milestone F (checked from the development environment, no phone):**
+
+| What | How | Result |
+|---|---|---|
+| Android app builds | `flutter build apk --debug` and `--release` (R8) with the new Kotlin and the WorkManager plugin | **PASS** — both APKs build; the release dex contains the bound-secret channel and alias; the manifest carries `USE_BIOMETRIC`, `POST_NOTIFICATIONS`, WorkManager's permissions |
+| Web build | `flutter build web --release` | **PASS** — the web build compiles; it has no fingerprint unlock and no background job |
+| Fingerprint-bound key | enable fingerprint unlock, lock, unlock with the finger; add a finger in system settings and try again; change the password | **not run** — needs a phone with an enrolled fingerprint; the Dart side is tested against a scripted channel, the Kotlin only compiles |
+| Background job | turn on "Notify when closed", close the app, receive a testnet transfer | **not run** — needs a phone; `BackgroundChecker` is tested with a fake chain, scheduling and delivery are not |
+| Upgrade from 0.4.0 | open a 0.4.0 install with a wallet | **not run on a device** — covered by a test that opens a vault written by the old format and by the unchanged storage keys of the first wallet |
+
+The WorkManager plugin currently prints a warning at build time that it applies the Kotlin Gradle Plugin itself; it is harmless today and will need a plugin update before a future Flutter release stops allowing it.
+
+Still worth doing before real funds: a Bitcoin testnet speed-up, one send of a few cents on each network the wallet signs, and the two phone checks above.

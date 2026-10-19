@@ -44,11 +44,78 @@ class NotificationService {
     return _enabled;
   }
 
+  /// Prepares the plugin in a background worker, where there is no screen to
+  /// ask on: it only notices whether the user already allowed notifications.
+  Future<bool> initializeForBackground() async {
+    try {
+      await initialize();
+      final AndroidFlutterLocalNotificationsPlugin? android = _plugin
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>();
+      _enabled = await android?.areNotificationsEnabled() ?? false;
+    } catch (error) {
+      debugPrint('Background notifications unavailable: $error');
+      _enabled = false;
+    }
+    return _enabled;
+  }
+
+  /// Routes a background notification to the right channel by its title, so
+  /// the checker needs only one callback.
+  Future<void> showIncomingOrConfirmed({
+    required int id,
+    required String title,
+    required String body,
+  }) =>
+      title == 'Funds received'
+          ? showIncoming(id: id, title: title, body: body)
+          : show(id: id, title: title, body: body);
+
+  /// Tells the user funds arrived (its own channel, so it can be silenced
+  /// without losing confirmations).
+  Future<void> showIncoming({
+    required int id,
+    required String title,
+    required String body,
+  }) =>
+      _show(
+        id: id,
+        title: title,
+        body: body,
+        details: const AndroidNotificationDetails(
+          'incoming_funds',
+          'Incoming funds',
+          channelDescription: 'Tells you when funds arrive, even if the app '
+              'is closed.',
+          importance: Importance.high,
+          priority: Priority.high,
+        ),
+      );
+
   /// Shows a confirmation notification. [id] dedupes per transaction.
   Future<void> show({
     required int id,
     required String title,
     required String body,
+  }) =>
+      _show(
+        id: id,
+        title: title,
+        body: body,
+        details: const AndroidNotificationDetails(
+          'transfer_confirmations',
+          'Transfer confirmations',
+          channelDescription: 'Tells you when an outgoing transfer confirms.',
+          importance: Importance.high,
+          priority: Priority.high,
+        ),
+      );
+
+  Future<void> _show({
+    required int id,
+    required String title,
+    required String body,
+    required AndroidNotificationDetails details,
   }) async {
     if (!_enabled) {
       return;
@@ -58,15 +125,7 @@ class NotificationService {
         id: id,
         title: title,
         body: body,
-        notificationDetails: const NotificationDetails(
-          android: AndroidNotificationDetails(
-            'transfer_confirmations',
-            'Transfer confirmations',
-            channelDescription: 'Tells you when an outgoing transfer confirms.',
-            importance: Importance.high,
-            priority: Priority.high,
-          ),
-        ),
+        notificationDetails: NotificationDetails(android: details),
       );
     } catch (error) {
       debugPrint('Could not show a notification: $error');

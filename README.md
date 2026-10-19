@@ -26,11 +26,23 @@ generated locally, encrypted, and stored only on this device.
   both encrypted into the vault and both are needed to restore.
 - 👥 **Multiple accounts** — BIP-44 account indexes from the same seed, each with
   its own address on every chain, switchable from Settings.
+- 🗂️ **Several recovery phrases** — create or import more wallets next to the
+  first. They live in the same encrypted vault under the same password, so one
+  unlock opens them all and switching is instant. Adding or removing a phrase
+  asks for the password; each wallet keeps its own accounts and names.
+- 👁️ **Watch-only wallets** — follow a cold wallet or any public address (Bitcoin,
+  EVM, Solana, Aptos — recognised from the pasted address) without holding a key.
+  Balances, tokens, history and the portfolio work as usual; sending, speed-up
+  and revoking are refused. A device with only watch-only wallets needs no
+  password at all, because nothing secret is stored.
 - 🔒 **Security first**
   - Recovery phrase encrypted with **AES-256-GCM**, key derived via
     **PBKDF2-HMAC-SHA256** (600,000 rounds, OWASP 2023 guidance).
   - Password lock (min. 8 characters; older 6–8 digit PINs keep working), changeable in Settings.
-  - **Biometric unlock** (fingerprint / face) via `local_auth`.
+  - **Fingerprint unlock bound to the hardware** (Android): the password is
+    encrypted with an AES-GCM key in the Keystore that needs a fresh strong
+    biometric for every use, so only a real fingerprint releases it — not a
+    flag the app could skip. Enrolling another finger invalidates the key.
   - **Auto-lock** after a configurable time in the background, and
     **attempt throttling** with escalating backoff after wrong PINs.
   - Sending, replacing a transaction and revoking an approval all require
@@ -75,8 +87,8 @@ generated locally, encrypted, and stored only on this device.
   EVM networks (tap a token to send it), and **SPL tokens** on Solana (Token and
   Token-2022 programs; tickers and prices from CoinGecko, shown but not yet
   sendable). Long-press a token to hide it from the list (and again, or
-  "Show hidden", to bring it back); hiding trims the list only — totals still
-  count a priced token.
+  "Show hidden", to bring it back); a hidden token is also left out of the
+  portfolio totals, so a priced airdrop does not inflate them.
 - 🚀 **Bitcoin replace-by-fee** — transfers are signed with the BIP-125 sequence,
   and a pending one can be sped up: the same payment from the same coins with a
   larger fee taken out of the change (never from the recipient, never adding
@@ -105,6 +117,13 @@ generated locally, encrypted, and stored only on this device.
   transfer confirms, even after a restart; while a transfer is pending the
   wallet re-reads the chain on its own (EVM ~20 s, Bitcoin ~60 s) so the
   notification arrives without a manual refresh.
+- 📬 **Notifications while closed** (Android, opt-in) — a WorkManager job checks
+  about every 15 minutes (the system's minimum) for incoming funds and for
+  transfers that confirmed. It has no seed and no password: it reads public
+  chain data for addresses the app stored while it was unlocked (watch-only
+  addresses always). The first look at an address only learns its history; a
+  token you do not already hold, or hid, never pings the phone; privacy mode
+  keeps amounts out of the text.
 - 🔗 **Payment links** — `bitcoin:`, `ethereum:` (EIP-681), `solana:` and
   `aptos:` URIs open the app and prefill the send flow.
 - 🧮 **Portfolio** — one screen with the account's holdings on every mainnet,
@@ -190,9 +209,10 @@ nodes (PublicNode, dRPC, 1RPC, the chains' own endpoints).
   tag check fails and decryption is rejected.
 - On the web build, the heavy PBKDF2 derivation runs through the browser's
   **Web Crypto API** so the UI does not freeze.
-- When biometric unlock is enabled, the PIN is kept in the platform keystore
-  (`flutter_secure_storage`) and released only after a successful biometric
-  prompt.
+- When fingerprint unlock is enabled, the password is kept encrypted under a
+  Keystore key that requires a strong biometric for every single use (a
+  `CryptoObject`), and is released only by that fingerprint. Re-authentication
+  before a send or before revealing the phrase uses the same path.
 - The vault is re-locked after a configurable period in the background, and
   repeated wrong PINs are penalised with an escalating, persisted backoff.
 - The seed is overwritten in memory on lock. Non-secret data (settings, the
@@ -215,9 +235,14 @@ you change it to a password.
   the browser profile (an extension, a shared machine, malware) can copy. There
   the password is effectively the only layer, so use a long one — or do not use
   the web build for anything beyond trying the app.
-- Biometric unlock is a convenience gate: the password is released after a
-  successful prompt, but the stored key is not cryptographically bound to the
-  biometric.
+- **Fingerprint unlock is bound to the hardware on Android**: the stored
+  password cannot be decrypted without a fingerprint, even by code running
+  inside the app or by someone reading its storage. It is still the same
+  password — anyone who can both hold your finger to the sensor and unlock the
+  phone gets in — and adding a fingerprint to the phone resets it. Copies made
+  by versions before 0.5.0 (not bound) are deleted on first launch, so
+  fingerprint unlock has to be turned on once more. The web build has no
+  fingerprint unlock.
 - **Do not put the encrypted seed in a cloud backup**; with a short password it
   can be brute-forced offline.
 
@@ -231,7 +256,9 @@ you change it to a password.
   **ed25519_edwards** for key material and derivation. Bitcoin transactions are
   built and signed against the **BIP-143** sighash; EVM transactions use
   **RLP** + **EIP-1559**.
-- **flutter_secure_storage** + **local_auth** for secure PIN storage / biometrics.
+- **flutter_secure_storage** for the encrypted vault; an own Android Keystore +
+  `androidx.biometric` channel (`BoundSecret.kt`) for fingerprint unlock.
+- **workmanager** for the opt-in background check.
 - **qr_flutter** + **mobile_scanner** for QR codes.
 - **http** + **intl** for networking and formatting, **share_plus** for the CSV
   export.
@@ -277,7 +304,8 @@ spends nothing:
 | Key derivation | BIP-39, BIP-84 and EIP-55 reference values; the official SLIP-0010 ed25519 vectors; account 1–2 and testnet values from an independent BIP-32 implementation | — |
 
 > **Status (2026-10-19):** the vectors run in `flutter test` and in CI on every
-> push. The live checks were run against public nodes the same day: **Sepolia,
+> push (CI also builds the Android app, so the native code is compiled on every
+> change). The live checks were run against public nodes the same day: **Sepolia,
 > BSC testnet, Solana Devnet, Aptos testnet and ENS pass**. The Aptos run found
 > a real bug — the wallet's gas-limit floor (2,000) was below the node's minimum
 > (5,210 on testnet) and every send would have been refused — which is fixed;
@@ -286,6 +314,14 @@ spends nothing:
 > (needs a funded testnet wallet), a real dead first RPC node (the fail-over is
 > covered by a test with a fake transport), and an actual funded transfer on any
 > network. Do that with a few cents before trusting a path.
+>
+> **Not run on a device** (no phone was available): the fingerprint-bound key
+> (`BoundSecret.kt` compiles into debug and release APKs and its Dart half is
+> tested against a scripted channel, but the prompt, key invalidation and
+> per-use authentication have not been exercised on hardware) and the
+> WorkManager job (the check logic is tested with a fake chain; scheduling,
+> battery behaviour and notification delivery are not). Try both on a real
+> phone with test funds before relying on them.
 >
 > The checks can also be started from GitHub: **Actions → Live checks → Run
 > workflow**.
@@ -306,12 +342,16 @@ lib/
 ├── data/
 │   ├── models/               # chain kinds
 │   ├── networks/             # network config, chain & price APIs
-│   └── wallet/               # seed vault, address deriver, storage, biometrics
+│   ├── background/           # background check (targets, checker, WorkManager glue)
+│   └── wallet/               # seed vault, wallet list, address deriver, storage,
+│                             # fingerprint-bound password store
 ├── features/                 # onboarding, lock, home, send, receive,
-│                             # activity, settings, scan, network pickers
+│                             # activity, settings, scan, network pickers, wallets
 ├── shared/widgets/           # reusable UI widgets
 └── state/                    # controllers (settings, identity, wallet, send,
-                              # portfolio, notes, contacts, hidden tokens)
+                              # portfolio, notes, contacts, hidden tokens,
+                              # background targets)
+android/.../BoundSecret.kt    # Keystore key + BiometricPrompt (the native half)
 test/                         # unit and widget tests, incl. signing vectors
 tool/                         # live checks (verify_*.dart), screenshot and icon scripts
 docs/
@@ -347,6 +387,8 @@ docs/
       Aptos testnet, ENS); an Aptos gas-floor bug found and fixed.
 - [ ] Live checks still open: Bitcoin testnet speed-up, a real dead RPC node, a
       funded transfer on each network, the Aptos floor against mainnet.
+- [ ] Device checks still open: the fingerprint-bound key and the background
+      job on a real phone (see the status note above).
 
 ### Next: honest numbers (milestone A)
 
@@ -388,11 +430,16 @@ docs/
 - [x] Local notes on transactions, included in the CSV export.
 - [x] ENS names in the recipient field.
 - [x] Search in Activity.
-- [x] Hide a token from the home list.
+- [x] Hide a token from the home list; hidden tokens leave the totals.
 - [ ] Ukrainian localisation (all strings are English in the code today).
-- [ ] Watch-only addresses; more than one recovery phrase per device.
-- [ ] Biometric unlock bound to a Keystore key (needs a different plugin than
+
+### Beyond one seed (milestone F)
+
+- [x] Watch-only wallets (no key, no password needed on their own).
+- [x] More than one recovery phrase per device, one vault and one password.
+- [x] Fingerprint unlock bound to a Keystore key (own channel instead of
       `local_auth`).
+- [x] Notifications while the app is closed (WorkManager, opt-in).
 
 Full analysis, reasons and acceptance criteria: [`docs/GOALS.md`](docs/GOALS.md)
 (English) · [`docs/ЦІЛІ.md`](docs/ЦІЛІ.md) (original, Ukrainian).

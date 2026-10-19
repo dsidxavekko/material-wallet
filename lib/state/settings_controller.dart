@@ -37,6 +37,7 @@ class SettingsController extends ChangeNotifier {
   int? _autoLockSeconds = AutoLockDelay.minute1.seconds;
   bool _notificationsEnabled = false;
   bool _hideBalances = false;
+  bool _backgroundChecks = false;
   Map<String, String> _accountNames = const <String, String>{};
 
   ThemeMode get themeMode => _themeMode;
@@ -56,6 +57,10 @@ class SettingsController extends ChangeNotifier {
 
   /// Privacy mode: amounts are shown as dots on every screen.
   bool get hideBalances => _hideBalances;
+
+  /// Whether a background worker looks for incoming funds and confirmed
+  /// transfers while the app is closed.
+  bool get backgroundChecks => _backgroundChecks;
 
   /// Names are stored by `index` for the first wallet (as before wallets could
   /// be added) and by `walletId:index` for every other.
@@ -80,6 +85,7 @@ class SettingsController extends ChangeNotifier {
       final String? themeName = await _storage.readThemeMode();
       final bool? notifications = await _storage.readNotificationsEnabled();
       final bool? hide = await _storage.readHideBalances();
+      final bool? background = await _storage.readBackgroundEnabled();
       final String? namesJson = await _storage.readAccountNames();
       bool changed = false;
 
@@ -128,6 +134,11 @@ class SettingsController extends ChangeNotifier {
 
       if (hide != null && hide != _hideBalances) {
         _hideBalances = hide;
+        changed = true;
+      }
+
+      if (background != null && background != _backgroundChecks) {
+        _backgroundChecks = background;
         changed = true;
       }
 
@@ -197,6 +208,17 @@ class SettingsController extends ChangeNotifier {
     _hideBalances = hidden;
     notifyListeners();
     unawaited(_storage.writeHideBalances(hidden));
+  }
+
+  /// Turns background checks on or off and persists the choice. Starting and
+  /// stopping the worker itself is the caller's job (see `BackgroundService`).
+  void setBackgroundChecks(bool enabled) {
+    if (_backgroundChecks == enabled) {
+      return;
+    }
+    _backgroundChecks = enabled;
+    notifyListeners();
+    unawaited(_storage.writeBackgroundEnabled(enabled));
   }
 
   /// Names account [index] of wallet [walletId]; an empty [name] restores the

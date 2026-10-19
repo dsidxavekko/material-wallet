@@ -40,6 +40,9 @@ class WalletStorage {
   static const String _txNotesKey = 'nova.wallet.txNotes';
   static const String _hiddenTokensKey = 'nova.wallet.hiddenTokens';
   static const String _walletBookKey = 'nova.wallet.book';
+  static const String _bgEnabledKey = 'nova.wallet.backgroundEnabled';
+  static const String _bgTargetsKey = 'nova.wallet.bg.targets';
+  static const String _bgSeenKey = 'nova.wallet.bg.seen';
 
   /// The encrypted recovery phrase, or `null` when no wallet exists.
   Future<String?> readVault() async {
@@ -264,6 +267,40 @@ class WalletStorage {
     await prefs.setString(_hiddenTokensKey, json);
   }
 
+  /// Whether the user turned background checks on; `null` if never chosen.
+  Future<bool?> readBackgroundEnabled() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_bgEnabledKey);
+  }
+
+  Future<void> writeBackgroundEnabled(bool enabled) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_bgEnabledKey, enabled);
+  }
+
+  /// The addresses the background worker may look at, as JSON (public data
+  /// only; see `BackgroundTarget`).
+  Future<String?> readBackgroundTargets() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_bgTargetsKey);
+  }
+
+  Future<void> writeBackgroundTargets(String json) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_bgTargetsKey, json);
+  }
+
+  /// Transaction hashes the background worker has already seen per address.
+  Future<String?> readBackgroundSeen() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_bgSeenKey);
+  }
+
+  Future<void> writeBackgroundSeen(String json) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_bgSeenKey, json);
+  }
+
   /// Reads the cached snapshot JSON for [id] (a network id), if any.
   Future<String?> readCache(String id) async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -301,6 +338,8 @@ class WalletStorage {
     await prefs.remove(_txNotesKey);
     await prefs.remove(_hiddenTokensKey);
     await prefs.remove(_walletBookKey);
+    await prefs.remove(_bgTargetsKey);
+    await prefs.remove(_bgSeenKey);
     for (final String key in prefs.getKeys().toList()) {
       if (key.startsWith(_cachePrefix) ||
           key.startsWith('$_accountIndexKey.') ||

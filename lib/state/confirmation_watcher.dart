@@ -14,11 +14,16 @@ import 'wallet_controller.dart';
 /// pending and fires a system notification the moment it turns confirmed — even
 /// if that happens after a restart, because the pending set is persisted.
 ///
-/// ponytail: confirmation is only noticed while the app is running and the
-/// wallet is unlocked (WalletController polls a pending transfer every 20–60 s
-/// and the watcher reacts to each reload). A transfer that confirms while the
-/// app is fully closed or locked is announced on the next launch, not in real
-/// time; a background worker would be needed to do better.
+/// This watcher covers the app being open and unlocked (WalletController polls a
+/// pending transfer every 20–60 s and the watcher reacts to each reload). When
+/// the app is closed or locked, `BackgroundChecker` (WorkManager, about every
+/// 15 minutes, opt-in) reads the same persisted pending set, so a transfer is
+/// announced by whichever of the two sees it confirm first — never twice, since
+/// both remove the hash from that set.
+///
+/// ponytail: the background worker only knows addresses the app stored while it
+/// was unlocked, and it cannot run more often than every 15 minutes (the system
+/// may delay it further to save battery).
 class ConfirmationWatcher {
   ConfirmationWatcher({
     required this.wallet,
@@ -48,7 +53,9 @@ class ConfirmationWatcher {
 
   void _onUpdate() {
     final AccountSnapshot? snapshot = wallet.snapshot;
-    if (snapshot == null) {
+    // A followed address is someone else's money: its outgoing transfers are
+    // not ones this person is waiting on.
+    if (snapshot == null || wallet.identity.isWatchOnly) {
       return;
     }
     final NetworkConfig network = snapshot.network;

@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../core/utils/feedback.dart';
 import '../../core/utils/formatters.dart';
 import '../../data/networks/network_config.dart';
+import '../../data/background/background_service.dart';
 import '../../data/notifications/notification_service.dart';
 import '../../data/wallet/seed_vault.dart';
 import '../../shared/widgets/mnemonic_grid.dart';
@@ -349,14 +350,54 @@ class _SecuritySectionState extends State<_SecuritySection> {
             'Tells you when an outgoing transfer confirms',
           ),
         ),
+        if (BackgroundService.supported)
+          SwitchListTile(
+            secondary: const Icon(Icons.notifications_paused_outlined),
+            value: settings.backgroundChecks && settings.notificationsEnabled,
+            onChanged: _toggleBackground,
+            title: const Text('Notify when closed'),
+            subtitle: const Text(
+              'Checks for incoming funds and confirmed transfers about every '
+              '15 minutes, even with the app closed. Needs no password.',
+            ),
+          ),
       ],
     );
+  }
+
+  Future<void> _toggleBackground(bool enable) async {
+    final SettingsController settings = context.read<SettingsController>();
+    if (!enable) {
+      settings.setBackgroundChecks(false);
+      return;
+    }
+    if (!settings.notificationsEnabled) {
+      final bool granted =
+          await context.read<NotificationService>().initialize(request: true);
+      if (!mounted) {
+        return;
+      }
+      if (!granted) {
+        showAppSnackBar(
+          context,
+          'Notifications were not allowed. You can enable them in system '
+          'settings.',
+          icon: Icons.notifications_off_rounded,
+        );
+        return;
+      }
+      settings.setNotificationsEnabled(true);
+    }
+    settings.setBackgroundChecks(true);
   }
 
   Future<void> _toggleNotifications(bool enable) async {
     final SettingsController settings = context.read<SettingsController>();
     if (!enable) {
       settings.setNotificationsEnabled(false);
+      // Checks while closed exist to notify; without notifications they would
+      // only cost battery.
+      settings.setBackgroundChecks(false);
       return;
     }
 
@@ -1116,8 +1157,8 @@ class _CurrencySelector extends StatelessWidget {
 }
 
 /// Application version and build number, kept in sync with `pubspec.yaml`.
-const String appVersion = '0.4.0';
-const String appBuildNumber = '5';
+const String appVersion = '0.5.0';
+const String appBuildNumber = '6';
 
 class _AboutCard extends StatelessWidget {
   const _AboutCard();

@@ -458,16 +458,19 @@ class WalletIdentityController extends ChangeNotifier {
     await selectWallet(added.id);
   }
 
+  /// A fresh wallet id. Time-based, so an id is never reused after a wallet is
+  /// removed (its account names and settings would otherwise be inherited).
   String _newWalletId() {
     final Set<String> taken = <String>{
       ...?_vaultAccount?.seeds.map((WalletAccount s) => s.id),
       ..._book.watch.map((WalletEntry w) => w.id),
     };
-    int n = taken.length + 1;
-    while (taken.contains('w$n')) {
-      n++;
+    int stamp = _clock().microsecondsSinceEpoch;
+    String id = 'w${stamp.toRadixString(36)}';
+    while (taken.contains(id)) {
+      id = 'w${(++stamp).toRadixString(36)}';
     }
-    return 'w$n';
+    return id;
   }
 
   Future<void> _rewriteVault(WalletAccount account, String password) async {
