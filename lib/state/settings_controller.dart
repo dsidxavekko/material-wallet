@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../core/utils/app_log.dart';
 import '../core/utils/formatters.dart';
 import '../data/networks/network_config.dart';
+import '../data/wallet/wallet_entry.dart';
 import '../data/wallet/wallet_storage.dart';
 
 /// How long the app may stay in the background before it locks itself.
@@ -36,7 +37,7 @@ class SettingsController extends ChangeNotifier {
   int? _autoLockSeconds = AutoLockDelay.minute1.seconds;
   bool _notificationsEnabled = false;
   bool _hideBalances = false;
-  Map<int, String> _accountNames = const <int, String>{};
+  Map<String, String> _accountNames = const <String, String>{};
 
   ThemeMode get themeMode => _themeMode;
   AppCurrency get currency => _currency;
@@ -56,12 +57,19 @@ class SettingsController extends ChangeNotifier {
   /// Privacy mode: amounts are shown as dots on every screen.
   bool get hideBalances => _hideBalances;
 
-  /// The display name of account [index]: the user's own, else `Account N`.
-  String accountName(int index) =>
-      _accountNames[index] ?? 'Account ${index + 1}';
+  /// Names are stored by `index` for the first wallet (as before wallets could
+  /// be added) and by `walletId:index` for every other.
+  static String _nameKey(int index, String walletId) =>
+      walletId == primaryWalletId ? '$index' : '$walletId:$index';
+
+  /// The display name of account [index] in wallet [walletId]: the user's own,
+  /// else `Account N`.
+  String accountName(int index, {String walletId = primaryWalletId}) =>
+      _accountNames[_nameKey(index, walletId)] ?? 'Account ${index + 1}';
 
   /// Whether the user gave account [index] a name of their own.
-  bool hasCustomAccountName(int index) => _accountNames.containsKey(index);
+  bool hasCustomAccountName(int index, {String walletId = primaryWalletId}) =>
+      _accountNames.containsKey(_nameKey(index, walletId));
 
   /// Restores the persisted network and currency choices at app start.
   Future<void> load() async {
@@ -123,10 +131,10 @@ class SettingsController extends ChangeNotifier {
         changed = true;
       }
 
-      final Map<int, String> names = _decodeNames(namesJson);
+      final Map<String, String> names = _decodeNames(namesJson);
       if (names.length != _accountNames.length ||
           names.entries.any(
-            (MapEntry<int, String> e) => _accountNames[e.key] != e.value,
+            (MapEntry<String, String> e) => _accountNames[e.key] != e.value,
           )) {
         _accountNames = names;
         changed = true;
@@ -191,42 +199,42 @@ class SettingsController extends ChangeNotifier {
     unawaited(_storage.writeHideBalances(hidden));
   }
 
-  /// Names account [index]; an empty [name] restores the default.
-  void renameAccount(int index, String name) {
+  /// Names account [index] of wallet [walletId]; an empty [name] restores the
+  /// default.
+  void renameAccount(
+    int index,
+    String name, {
+    String walletId = primaryWalletId,
+  }) {
     final String clean = name.trim();
-    final Map<int, String> next = Map<int, String>.of(_accountNames);
+    final String key = _nameKey(index, walletId);
+    final Map<String, String> next = Map<String, String>.of(_accountNames);
     if (clean.isEmpty) {
-      next.remove(index);
+      next.remove(key);
     } else {
-      next[index] = clean.length > 30 ? clean.substring(0, 30) : clean;
+      next[key] = clean.length > 30 ? clean.substring(0, 30) : clean;
     }
     _accountNames = next;
     notifyListeners();
-    unawaited(
-      _storage.writeAccountNames(
-        jsonEncode(<String, String>{
-          for (final MapEntry<int, String> e in next.entries) '${e.key}': e.value,
-        }),
-      ),
-    );
+    unawaited(_storage.writeAccountNames(jsonEncode(next)));
   }
 
-  static Map<int, String> _decodeNames(String? json) {
+  static Map<String, String> _decodeNames(String? json) {
     if (json == null || json.isEmpty) {
-      return const <int, String>{};
+      return const <String, String>{};
     }
     try {
       final Object? decoded = jsonDecode(json);
       if (decoded is! Map) {
-        return const <int, String>{};
+        return const <String, String>{};
       }
-      return <int, String>{
+      return <String, String>{
         for (final MapEntry<Object?, Object?> e in decoded.entries)
-          if (int.tryParse('${e.key}') != null && e.value is String)
-            int.parse('${e.key}'): e.value! as String,
+          if (e.key is String && e.value is String)
+            e.key! as String: e.value! as String,
       };
     } on FormatException {
-      return const <int, String>{};
+      return const <String, String>{};
     }
   }
 

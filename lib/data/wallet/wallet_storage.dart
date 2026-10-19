@@ -4,6 +4,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'unlock_throttle.dart';
+import 'wallet_entry.dart';
 
 /// Local device storage for the wallet and small preferences.
 ///
@@ -38,6 +39,7 @@ class WalletStorage {
   static const String _accountNamesKey = 'nova.wallet.accountNames';
   static const String _txNotesKey = 'nova.wallet.txNotes';
   static const String _hiddenTokensKey = 'nova.wallet.hiddenTokens';
+  static const String _walletBookKey = 'nova.wallet.book';
 
   /// The encrypted recovery phrase, or `null` when no wallet exists.
   Future<String?> readVault() async {
@@ -161,30 +163,60 @@ class WalletStorage {
     await prefs.setStringList(_watchedTxsKey, hashes);
   }
 
-  /// The BIP-44 account index the wallet is currently using. Non-secret: which
-  /// of the derived accounts is active carries no key material. Defaults to 0.
-  Future<int> readAccountIndex() async {
+  /// Key of a per-wallet setting: the first wallet keeps the original key, so
+  /// installs from before multiple wallets read their old values unchanged.
+  static String _scoped(String key, String walletId) =>
+      walletId == primaryWalletId ? key : '$key.$walletId';
+
+  /// The BIP-44 account index of wallet [walletId]. Non-secret: which of the
+  /// derived accounts is active carries no key material. Defaults to 0.
+  Future<int> readAccountIndex({String walletId = primaryWalletId}) async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
-    final int raw = prefs.getInt(_accountIndexKey) ?? 0;
+    final int raw = prefs.getInt(_scoped(_accountIndexKey, walletId)) ?? 0;
     return raw < 0 ? 0 : raw;
   }
 
-  Future<void> writeAccountIndex(int index) async {
+  Future<void> writeAccountIndex(
+    int index, {
+    String walletId = primaryWalletId,
+  }) async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_accountIndexKey, index);
+    await prefs.setInt(_scoped(_accountIndexKey, walletId), index);
   }
 
-  /// How many accounts the user has created (at least 1). Only accounts below
-  /// this count are offered by the picker.
-  Future<int> readAccountCount() async {
+  /// How many accounts the user has created in wallet [walletId] (at least 1).
+  /// Only accounts below this count are offered by the picker.
+  Future<int> readAccountCount({String walletId = primaryWalletId}) async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
-    final int raw = prefs.getInt(_accountCountKey) ?? 1;
+    final int raw = prefs.getInt(_scoped(_accountCountKey, walletId)) ?? 1;
     return raw < 1 ? 1 : raw;
   }
 
-  Future<void> writeAccountCount(int count) async {
+  Future<void> writeAccountCount(
+    int count, {
+    String walletId = primaryWalletId,
+  }) async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_accountCountKey, count);
+    await prefs.setInt(_scoped(_accountCountKey, walletId), count);
+  }
+
+  /// Forgets the per-wallet account settings of [walletId].
+  Future<void> removeWalletSettings(String walletId) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_scoped(_accountIndexKey, walletId));
+    await prefs.remove(_scoped(_accountCountKey, walletId));
+  }
+
+  /// The wallet list's non-secret side as JSON (names, the active wallet and
+  /// the watch-only wallets); see `WalletBook`.
+  Future<String?> readWalletBook() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_walletBookKey);
+  }
+
+  Future<void> writeWalletBook(String json) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_walletBookKey, json);
   }
 
   /// Whether privacy mode (amounts shown as dots) is on; `null` if never set.
@@ -268,8 +300,11 @@ class WalletStorage {
     await prefs.remove(_accountNamesKey);
     await prefs.remove(_txNotesKey);
     await prefs.remove(_hiddenTokensKey);
+    await prefs.remove(_walletBookKey);
     for (final String key in prefs.getKeys().toList()) {
-      if (key.startsWith(_cachePrefix)) {
+      if (key.startsWith(_cachePrefix) ||
+          key.startsWith('$_accountIndexKey.') ||
+          key.startsWith('$_accountCountKey.')) {
         await prefs.remove(key);
       }
     }
