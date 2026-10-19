@@ -150,8 +150,11 @@ generated locally, encrypted, and stored only on this device.
   screen, tokens and activity.
 - 🧾 **CSV export** — share the loaded activity as a CSV file straight from the
   share sheet, with a separate fee ticker column and your notes.
-- 🎨 **Material 3 UI** — light / dark / system theme (persisted), multiple
-  display currencies.
+- 🎨 **Material 3 UI with system colours** — on Android 12+ the whole palette
+  comes from the system (Material You, derived from the wallpaper) and follows
+  it when it changes; elsewhere the built-in indigo palette is used. Light /
+  dark / system theme (persisted), multiple display currencies. Gain and loss
+  stay green and red whatever the wallpaper.
 - 🧪 **Tested** — unit and widget tests covering derivation, crypto, address
   validation, storage and APIs.
 
@@ -251,7 +254,9 @@ you change it to a password.
 ## Tech stack
 
 - **Flutter 3.47** / **Dart 3.13**, Material 3 (CI pins Flutter 3.47.7).
-- **provider** for state management.
+- **provider** for state management; **dynamic_color** for the system palette
+  (pinned to 1.x: 2.x ships its own copy of Material types that does not match
+  Flutter's).
 - **pointycastle** (AES-GCM, PBKDF2, ECDSA), **bip39**, **bip32**,
   **ed25519_edwards** for key material and derivation. Bitcoin transactions are
   built and signed against the **BIP-143** sighash; EVM transactions use

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:app_links/app_links.dart';
+import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -309,14 +310,20 @@ class _AppViewState extends State<_AppView> with WidgetsBindingObserver {
     final ThemeMode themeMode =
         context.select<SettingsController, ThemeMode>((s) => s.themeMode);
 
-    return MaterialApp(
-      title: 'Material Wallet',
-      debugShowCheckedModeBanner: false,
-      navigatorKey: appNavigatorKey,
-      themeMode: themeMode,
-      theme: AppTheme.light,
-      darkTheme: AppTheme.dark,
-      home: const RootGate(),
+    // Colors come from the system (Material You, Android 12+) where it
+    // provides them; elsewhere the brand seed is used.
+    return DynamicColorBuilder(
+      builder: (ColorScheme? lightDynamic, ColorScheme? darkDynamic) {
+        return MaterialApp(
+          title: 'Material Wallet',
+          debugShowCheckedModeBanner: false,
+          navigatorKey: appNavigatorKey,
+          themeMode: themeMode,
+          theme: AppTheme.light(lightDynamic),
+          darkTheme: AppTheme.dark(darkDynamic),
+          home: const RootGate(),
+        );
+      },
     );
   }
 }

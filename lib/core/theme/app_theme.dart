@@ -14,13 +14,18 @@ class AppTheme {
   /// Brand seed used to derive every color in the scheme.
   static const Color seed = Color(0xFF4F46E5);
 
-  static ThemeData get light => _build(
-        ColorScheme.fromSeed(seedColor: seed),
+  /// The light theme. With [system] — the wallpaper-derived scheme Android 12+
+  /// hands to apps (Material You) — every color follows the system; without it
+  /// (older Android, web, desktop) the brand [seed] is used.
+  static ThemeData light([ColorScheme? system]) => _build(
+        system ?? ColorScheme.fromSeed(seedColor: seed),
         AppSemanticColors.light,
       );
 
-  static ThemeData get dark => _build(
-        ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.dark),
+  /// The dark counterpart of [light].
+  static ThemeData dark([ColorScheme? system]) => _build(
+        system ??
+            ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.dark),
         AppSemanticColors.dark,
       );
 

@@ -35,6 +35,7 @@ The principles are constraints on every goal in this document:
 | Size | `lib/` ≈ 22.9k lines, `test/` ≈ 10.7k, 476 tests, 283 lines of Kotlin |
 | Networks | 11: Bitcoin (+ testnet), Ethereum, Sepolia, Base, Polygon, Arbitrum, BNB, Solana (+ Devnet), Aptos |
 | Sending | every network: EVM and BNB (EIP-1559, ERC-20, speed-up / cancel, revoke), Bitcoin (P2WPKH, RBF speed-up), SOL and APT (native coin). SPL tokens — view only |
+| Colours | system palette (Material You) on Android 12+, built-in indigo seed elsewhere |
 | Wallets | several recovery phrases in one vault under one password; watch-only wallets (no key, no password of their own) |
 | Security | AES-256-GCM + PBKDF2 600k, password of at least 8 characters (old 6–8 digit PINs still unlock), fingerprint unlock bound to an Android Keystore key (per-use authentication), auto-lock, backoff after wrong PINs, `FLAG_SECURE`, re-authentication before every send |
 | Providers | mempool.space, Blockscout, CoinGecko, PublicNode, dRPC, 1RPC, official RPCs (Base, Arbitrum, Polygon, BNB), Solana RPC, Aptos fullnode |
