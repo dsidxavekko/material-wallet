@@ -8,9 +8,11 @@ generated locally, encrypted, and stored only on this device.
 > This project is a **portfolio / educational app**. It derives real public
 > addresses, reads live on-chain data, and **signs and broadcasts real
 > transactions** on-device: EVM chains (native coin and ERC-20), Bitcoin, and the
-> native coin of Solana and Aptos. The Solana, Aptos and BNB Chain send paths are
-> pinned by reference vectors but have **not yet been exercised against a live
-> node** — see [Verifying the signing paths](#verifying-the-signing-paths).
+> native coin of Solana and Aptos. Every signing path is pinned by reference
+> vectors, and the EVM, BNB Chain, Solana and Aptos paths have been checked
+> against live nodes **by simulation only — no funded transfer has been sent**;
+> the Bitcoin replace-by-fee path has not been tried on a live network at all —
+> see [Verifying the signing paths](#verifying-the-signing-paths).
 > **Do not use it to store meaningful funds.**
 
 ---
@@ -45,7 +47,7 @@ generated locally, encrypted, and stored only on this device.
   transfers and Low/Normal/High/**custom** fee presets. On **EVM networks** the
   transfer is signed on-device as an **EIP-1559** (type-2) transaction with a
   fee cap (EIP-2, RFC-6979), re-checks the live balance right before signing,
-  and is broadcast for real after a PIN confirmation, ending on a full-screen
+  and is broadcast for real after a password (or fingerprint) confirmation, ending on a full-screen
   success screen. On **Bitcoin** the transfer is a native SegWit
   (**BIP-143 P2WPKH**) transaction: utxos are selected for the entered amount,
   change returns to your address, the fee is priced in sat/vB with the same
@@ -72,7 +74,9 @@ generated locally, encrypted, and stored only on this device.
 - 🪙 **Token balances** — ERC-20 holdings with USD values on the Blockscout-backed
   EVM networks (tap a token to send it), and **SPL tokens** on Solana (Token and
   Token-2022 programs; tickers and prices from CoinGecko, shown but not yet
-  sendable).
+  sendable). Long-press a token to hide it from the list (and again, or
+  "Show hidden", to bring it back); hiding trims the list only — totals still
+  count a priced token.
 - 🚀 **Bitcoin replace-by-fee** — transfers are signed with the BIP-125 sequence,
   and a pending one can be sped up: the same payment from the same coins with a
   larger fee taken out of the change (never from the recipient, never adding
@@ -195,11 +199,33 @@ nodes (PublicNode, dRPC, 1RPC, the chains' own endpoints).
   address book, the active account index and the last account snapshots) lives
   in `shared_preferences`.
 
+### What the password does and does not protect
+
+The 600,000 PBKDF2 rounds slow down guessing, but they cannot make a short secret
+strong: on a single modern GPU a 6-digit PIN falls in about a minute and an
+8-digit one in a couple of hours, once the encrypted vault is in an attacker's
+hands. That is why new wallets ask for a **password of at least 8 characters**;
+a wallet created earlier with a 6–8 digit PIN keeps unlocking, and Settings lets
+you change it to a password.
+
+- **On Android** the vault sits in app-private storage with `allowBackup="false"`
+  and the biometric-unlock PIN in the platform keystore, so reading it needs
+  root or a forensic image — the password is the second layer, not the only one.
+- **On the web** the vault lives in browser storage, which anyone with access to
+  the browser profile (an extension, a shared machine, malware) can copy. There
+  the password is effectively the only layer, so use a long one — or do not use
+  the web build for anything beyond trying the app.
+- Biometric unlock is a convenience gate: the password is released after a
+  successful prompt, but the stored key is not cryptographically bound to the
+  biometric.
+- **Do not put the encrypted seed in a cloud backup**; with a short password it
+  can be brute-forced offline.
+
 ---
 
 ## Tech stack
 
-- **Flutter 3.47** / **Dart 3.13**, Material 3.
+- **Flutter 3.47** / **Dart 3.13**, Material 3 (CI pins Flutter 3.47.7).
 - **provider** for state management.
 - **pointycastle** (AES-GCM, PBKDF2, ECDSA), **bip39**, **bip32**,
   **ed25519_edwards** for key material and derivation. Bitcoin transactions are
@@ -247,20 +273,29 @@ spends nothing:
 | Bitcoin (BIP-143) | the published BIP-143 P2WPKH sighash, byte for byte | broadcast a 1 sat/vB transfer on testnet, then speed it up |
 | Solana | `test/ed25519_signers_test.dart`: message and signed transaction match `solders` (the Rust solana-sdk) byte for byte | `dart run tool/verify_solana.dart` — `simulateTransaction` with `sigVerify` on Devnet |
 | Aptos | the same file: `RawTransaction`, signing message and signed transaction match the official `aptos-sdk` byte for byte | `dart run tool/verify_aptos.dart` — `/transactions/simulate` on testnet |
-| ENS | EIP-137 namehash vectors, ABI layout of the Universal Resolver call | resolve a known name on mainnet |
+| ENS | EIP-137 namehash vectors, ABI layout of the Universal Resolver call | `dart run tool/verify_ens.dart` — resolves a known name on mainnet |
+| Key derivation | BIP-39, BIP-84 and EIP-55 reference values; the official SLIP-0010 ed25519 vectors; account 1–2 and testnet values from an independent BIP-32 implementation | — |
 
-> **Status:** the vectors run in `flutter test`. The *live* checks need to reach
-> public nodes and could not be run from the sandbox this code was written in
-> (outbound traffic to chain nodes is blocked there), so run them once before
-> trusting a send path with real money — in particular `bsc-testnet`,
-> `verify_solana.dart`, `verify_aptos.dart`, a Bitcoin testnet speed-up, and one
-> ENS lookup.
+> **Status (2026-10-19):** the vectors run in `flutter test` and in CI on every
+> push. The live checks were run against public nodes the same day: **Sepolia,
+> BSC testnet, Solana Devnet, Aptos testnet and ENS pass**. The Aptos run found
+> a real bug — the wallet's gas-limit floor (2,000) was below the node's minimum
+> (5,210 on testnet) and every send would have been refused — which is fixed;
+> mainnet's minimum was **not** probed, so run `verify_aptos.dart` against it
+> before relying on the new floor. **Not yet run:** a Bitcoin testnet speed-up
+> (needs a funded testnet wallet), a real dead first RPC node (the fail-over is
+> covered by a test with a fake transport), and an actual funded transfer on any
+> network. Do that with a few cents before trusting a path.
+>
+> The checks can also be started from GitHub: **Actions → Live checks → Run
+> workflow**.
 
 ---
 
 ## Project structure
 
 ```
+.github/workflows/            # CI (analyze + test) and the manual live checks
 lib/
 ├── main.dart                 # Entry point
 ├── app.dart                  # Root widget, providers, routing gate
@@ -275,7 +310,10 @@ lib/
 ├── features/                 # onboarding, lock, home, send, receive,
 │                             # activity, settings, scan, network pickers
 ├── shared/widgets/           # reusable UI widgets
-└── state/                    # controllers (settings, identity, wallet)
+└── state/                    # controllers (settings, identity, wallet, send,
+                              # portfolio, notes, contacts, hidden tokens)
+test/                         # unit and widget tests, incl. signing vectors
+tool/                         # live checks (verify_*.dart), screenshot and icon scripts
 docs/
 ├── GOALS.md                  # analysis and development goals (English)
 └── ЦІЛІ.md                   # the same document in Ukrainian (original)
@@ -301,8 +339,14 @@ docs/
 - [x] Address poisoning warning in the send flow.
 - [x] BIP-39 passphrase (25th word) support — encrypted alongside the phrase in
       the vault, applied to every derivation (BIP-39 reference vector pinned).
-- [ ] Known-answer test vectors for the address derivations beyond the ones
-      already pinned (BIP-32 test vectors per coin type).
+- [x] Known-answer test vectors for the address derivations beyond the ones
+      already pinned (official SLIP-0010 vectors; accounts 1–2 and the testnet
+      prefix from an independent BIP-32 implementation).
+- [x] CI: `flutter analyze` and `flutter test` on every push and pull request.
+- [x] Live checks run against public nodes (Sepolia, BSC testnet, Solana Devnet,
+      Aptos testnet, ENS); an Aptos gas-floor bug found and fixed.
+- [ ] Live checks still open: Bitcoin testnet speed-up, a real dead RPC node, a
+      funded transfer on each network, the Aptos floor against mainnet.
 
 ### Next: honest numbers (milestone A)
 
@@ -344,6 +388,11 @@ docs/
 - [x] Local notes on transactions, included in the CSV export.
 - [x] ENS names in the recipient field.
 - [x] Search in Activity.
+- [x] Hide a token from the home list.
+- [ ] Ukrainian localisation (all strings are English in the code today).
+- [ ] Watch-only addresses; more than one recovery phrase per device.
+- [ ] Biometric unlock bound to a Keystore key (needs a different plugin than
+      `local_auth`).
 
 Full analysis, reasons and acceptance criteria: [`docs/GOALS.md`](docs/GOALS.md)
 (English) · [`docs/ЦІЛІ.md`](docs/ЦІЛІ.md) (original, Ukrainian).

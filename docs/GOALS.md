@@ -1,6 +1,6 @@
 # Material Wallet — analysis and project goals
 
-Date: 18 October 2026 (updated 19 October 2026 — every goal in §4 is implemented in code) · version in `pubspec.yaml`: `0.4.0+5`
+Date: 18 October 2026 (updated 19 October 2026 — every goal in §4 is implemented in code, and the live checks were run the same day: see §8) · version in `pubspec.yaml`: `0.4.0+5`
 
 This document has four parts: the main goal and the principles that must not
 be broken; what already exists; what was found during the review (facts from
@@ -32,12 +32,13 @@ The principles are constraints on every goal in this document:
 
 | | |
 |---|---|
-| Size | `lib/` ≈ 20.3k lines, `test/` ≈ 9.0k, 396 tests |
+| Size | `lib/` ≈ 20.5k lines, `test/` ≈ 9.2k, 413 tests |
 | Networks | 11: Bitcoin (+ testnet), Ethereum, Sepolia, Base, Polygon, Arbitrum, BNB, Solana (+ Devnet), Aptos |
 | Sending | every network: EVM and BNB (EIP-1559, ERC-20, speed-up / cancel, revoke), Bitcoin (P2WPKH, RBF speed-up), SOL and APT (native coin). SPL tokens — view only |
-| Security | AES-256-GCM + PBKDF2 600k, 6–8 digit PIN, biometrics, auto-lock, backoff after wrong PINs, `FLAG_SECURE`, re-authentication before every send |
+| Security | AES-256-GCM + PBKDF2 600k, password of at least 8 characters (old 6–8 digit PINs still unlock), biometrics, auto-lock, backoff after wrong PINs, `FLAG_SECURE`, re-authentication before every send |
 | Providers | mempool.space, Blockscout, CoinGecko, PublicNode, dRPC, 1RPC, official RPCs (Base, Arbitrum, Polygon, BNB), Solana RPC, Aptos fullnode |
-| `ponytail:` markers | 7 |
+| `ponytail:` markers | 8 |
+| Automation | GitHub Actions: `flutter analyze` + `flutter test` on every push and PR; a manual workflow runs the no-spend live checks of §8 |
 
 Three things are done unusually well:
 
@@ -167,6 +168,8 @@ BNB balance does not load at all.
 
 ### 3.8. The PIN is weaker than "600,000 rounds" suggests
 
+> **Updated 2026-10-19:** the password option is done (goal B6): new vaults need at least 8 characters of any kind, which changes the arithmetic below completely. The math still applies to a vault created before B6 with a 6–8 digit PIN, and unlocking never required a minimum, so those wallets keep working: changing the PIN to a password in Settings is the fix. The README now says plainly that on the web build the vault lives in browser storage, where the Keystore argument below does not hold.
+
 PBKDF2 with 600k rounds is the right figure for passwords, but a PIN is 6–8
 digits (`pin_field.dart`: `digitsOnly`, `maxLength: 8`). An RTX 4090 computes
 PBKDF2-HMAC-SHA256 at roughly 8.9 million/s with 999 iterations (hashcat, mode
@@ -182,6 +185,8 @@ the web build, where storage is the browser, it is not. The README should say
 so directly.
 
 ### 3.9. Smaller items
+
+> **Updated 2026-10-19:** the BNB sending gap (C6), the unsaved "hide balance" (D4), unnamed accounts (D3) and the three-of-six provider list (D8) are all fixed; the items below are kept as the record of what was found. One new finding: Bitcoin **testnet** addresses (`tb1…`) are derived from the same path as mainnet (`m/84'/0'/…`, coin type 0), where BIP-84 assigns testnet coin type 1. The key is the same as the mainnet key under a different prefix. It is a simplification, not a bug, and it is not changed because that would move every existing testnet address; do not reuse a testnet account as a mainnet one anyway.
 
 - Address-poisoning checks run only on EVM (`send_screen.dart:179`) — fixed
   2026-10-18 (goal B5): the EVM-only condition is gone and `AddressGuard`
@@ -366,8 +371,21 @@ history-based poisoning check on this network — the UI must say so.
 | D7. Search in Activity by address, label or hash | 2–3 h | after A7 · done 2026-10-19 |
 | D8. Full provider list in About | 10 min | see 3.9 · done 2026-10-18 |
 
+### Milestone E — "Trust what is already built" · done 2026-10-19
+
+Goals that came out of the review of A–D rather than from the original analysis.
+
+| goal | status | note |
+|---|---|---|
+| E1. CI | done | `.github/workflows/ci.yml`: `flutter analyze` and `flutter test` on every push to `main` and every PR, Flutter pinned to the version in the README. |
+| E2. Run the live checks | done except two | See §8. The run found a real bug (the Aptos gas floor). |
+| E3. Live checks that fail loudly | done | Every `tool/verify_*.dart` now sets a non-zero exit code on `FAIL`, so a workflow cannot go green on a failed check; `.github/workflows/live-checks.yml` runs them by hand. `tool/verify_ens.dart` is new. |
+| E4. Derivation vectors beyond the pinned ones | done | The official SLIP-0010 ed25519 vectors (`test/slip10_vectors_test.dart`) pin the derivation function for any path; Bitcoin accounts 1–2, the testnet prefix and EVM accounts 1–2 are pinned with values from an independent BIP-32 implementation that reproduces the published account-0 vectors. Both are in `test/`. |
+| E5. Manual "hide token" | done | Long-press a token on the home list; "Show N hidden" restores it; stored per network and contract. **Known limit** (`ponytail:`): hiding trims the list only, the totals still count a priced hidden token. |
+
 ### Larger ideas — separate branches
 
+- **Sending SPL tokens and Aptos fungible assets** — balances are shown today. SPL needs the recipient's associated token account (created on demand, with its own rent) and a new vector from an external implementation, plus a devnet simulation, before it may sign (§7 rule 3).
 - **Watch-only addresses** — follow a cold wallet without keys. Requires
   separating "address" from "seed" in `WalletIdentityController`.
 - **Multiple seed phrases** — currently one vault per device.
@@ -397,7 +415,7 @@ history-based poisoning check on this network — the UI must say so.
 
 The first four rows are about two days of work, after which the wallet stops
 showing wrong amounts and catches the most expensive sending mistakes.
-Rows 1–4 and all of row 5 except B3 (Bitcoin RBF) are done as of 2026-10-18. Rows 6–10 (A7, C1, D1, B3 Speed up, C2, C3 → C6, D2–D7) were done on 2026-10-19: everything is in code and tests, except the live checks in §8.
+Rows 1–4 and all of row 5 except B3 (Bitcoin RBF) are done as of 2026-10-18. Rows 6–10 (A7, C1, D1, B3 Speed up, C2, C3 → C6, D2–D7) were done on 2026-10-19: everything is in code and tests. The live checks in §8 were run the same day; two of them still need a funded testnet wallet.
 
 ---
 
@@ -436,15 +454,22 @@ Rows 1–4 and all of row 5 except B3 (Bitcoin RBF) are done as of 2026-10-18. R
 
 ---
 
-## 8. What still has to be checked live
+## 8. Live checks
 
-The code and vectors are done, but outbound traffic to chain nodes is blocked in the development environment, so nobody has run these checks yet. Do them before trusting a path with real funds:
+Outbound traffic to chain nodes was blocked while the code of §4 was written, so the paths below had only vectors behind them. On 2026-10-19 the no-spend checks were run from a machine with network access. None of them signs with a funded key or spends anything.
 
-| What | How | Success looks like |
+| What | How | Result |
 |---|---|---|
-| BNB Chain | `dart run tool/verify_eip1559.dart bsc-testnet` | `PASS`: the node decoded the type-2 transaction and rejected it only for insufficient funds |
-| Solana | `dart run tool/verify_solana.dart` | `PASS`: `AccountNotFound` for the real signature, a signature failure for the tampered one |
-| Aptos | `dart run tool/verify_aptos.dart` | `PASS`: `SENDING_ACCOUNT_DOES_NOT_EXIST` for the real transaction, a parse error for the control |
-| Bitcoin RBF | send 1 sat/vB on testnet → "Speed up" → confirmation | the replacement is accepted and the original can no longer confirm |
-| ENS | type a known `name.eth` into Send on Ethereum | the address under the field is the expected one |
-| Fallback RPC | block the first node (or point it at a dead host) | the send goes through the next node |
+| EVM on Sepolia | `dart run tool/verify_eip1559.dart sepolia` | **PASS** — the node decoded the type-2 transaction and rejected it only for insufficient funds |
+| BNB Chain | `dart run tool/verify_eip1559.dart bsc-testnet` | **PASS** — same, on chain id 97 |
+| Solana | `dart run tool/verify_solana.dart` | **PASS** — `AccountNotFound` for the real signature, `SignatureFailure` for the tampered one |
+| Aptos | `dart run tool/verify_aptos.dart` | **PASS after a fix** — see below |
+| ENS | `dart run tool/verify_ens.dart` | **PASS** — `vitalik.eth` resolved to `0xd8da…6045`; an unregistered name reverted and is treated as "nothing" |
+| Fallback RPC | block the first node (or point it at a dead host) | **not run live** — covered by `test/rpc_failover_test.dart` with a fake transport; a real dead node has not been tried |
+| Bitcoin RBF | send 1 sat/vB on testnet → "Speed up" → confirmation | **not run** — needs a funded testnet wallet; the replacement planner is covered by `test/bitcoin_rbf_test.dart` |
+
+**What the Aptos run found.** The first run failed: the node parsed the BCS transaction but refused it with `MAX_GAS_UNITS_BELOW_MIN_TRANSACTION_GAS_UNITS`. The wallet's `max_gas_amount` floor was 2 000 units; bisecting against the testnet node put the intrinsic minimum at **5 210**. Every real Aptos send would have been rejected, and no vector or unit test could have shown it, because the minimum is a property of the chain. The floor is now 10 000 (`AptosSigner.maxGasFloor`); only gas actually used is charged. **Mainnet was not probed**, so that margin is a judgement, not a measurement: run `verify_aptos.dart` against mainnet's node before relying on it. With the floor fixed, a made-up sender fails earlier (`INVALID_AUTH_KEY`), so the tool now derives the sender from the key and accepts `INSUFFICIENT_BALANCE_FOR_TRANSACTION_FEE` as proof the node accepted the transaction.
+
+The same checks can be run from GitHub: **Actions → Live checks → Run workflow**.
+
+Still worth doing before real funds: a Bitcoin testnet speed-up, and one send of a few cents on each network the wallet signs.
