@@ -32,6 +32,9 @@ class Ens {
     return value.endsWith('.eth') && !value.contains(' ') && !value.contains('@');
   }
 
+  /// ponytail: ASCII-only normalisation. Full UTS-46 (accents, emoji, scripts)
+  /// is not implemented, so such names are refused rather than guessed.
+  ///
   /// The lowercase name, or `null` when it contains anything outside plain
   /// ASCII letters, digits, `-` and `_`.
   ///

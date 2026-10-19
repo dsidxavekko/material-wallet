@@ -292,6 +292,11 @@ class BitcoinSigner {
     return null;
   }
 
+  /// ponytail: BIP-125 also requires paying for any unconfirmed *descendants*
+  /// of the original (for example a later transfer spending its change). They
+  /// are not looked up here; the node rejects an underpaying replacement and
+  /// the message is shown to the user.
+  ///
   /// Plans a replace-by-fee version of the unconfirmed [original]: same
   /// inputs, same recipients, a larger fee paid out of the change output.
   ///

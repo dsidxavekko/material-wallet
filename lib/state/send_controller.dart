@@ -782,6 +782,9 @@ class SendController extends ChangeNotifier {
 
   // Aptos
 
+  /// ponytail: a flat 2× margin with a floor of 2 000 units over the simulated
+  /// gas, not a tuned figure; a transfer that needs more would run out of gas.
+  ///
   /// Octas of gas a simulation says a transfer uses, with room to spare.
   static int _aptosMaxGas(int gasUsed) {
     final int padded = gasUsed * 2;

@@ -6,9 +6,11 @@ generated locally, encrypted, and stored only on this device.
 
 > ⚠️ **Disclaimer**
 > This project is a **portfolio / educational app**. It derives real public
-> addresses, reads live on-chain data, and **signs and broadcasts real EVM and
-> Bitcoin transactions** on-device. Solana and Aptos send flows still only
-> validate and estimate a fee.
+> addresses, reads live on-chain data, and **signs and broadcasts real
+> transactions** on-device: EVM chains (native coin and ERC-20), Bitcoin, and the
+> native coin of Solana and Aptos. The Solana, Aptos and BNB Chain send paths are
+> pinned by reference vectors but have **not yet been exercised against a live
+> node** — see [Verifying the signing paths](#verifying-the-signing-paths).
 > **Do not use it to store meaningful funds.**
 
 ---
@@ -44,15 +46,38 @@ generated locally, encrypted, and stored only on this device.
   transfer is signed on-device as an **EIP-1559** (type-2) transaction with a
   fee cap (EIP-2, RFC-6979), re-checks the live balance right before signing,
   and is broadcast for real after a PIN confirmation, ending on a full-screen
-  success screen; other chains stop at a copyable summary. On **Bitcoin** the
-  transfer is a native SegWit (**BIP-143 P2WPKH**) transaction: utxos are
-  selected for the entered amount, change returns to your address, the fee is
-  priced in sat/vB with the same presets, and the signed transaction is
-  broadcast through mempool.space.
+  success screen. On **Bitcoin** the transfer is a native SegWit
+  (**BIP-143 P2WPKH**) transaction: utxos are selected for the entered amount,
+  change returns to your address, the fee is priced in sat/vB with the same
+  presets, and the signed transaction is broadcast through mempool.space.
+  **Solana** (legacy-format System transfer, ed25519) and **Aptos**
+  (`aptos_account::transfer`, BCS, dry-run through `/transactions/simulate`
+  first) send their native coin; both re-read balance and chain state at
+  signing time, and Solana enforces the rent-exempt rules (a new recipient must
+  receive at least ≈ 0.00089 SOL; the sender may not be left below it).
+  **BNB Chain** sends too — without a history index, so the send screen says
+  there is no speed-up, no confirmation notification and no history-based
+  poisoning check there.
+- 🔁 **Fallback RPC nodes** — every EVM network lists several broadcast nodes;
+  the next one is tried only when a node cannot be reached, never because it
+  answered with an error. A node saying "already known" counts as sent.
+- 💱 **Fiat amount entry** — type the amount in your display currency; the coin
+  amount (rounded down) is what is signed and what the review sheet shows.
+- 🪪 **ENS names** — `name.eth` in the recipient field resolves through the ENS
+  Universal Resolver; the resolved address is shown under the field and on the
+  review sheet, and goes through the same recipient check as a typed address.
+  Names with characters the wallet cannot normalise exactly are refused.
 - 📒 **Address book** — save recipients with local labels; labels show up in the
   send flow and the activity list.
 - 🪙 **Token balances** — ERC-20 holdings with USD values on the Blockscout-backed
-  EVM networks; tap a token to send it.
+  EVM networks (tap a token to send it), and **SPL tokens** on Solana (Token and
+  Token-2022 programs; tickers and prices from CoinGecko, shown but not yet
+  sendable).
+- 🚀 **Bitcoin replace-by-fee** — transfers are signed with the BIP-125 sequence,
+  and a pending one can be sped up: the same payment from the same coins with a
+  larger fee taken out of the change (never from the recipient, never adding
+  unconfirmed inputs). A transfer that did not signal RBF, or has too little
+  change, says why instead of failing.
 - ↩️ **Fix a stuck transfer** — replaces a pending outgoing EVM transaction with
   one that reuses its nonce, either as a **speed-up** (same transfer, higher
   fee) or a **cancel** (zero-value self-transfer that can never confirm). The
@@ -78,9 +103,13 @@ generated locally, encrypted, and stored only on this device.
   notification arrives without a manual refresh.
 - 🔗 **Payment links** — `bitcoin:`, `ethereum:` (EIP-681), `solana:` and
   `aptos:` URIs open the app and prefill the send flow.
-- 🧮 **Portfolio total** — the account's value summed across every network it has
-  synced, priced ERC-20 holdings included, shown on the home screen.
-- 📷 **Receive** — real address as text and a scannable QR code.
+- 🧮 **Portfolio** — one screen with the account's holdings on every mainnet,
+  largest first: one price request for all coins, balances fetched in parallel,
+  tokens included. A network that cannot be read shows as unavailable and the
+  total says it may be too low; tap a row to switch to that network.
+- 📷 **Receive** — real address as text and a scannable QR code. Enter an amount
+  to turn the QR into a payment request (BIP-21, EIP-681, Solana Pay or
+  `aptos:`) and share it as text.
 - 🗂️ **Your addresses** — every chain's receive address in one place, each with
   a QR code and a verify-against-a-second-device warning.
 - 🔍 **QR scanner** — scan a recipient address with the camera.
@@ -88,8 +117,16 @@ generated locally, encrypted, and stored only on this device.
   APIs, prices from CoinGecko (cached to respect rate limits). The last snapshot
   is cached locally **per account**, so the app opens with data and works
   offline.
+- 📜 **Complete activity** — ERC-20 transfers are merged into the history by
+  transaction hash (an incoming USDC now shows up, and "Sent ETH −fee" for a
+  token send reads "Sent 100 USDC" with the gas kept), approvals are labelled,
+  and **Load more** pages back through Blockscout, mempool.space, Solana and
+  Aptos. Search by address, contact label, note, ticker or hash.
+- 📝 **Notes, names, privacy** — private notes on transactions, names for your
+  accounts, and a balance-hiding mode that persists and applies to the home
+  screen, tokens and activity.
 - 🧾 **CSV export** — share the loaded activity as a CSV file straight from the
-  share sheet.
+  share sheet, with a separate fee ticker column and your notes.
 - 🎨 **Material 3 UI** — light / dark / system theme (persisted), multiple
   display currencies.
 - 🧪 **Tested** — unit and widget tests covering derivation, crypto, address
@@ -126,7 +163,12 @@ generated locally, encrypted, and stored only on this device.
 | EVM     | BNB Chain      | BIP-44                | public JSON-RPC (no history)    |
 | EVM     | Sepolia (test) | BIP-44                | Blockscout                      |
 | Solana  | Solana         | SLIP-0010 (ed25519)   | Public Solana RPC               |
+| Solana  | Devnet (test)  | SLIP-0010 (ed25519)   | Public Solana devnet RPC        |
 | Aptos   | Aptos          | SLIP-0010 (ed25519)   | Public Aptos fullnode           |
+
+Sending is supported on every network above (native coin; ERC-20 on the EVM
+networks). Broadcast and signing-side calls on EVM go through a list of public
+nodes (PublicNode, dRPC, 1RPC, the chains' own endpoints).
 
 > All balance/history endpoints are **free and key-less** public APIs, so the
 > app needs no API keys and no backend.
@@ -194,13 +236,25 @@ flutter build web --release     # Web
 an Android SDK and a JDK 17 toolchain (`android/local.properties` is generated
 by the Flutter tool and is intentionally git-ignored).
 
-The EIP-1559 signing path can be checked against a live Sepolia node without
-spending anything: `dart run tool/verify_eip1559.dart` signs a type-2 transfer
-with a throwaway key and confirms the node decodes it and recovers the sender.
+### Verifying the signing paths
 
-The Bitcoin path is pinned to the published **BIP-143 P2WPKH vector** in
-`test/bitcoin_signer_test.dart`: the sighash must match byte-for-byte, and the
-DER signature must verify against the public key.
+Every signing path is pinned by an external vector and has a live check that
+spends nothing:
+
+| Path | Vector in the tests | Live check |
+| ---- | ------------------- | ---------- |
+| EVM (EIP-1559) | EIP-155 / RLP vectors | `dart run tool/verify_eip1559.dart [sepolia\|bsc-testnet\|bnb]` |
+| Bitcoin (BIP-143) | the published BIP-143 P2WPKH sighash, byte for byte | broadcast a 1 sat/vB transfer on testnet, then speed it up |
+| Solana | `test/ed25519_signers_test.dart`: message and signed transaction match `solders` (the Rust solana-sdk) byte for byte | `dart run tool/verify_solana.dart` — `simulateTransaction` with `sigVerify` on Devnet |
+| Aptos | the same file: `RawTransaction`, signing message and signed transaction match the official `aptos-sdk` byte for byte | `dart run tool/verify_aptos.dart` — `/transactions/simulate` on testnet |
+| ENS | EIP-137 namehash vectors, ABI layout of the Universal Resolver call | resolve a known name on mainnet |
+
+> **Status:** the vectors run in `flutter test`. The *live* checks need to reach
+> public nodes and could not be run from the sandbox this code was written in
+> (outbound traffic to chain nodes is blocked there), so run them once before
+> trusting a send path with real money — in particular `bsc-testnet`,
+> `verify_solana.dart`, `verify_aptos.dart`, a Bitcoin testnet speed-up, and one
+> ENS lookup.
 
 ---
 
@@ -233,10 +287,11 @@ docs/
 
 - [x] Sign and broadcast transactions (EVM) — verified end-to-end on Sepolia.
 - [x] Sign and broadcast Bitcoin transfers (BIP-143 P2WPKH, BIP-84 keys).
-- [ ] Sign and broadcast transactions (Solana, Aptos).
+- [x] Sign and broadcast SOL and APT transfers (reference vectors; live checks
+      to be run, see above).
 - [x] EIP-1559 typed transactions with a fee cap.
 - [x] Reject a transfer whose live balance dropped since the last refresh.
-- [ ] SPL token balances.
+- [x] SPL token balances.
 - [x] Biometric (not only PIN) re-auth for revealing the recovery phrase.
 - [x] Biometric (not only PIN) re-auth before sending, replacing a transaction
       and revoking an approval.
@@ -258,14 +313,15 @@ docs/
 - [x] EIP-681 token payment links open a token transfer, or refuse clearly.
 - [x] Pending transfers are polled, so "Transfer confirmed" fires without a
       manual refresh.
-- [ ] Token transfers, approvals and reverts appear in Activity, with paging.
+- [x] Token transfers and approvals appear in Activity, with paging.
 
 ### Safer sending (milestone B)
 
 - [x] Recipient check before signing: flags scam-tagged addresses, token
       contracts and token-transfer targets (Blockscout).
 - [x] Bitcoin fee presets from the node's fastest / half-hour / hour rates.
-- [ ] Bitcoin RBF (BIP-125) signalling and Speed up.
+- [x] Bitcoin RBF (BIP-125) signalling and Speed up (testnet confirmation to be
+      run).
 - [x] EVM replacements priced from the original transaction (≥ 110 %) and
       applied to token transfers and approvals too.
 - [x] Address poisoning check on every chain, not only EVM.
@@ -273,19 +329,21 @@ docs/
 
 ### Multi-chain (milestone C)
 
-- [ ] Fallback RPC endpoints for EVM broadcasting.
-- [ ] Single portfolio screen across all networks.
-- [ ] Solana SPL tokens, then SOL sending (validated on devnet).
-- [ ] Aptos APT sending (BCS, validated by simulation on testnet).
-- [ ] BNB Chain sending (BSC testnet first).
+- [x] Fallback RPC endpoints for EVM broadcasting.
+- [x] Single portfolio screen across all networks.
+- [x] Solana SPL tokens, then SOL sending (Devnet added for the live check).
+- [x] Aptos APT sending (BCS, dry-run by simulation first).
+- [x] BNB Chain sending (BSC testnet profile in the live-check tool).
+- [ ] Sending SPL tokens; Aptos fungible assets.
 
 ### Convenience
 
-- [ ] Receive screen with a BIP-21 / EIP-681 / Solana Pay / `aptos:` request
-      and QR share.
-- [ ] Fiat amount in Send, account names, persistent balance hiding.
-- [ ] Local notes on transactions, included in the CSV export.
-- [ ] ENS names in the recipient field.
+- [x] Receive screen with a BIP-21 / EIP-681 / Solana Pay / `aptos:` request
+      and share.
+- [x] Fiat amount in Send, account names, persistent balance hiding.
+- [x] Local notes on transactions, included in the CSV export.
+- [x] ENS names in the recipient field.
+- [x] Search in Activity.
 
 Full analysis, reasons and acceptance criteria: [`docs/GOALS.md`](docs/GOALS.md)
 (English) · [`docs/ЦІЛІ.md`](docs/ЦІЛІ.md) (original, Ukrainian).

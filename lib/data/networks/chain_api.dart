@@ -266,6 +266,10 @@ class ChainApi {
     return result;
   }
 
+  /// ponytail: names that need an off-chain (CCIP-Read / ENSIP-10 gateway)
+  /// lookup revert with `OffchainLookup`; they are reported as unresolved
+  /// instead of being followed.
+  ///
   /// Resolves an ENS [name] (`alice.eth`) to its Ethereum address through the
   /// Universal Resolver, or `null` when the name points nowhere.
   ///
@@ -1716,6 +1720,9 @@ class ChainApi {
   /// How many recent signatures are turned into transactions. Each one costs an
   /// extra `getTransaction` round trip, so the list is deliberately short to
   /// stay inside the public RPC rate limits.
+  ///
+  /// ponytail: six rows per page keeps a page to ~7 RPC calls; a bigger page
+  /// needs a batched `getTransaction` or a paid RPC.
   static const int _solanaHistoryLimit = 6;
 
   /// Well-known Solana programs that never make sense as a counterparty.

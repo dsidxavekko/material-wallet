@@ -1,6 +1,6 @@
 # Material Wallet — analysis and project goals
 
-Date: 18 October 2026 · version in `pubspec.yaml`: `0.4.0+5`
+Date: 18 October 2026 (updated 19 October 2026 — every goal in §4 is implemented in code) · version in `pubspec.yaml`: `0.4.0+5`
 
 This document has four parts: the main goal and the principles that must not
 be broken; what already exists; what was found during the review (facts from
@@ -32,12 +32,12 @@ The principles are constraints on every goal in this document:
 
 | | |
 |---|---|
-| Size | `lib/` ≈ 15.7k lines, `test/` ≈ 5.9k, ~299 tests |
-| Networks | 10: Bitcoin (+ testnet), Ethereum, Sepolia, Base, Polygon, Arbitrum, BNB, Solana, Aptos |
-| Sending | EVM (EIP-1559, ERC-20, speed-up / cancel, revoke) and Bitcoin (P2WPKH). BNB, Solana, Aptos — view only |
+| Size | `lib/` ≈ 20.3k lines, `test/` ≈ 9.0k, 396 tests |
+| Networks | 11: Bitcoin (+ testnet), Ethereum, Sepolia, Base, Polygon, Arbitrum, BNB, Solana (+ Devnet), Aptos |
+| Sending | every network: EVM and BNB (EIP-1559, ERC-20, speed-up / cancel, revoke), Bitcoin (P2WPKH, RBF speed-up), SOL and APT (native coin). SPL tokens — view only |
 | Security | AES-256-GCM + PBKDF2 600k, 6–8 digit PIN, biometrics, auto-lock, backoff after wrong PINs, `FLAG_SECURE`, re-authentication before every send |
-| Providers | mempool.space, Blockscout, CoinGecko, publicnode, Solana RPC, Aptos fullnode |
-| `ponytail:` markers | 2 |
+| Providers | mempool.space, Blockscout, CoinGecko, PublicNode, dRPC, 1RPC, official RPCs (Base, Arbitrum, Polygon, BNB), Solana RPC, Aptos fullnode |
+| `ponytail:` markers | 7 |
 
 Three things are done unusually well:
 
@@ -74,6 +74,8 @@ Facts taken from the code and from live API responses on 18 October 2026.
   this once; while the number is hardcoded it will drift with every release.
 
 ### 3.2. Activity does not show everything
+
+> **Updated 2026-10-19:** fixed (goal A7 in §4): token transfers are merged into the native list, there is "Load more" on all four chain types, and the CSV has separate fee-ticker and note columns.
 
 - **Token transfers are invisible.** Only `/addresses/{a}/transactions` is
   read (`chain_api.dart:108`). An incoming USDC transfer never appears; an
@@ -117,6 +119,8 @@ than reality.
 
 ### 3.5. Bitcoin: a stuck transfer cannot be rescued
 
+> **Updated 2026-10-19:** RBF (second bullet) is done — goal B3 in §4: inputs are signed with `sequence = 0xfffffffd` and "Speed up" exists. A live testnet confirmation of a replacement has not been run yet.
+
 > **Updated 2026-10-18:** the presets now use mempool.space's real tiers (goal
 > B2 in §4): Slow → `hourFee`, Normal → `halfHourFee`, Fast → `fastestFee`.
 > RBF (second bullet) is still open as goal B3.
@@ -152,6 +156,8 @@ For pending transactions, these fields must be verified separately: they come
 from the mempool index.
 
 ### 3.7. One RPC per network — a single point of failure
+
+> **Updated 2026-10-19:** fixed (goal C1 in §4): every EVM network has three nodes, and the next is tried only on a network failure.
 
 Each EVM network has exactly one `sendRpcUrl`, all on `*.publicnode.com`. From
 this machine, every request to publicnode returns a `*.o2.cz` certificate (the
@@ -237,7 +243,9 @@ and network change. The price cache (60 s) already protects CoinGecko.
 *Done when:* a test with a fake `ChainApi`: pending → confirmed after N ticks →
 exactly one notification.
 
-**A7. Token transfers in Activity + "Load more"** · 1–2 days
+**A7. Token transfers in Activity + "Load more"** · 1–2 days · done 2026-10-19
+
+> **As built:** `/token-transfers` is merged into the native list by hash (`mergeTokenTransfers`): "Sent ETH −fee" becomes "Sent 100 USDC" and the fee stays. `counterparty` remains the contract (a speed-up takes `to` from it); the real recipient lives in `tokenPeer`. Paging on all four chain types (Blockscout — two independent cursors, mempool.space — `last_seen`, Solana — `before`, Aptos — `start`); the cache keeps only the first page and a reload does not drop rows already loaded. An approve without a transfer reads "Token approval". The CSV gains `fee_ticker` and `note` columns.
 `/token-transfers` is merged with the native list by hash: the row "Sent ETH
 −fee" becomes "Sent 100 USDC", the fee stays. `ChainTransaction` gets optional
 token fields (old cache still reads fine); paging via `next_page_params`; the
@@ -268,7 +276,9 @@ Integration point: `_prepare()` in `send_screen.dart`, before
 **B2. Bitcoin: real fee tiers** · 1–2 h · done 2026-10-18
 Slow → `hourFee`, Normal → `halfHourFee`, Fast → `fastestFee`.
 
-**B3. Bitcoin: RBF** · signalling is one line; Speed up is 1–2 days
+**B3. Bitcoin: RBF** · signalling is one line; Speed up is 1–2 days · done 2026-10-19 (code and tests)
+
+> **As built:** `signP2wpkh` signs with `sequence = 0xfffffffd`; `BitcoinSigner.planReplacement` is a pure BIP-125 planner (same inputs and recipients, a larger fee taken from the change, new fee ≥ old fee + size × 1 sat/vB; sub-dust change folds into the fee; honest refusals: already confirmed, foreign inputs, no RBF signal, too little change). The original is re-read (`/tx/{txid}`) right before signing: confirmed or changed means refusal. **Not confirmed live:** a 1 sat/vB transfer replaced on testnet (network access to mempool.space is blocked in the development environment).
 `sequence = 0xfffffffd` in `signP2wpkh` (the BIP-143 vector sets its own
 sequence values, so it stays valid). Speed up: `GET /tx/{txid}` → the same
 inputs and recipient, new fee taken from change (BIP-125 rules: higher absolute
@@ -292,23 +302,31 @@ requirement.
 
 ### Milestone C — "Real multi-chain" · ~2 weeks
 
-**C1. Fallback RPC endpoints (3.7)** · half a day
+**C1. Fallback RPC endpoints (3.7)** · half a day · done 2026-10-19
+
+> **As built:** `sendRpcUrls` is a list of three nodes per network (PublicNode, dRPC / 1RPC or the chain's own RPC). The next node is tried only on a network error, 5xx or 429; a JSON-RPC error ends the attempt. "already known" counts as success and the hash is the keccak of the signed bytes. The same walk covers nonce, fee data, estimateGas, receipt and eth_call.
 `sendRpcUrl` → a list. Move to the next node only on a network error, not on a
 JSON-RPC error. "already known" on a repeated `eth_sendRawTransaction` counts as
 success: identical signed bytes produce the same hash.
 *Done when:* a test: the first node fails, the second accepts, and the hash is
 the same.
 
-**C2. Portfolio screen across all networks** · 1–2 days
+**C2. Portfolio screen across all networks** · 1–2 days · done 2026-10-19
+
+> **As built:** `PortfolioController` + `PortfolioScreen` (a "Portfolio" card on the home screen): one price request for all coins (`PriceApi.fetchPrices`), balances and tokens in parallel, sorted by value, a tap switches network. A network that cannot be read shows as unavailable, not as empty, and the total is then marked as possibly too low.
 One price request for all coins (`ids=bitcoin,ethereum,…` — checked), balances
 in parallel, tokens; the list sorted by value, tap to switch network. Replaces
 "check ten networks to see the total".
 
-**C3. SPL tokens (roadmap)** · a day
+**C3. SPL tokens (roadmap)** · a day · done 2026-10-19
+
+> **As built:** `getTokenAccountsByOwner` (jsonParsed) for Token and Token-2022, accounts of one mint merged. The chain knows neither ticker nor price: prices come from one `simple/token_price/solana` request, the ticker from `coins/solana/contract/{mint}` (cached, ≤ 5 lookups per call). An unknown token keeps a shortened-mint label and has no price. Tokens are **shown but not sent** (tap and "Approvals" are EVM-only).
 `getTokenAccountsByOwner` (jsonParsed, Token and Token-2022 programs) →
 `TokenBalance`.
 
-**C4. Sending SOL (roadmap)** · 3–5 days
+**C4. Sending SOL (roadmap)** · 3–5 days · done 2026-10-19 (code, vector, tests)
+
+> **As built:** `SolanaSigner` (legacy message + ed25519). **External vector:** the message and the signed transaction match `solders` (the Rust solana-sdk) byte for byte. Before signing: a fresh blockhash, `getFeeForMessage`, both balances, the rent minimum. Rules: a new recipient must receive at least the minimum; the sender's remainder is 0 or at least the minimum. Solana Devnet is in the catalog; `tool/verify_solana.dart` runs `simulateTransaction` with `sigVerify`. **Not run:** that script (network access to devnet is blocked in the development environment).
 Legacy message (header, compact-u16, `getLatestBlockhash`, System Program
 transfer instruction), ed25519 — `ed25519_edwards` is already a dependency,
 `sendTransaction`, `getSignatureStatuses`. Pitfall: a new recipient account must
@@ -318,7 +336,9 @@ Add Solana devnet for verification.
 *Done when:* a serialisation test vector + `simulateTransaction` with
 `sigVerify` on devnet — the equivalent of `verify_eip1559.dart`.
 
-**C5. Sending APT (roadmap)** · 3–4 days
+**C5. Sending APT (roadmap)** · 3–4 days · done 2026-10-19 (code, vector, tests)
+
+> **As built:** `AptosSigner` (BCS `RawTransaction`, `sha3_256("APTOS::RawTransaction") ‖ bcs`, ed25519 authenticator). **External vector:** matches the official `aptos-sdk` byte for byte. Before signing: sequence number, chain id and time from the ledger (not the phone clock), gas price, and a **dry run through `/transactions/simulate`** with a zero signature; `max_gas = max(2 × gas_used, 2000)`. `tool/verify_aptos.dart` simulates on testnet. **Not run:** that script.
 BCS `RawTransaction` (sequence_number from `/accounts/{a}`,
 `0x1::aptos_account::transfer`, gas, expiration, chain_id); the message to sign
 = `sha3_256("APTOS::RawTransaction") ‖ bcs`; POST `/transactions` as
@@ -326,7 +346,9 @@ BCS `RawTransaction` (sequence_number from `/accounts/{a}`,
 `/transactions/simulate`.
 *Done when:* a BCS test vector + a successful simulation on testnet.
 
-**C6. Sending BNB** · 2 h + verification
+**C6. Sending BNB** · 2 h + verification · done 2026-10-19 (live check not run)
+
+> **As built:** BNB has `sendRpcUrls`, so `canSign`. The Send screen says there is no history: no speed-up/cancel, no notifications and no history-based poisoning check (`NetworkConfig.hasHistory`). `tool/verify_eip1559.dart [sepolia|bsc-testnet|bnb]` is parameterised. **Run `bsc-testnet` before real funds** — type-2 transactions on BSC were not checked from this environment.
 `sendRpcUrl` + `verify_eip1559.dart`, parameterised for BSC testnet (chainId
 97). Without history there will be no speed-up, no notifications and no
 history-based poisoning check on this network — the UI must say so.
@@ -335,13 +357,13 @@ history-based poisoning check on this network — the UI must say so.
 
 | goal | effort | note |
 |---|---|---|
-| D1. Payment request: amount in Receive → QR with BIP-21 / EIP-681 / Solana Pay / `aptos:` + Share | half a day | `share_plus` is already there; round-trip test through `parsePaymentLink` |
-| D2. Fiat amount in Send | half a day | after A1; the amount is signed in coins, shown on review |
-| D3. Account names | 2–3 h | `shared_preferences`, account picker in Settings |
-| D4. Privacy mode that persists and applies everywhere | 2 h | `_hideBalance` → `SettingsController` |
-| D5. Local notes on transactions, included in CSV | half a day | hash → text map |
-| D6. ENS (`name.eth`) in the recipient field | a day | eth_call to the Universal Resolver; the resolved address is shown on review and passes B1 |
-| D7. Search in Activity by address, label or hash | 2–3 h | after A7 |
+| D1. Payment request: amount in Receive → QR with BIP-21 / EIP-681 / Solana Pay / `aptos:` + Share | half a day | `share_plus` is already there; round-trip test through `parsePaymentLink` · done 2026-10-19 |
+| D2. Fiat amount in Send | half a day | after A1; the amount is signed in coins, shown on review · done 2026-10-19 |
+| D3. Account names | 2–3 h | `shared_preferences`, account picker in Settings · done 2026-10-19 |
+| D4. Privacy mode that persists and applies everywhere | 2 h | `_hideBalance` → `SettingsController` · done 2026-10-19 |
+| D5. Local notes on transactions, included in CSV | half a day | hash → text map · done 2026-10-19 |
+| D6. ENS (`name.eth`) in the recipient field | a day | eth_call to the Universal Resolver; the resolved address is shown on review and passes B1 · done 2026-10-19 |
+| D7. Search in Activity by address, label or hash | 2–3 h | after A7 · done 2026-10-19 |
 | D8. Full provider list in About | 10 min | see 3.9 · done 2026-10-18 |
 
 ### Larger ideas — separate branches
@@ -375,7 +397,7 @@ history-based poisoning check on this network — the UI must say so.
 
 The first four rows are about two days of work, after which the wallet stops
 showing wrong amounts and catches the most expensive sending mistakes.
-Rows 1–4 and all of row 5 except B3 (Bitcoin RBF) are done as of 2026-10-18.
+Rows 1–4 and all of row 5 except B3 (Bitcoin RBF) are done as of 2026-10-18. Rows 6–10 (A7, C1, D1, B3 Speed up, C2, C3 → C6, D2–D7) were done on 2026-10-19: everything is in code and tests, except the live checks in §8.
 
 ---
 
@@ -411,3 +433,18 @@ Rows 1–4 and all of row 5 except B3 (Bitcoin RBF) are done as of 2026-10-18.
 7. **Known limits are marked with a `ponytail:` comment next to the code, and
    the marker is updated together with the code.** Sections 3.3 and 3.6 show
    that markers go stale.
+
+---
+
+## 8. What still has to be checked live
+
+The code and vectors are done, but outbound traffic to chain nodes is blocked in the development environment, so nobody has run these checks yet. Do them before trusting a path with real funds:
+
+| What | How | Success looks like |
+|---|---|---|
+| BNB Chain | `dart run tool/verify_eip1559.dart bsc-testnet` | `PASS`: the node decoded the type-2 transaction and rejected it only for insufficient funds |
+| Solana | `dart run tool/verify_solana.dart` | `PASS`: `AccountNotFound` for the real signature, a signature failure for the tampered one |
+| Aptos | `dart run tool/verify_aptos.dart` | `PASS`: `SENDING_ACCOUNT_DOES_NOT_EXIST` for the real transaction, a parse error for the control |
+| Bitcoin RBF | send 1 sat/vB on testnet → "Speed up" → confirmation | the replacement is accepted and the original can no longer confirm |
+| ENS | type a known `name.eth` into Send on Ethereum | the address under the field is the expected one |
+| Fallback RPC | block the first node (or point it at a dead host) | the send goes through the next node |
