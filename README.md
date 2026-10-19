@@ -34,7 +34,10 @@ generated locally, encrypted, and stored only on this device.
   EVM, Solana, Aptos — recognised from the pasted address) without holding a key.
   Balances, tokens, history and the portfolio work as usual; sending, speed-up
   and revoking are refused. A device with only watch-only wallets needs no
-  password at all, because nothing secret is stored.
+  password at all, because nothing secret is stored. A followed wallet can be
+  edited later, and an ENS name (`name.eth`) can be pasted instead of an address.
+- 🌍 **Languages** — English and Ukrainian (Settings → Language; follows the
+  system by default). Interface text lives in ARB files under `lib/l10n`.
 - 🔒 **Security first**
   - Recovery phrase encrypted with **AES-256-GCM**, key derived via
     **PBKDF2-HMAC-SHA256** (600,000 rounds, OWASP 2023 guidance).
@@ -85,8 +88,9 @@ generated locally, encrypted, and stored only on this device.
   send flow and the activity list.
 - 🪙 **Token balances** — ERC-20 holdings with USD values on the Blockscout-backed
   EVM networks (tap a token to send it), and **SPL tokens** on Solana (Token and
-  Token-2022 programs; tickers and prices from CoinGecko, shown but not yet
-  sendable). Long-press a token to hide it from the list (and again, or
+  Token-2022 programs; tickers and prices from CoinGecko; tap one to send it —
+  the recipient's token account is created when missing and its rent is shown)
+  and **Aptos fungible assets** (balances from the Aptos Labs indexer, sendable). Long-press a token to hide it from the list (and again, or
   "Show hidden", to bring it back); a hidden token is also left out of the
   portfolio totals, so a priced airdrop does not inflate them.
 - 🚀 **Bitcoin replace-by-fee** — transfers are signed with the BIP-125 sequence,
@@ -254,7 +258,7 @@ you change it to a password.
 ## Tech stack
 
 - **Flutter 3.47** / **Dart 3.13**, Material 3 (CI pins Flutter 3.47.7).
-- **provider** for state management; **dynamic_color** for the system palette
+- **provider** for state management; **flutter_localizations** with gen-l10n (English, Ukrainian); **dynamic_color** for the system palette
   (pinned to 1.x: 2.x ships its own copy of Material types that does not match
   Flutter's).
 - **pointycastle** (AES-GCM, PBKDF2, ECDSA), **bip39**, **bip32**,
@@ -305,6 +309,8 @@ spends nothing:
 | Bitcoin (BIP-143) | the published BIP-143 P2WPKH sighash, byte for byte | broadcast a 1 sat/vB transfer on testnet, then speed it up |
 | Solana | `test/ed25519_signers_test.dart`: message and signed transaction match `solders` (the Rust solana-sdk) byte for byte | `dart run tool/verify_solana.dart` — `simulateTransaction` with `sigVerify` on Devnet |
 | Aptos | the same file: `RawTransaction`, signing message and signed transaction match the official `aptos-sdk` byte for byte | `dart run tool/verify_aptos.dart` — `/transactions/simulate` on testnet |
+| SPL tokens | `test/ed25519_signers_test.dart`: four `TransferChecked` / `CreateIdempotent` messages (Token and Token-2022) match `solders` + `spl.token` byte for byte | `dart run tool/verify_spl.dart` — mainnet simulation with signature verification |
+| Aptos tokens | the same file: fungible-asset and legacy-coin transfers match `aptos-sdk` | `dart run tool/verify_aptos_token.dart` — `/transactions/simulate` |
 | ENS | EIP-137 namehash vectors, ABI layout of the Universal Resolver call | `dart run tool/verify_ens.dart` — resolves a known name on mainnet |
 | Key derivation | BIP-39, BIP-84 and EIP-55 reference values; the official SLIP-0010 ed25519 vectors; account 1–2 and testnet values from an independent BIP-32 implementation | — |
 
@@ -425,7 +431,8 @@ docs/
 - [x] Solana SPL tokens, then SOL sending (Devnet added for the live check).
 - [x] Aptos APT sending (BCS, dry-run by simulation first).
 - [x] BNB Chain sending (BSC testnet profile in the live-check tool).
-- [ ] Sending SPL tokens; Aptos fungible assets.
+- [x] Sending SPL tokens (Token and Token-2022) and Aptos fungible assets /
+      legacy coins — vectors and no-spend live simulations; not yet a funded send.
 
 ### Convenience
 
@@ -436,7 +443,11 @@ docs/
 - [x] ENS names in the recipient field.
 - [x] Search in Activity.
 - [x] Hide a token from the home list; hidden tokens leave the totals.
-- [ ] Ukrainian localisation (all strings are English in the code today).
+- [x] Ukrainian localisation (ARB files + a runtime table for messages built
+      outside widgets).
+- [x] Password strength meter; an older vault is re-sealed with the current
+      PBKDF2 rounds. (Argon2 is not done: pure Dart would freeze the UI.)
+- [x] Watch-only wallets can be edited; ENS names accepted.
 
 ### Beyond one seed (milestone F)
 

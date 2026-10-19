@@ -1,6 +1,6 @@
 # Material Wallet — analysis and project goals
 
-Date: 18 October 2026 (updated 19 October 2026 — every goal in §4 is implemented in code, the live checks were run the same day (§8), and milestone F — watch-only, several recovery phrases, hardware-bound fingerprint, background notifications, hidden tokens in totals — was added and built) · version in `pubspec.yaml`: `0.5.0+6`
+Date: 18 October 2026 (updated 19 October 2026 — every goal in §4 is implemented in code, the live checks were run the same day (§8), and milestone F — watch-only, several recovery phrases, hardware-bound fingerprint, background notifications, hidden tokens in totals — was added and built; later the same day milestone G: sending SPL and Aptos tokens, editable watch-only wallets with ENS, a password strength meter, Ukrainian localisation) · version in `pubspec.yaml`: `0.5.0+6`
 
 This document has four parts: the main goal and the principles that must not
 be broken; what already exists; what was found during the review (facts from
@@ -32,13 +32,14 @@ The principles are constraints on every goal in this document:
 
 | | |
 |---|---|
-| Size | `lib/` ≈ 22.9k lines, `test/` ≈ 10.7k, 476 tests, 283 lines of Kotlin |
+| Size | `lib/` ≈ 24.9k lines (without generated localisation code), `test/` ≈ 12.3k, 548 tests, 283 lines of Kotlin |
 | Networks | 11: Bitcoin (+ testnet), Ethereum, Sepolia, Base, Polygon, Arbitrum, BNB, Solana (+ Devnet), Aptos |
-| Sending | every network: EVM and BNB (EIP-1559, ERC-20, speed-up / cancel, revoke), Bitcoin (P2WPKH, RBF speed-up), SOL and APT (native coin). SPL tokens — view only |
+| Sending | every network: EVM and BNB (EIP-1559, ERC-20, speed-up / cancel, revoke), Bitcoin (P2WPKH, RBF speed-up), SOL and APT (native coin), SPL tokens (Token and Token-2022, the recipient's token account is created when missing), Aptos fungible assets and legacy coins |
+| Languages | English and Ukrainian (Settings → Language; follows the system language by default) |
 | Colours | system palette (Material You) on Android 12+, built-in indigo seed elsewhere |
 | Wallets | several recovery phrases in one vault under one password; watch-only wallets (no key, no password of their own) |
-| Security | AES-256-GCM + PBKDF2 600k, password of at least 8 characters (old 6–8 digit PINs still unlock), fingerprint unlock bound to an Android Keystore key (per-use authentication), auto-lock, backoff after wrong PINs, `FLAG_SECURE`, re-authentication before every send |
-| Providers | mempool.space, Blockscout, CoinGecko, PublicNode, dRPC, 1RPC, official RPCs (Base, Arbitrum, Polygon, BNB), Solana RPC, Aptos fullnode |
+| Security | AES-256-GCM + PBKDF2 600k, password of at least 8 characters with a strength meter (old 6–8 digit PINs still unlock), fingerprint unlock bound to an Android Keystore key (per-use authentication), auto-lock, backoff after wrong PINs, `FLAG_SECURE`, re-authentication before every send |
+| Providers | mempool.space, Blockscout, CoinGecko, PublicNode, dRPC, 1RPC, official RPCs (Base, Arbitrum, Polygon, BNB), Solana RPC, Aptos fullnode, Aptos Labs indexer (token balances) |
 | `ponytail:` markers | 7 |
 | Automation | GitHub Actions: `flutter analyze` + `flutter test` and a debug build of the Android app on every push and PR; a manual workflow runs the no-spend live checks of §8 |
 
@@ -418,11 +419,30 @@ Five items that were listed here as larger ideas, plus the one known limit left 
 
 *Done when:* tests for first look vs later arrivals, once-only announcement, privacy mode, failed/zero rows, unreachable node, shared addresses, wallet names, token rules, confirmation of a watched transfer, and the target list following wallets in and out; the app builds with the plugin.
 
+### Milestone G — "Point 2" · done 2026-10-19 (code, tests, live no-spend checks; no funded send)
+
+**G1. Sending SPL tokens** · done
+
+> **As built:** `SplTokenSigner` derives the associated token account (PDA with an ed25519 on-curve check) and builds `TransferChecked` (plus `CreateIdempotent` when the recipient has no account, which costs rent and is shown on the review). A generic legacy-message compiler (`SolanaSigner.compileMessage`) orders accounts the way the reference does. Token and Token-2022 mints are told apart by the owner of the mint account. Before anything is signed the transfer is simulated (`simulateTransaction`); a rejected one is never broadcast. **External vectors:** four messages (with and without account creation, both programs) match `solders` + `spl.token` byte for byte (`test/ed25519_signers_test.dart`). **Live:** `dart run tool/verify_spl.dart` simulates a USDC and a PYUSD (Token-2022) transfer on mainnet from funded exchange wallets with signature verification on — **PASS**; it is in the Live checks workflow.
+
+**G2. Sending Aptos fungible assets and legacy coins** · done
+
+> **As built:** a fungible asset goes through `0x1::primary_fungible_store::transfer<0x1::fungible_asset::Metadata>`, a legacy coin through `0x1::aptos_account::transfer_coins<CoinType>`. Aptos token balances were **not shown at all before** (an earlier version of this document said they were); they now come from the Aptos Labs GraphQL indexer. Vector: `aptos-sdk`; live: `dart run tool/verify_aptos_token.dart` (`/transactions/simulate`) — **PASS**.
+
+**G3. Watch-only: edit and ENS** · done
+A watch-only wallet can be edited (name and addresses) from Settings → Wallets; an `name.eth` can be pasted instead of an address and is resolved to the EVM address it points to *now* (only the address is kept).
+
+**G4. Stronger vault protection** · done, Argon2 deliberately not
+A strength meter on the new-password and change-password screens (`PasswordStrength`). A vault written with fewer PBKDF2 rounds than the current setting is re-sealed with the current number the next time the password is entered (`_strengthenVault`, guarded against a race with a password change). **Argon2 was not added:** a pure-Dart Argon2 on a phone, and on web, blocks the UI for seconds; the format has a version field, so it can be added later with a native implementation.
+
+**G5. Ukrainian localisation** · done
+`flutter_localizations` + gen-l10n ARB files (`lib/l10n/app_en.arb`, `app_uk.arb`, ICU plurals with the four Ukrainian forms) for text built in widgets; a runtime table (`tr()` in `lib/l10n/messages_uk.dart`: exact strings and `{}` patterns) for messages created outside widgets — errors, notification texts, relative dates. Settings → Language (System / English / Українська); the background job reads the stored choice. A test checks that both ARB files have the same keys and placeholders and that the message patterns translate. **Not covered:** error text that comes back from a node is shown as received.
+
+**G6. README screenshots refreshed** · done. **Backup reminder** · not done on purpose: the create flow already makes the user re-enter words of the phrase before the wallet exists.
+
 ### Larger ideas — separate branches
 
-- **Sending SPL tokens and Aptos fungible assets** — balances are shown today. SPL needs the recipient's associated token account (created on demand, with its own rent) and a new vector from an external implementation, plus a devnet simulation, before it may sign (§7 rule 3).
-- **Ukrainian localisation** — all strings are currently English in code;
-  2–3 days of mechanical ARB work.
+- **Argon2id** for the vault key (see G4) and a **funded** send on every network: nothing larger is open in code.
 
 ---
 
@@ -501,6 +521,8 @@ Outbound traffic to chain nodes was blocked while the code of §4 was written, s
 | Solana | `dart run tool/verify_solana.dart` | **PASS** — `AccountNotFound` for the real signature, `SignatureFailure` for the tampered one |
 | Aptos | `dart run tool/verify_aptos.dart` | **PASS after a fix** — see below |
 | ENS | `dart run tool/verify_ens.dart` | **PASS** — `vitalik.eth` resolved to `0xd8da…6045`; an unregistered name reverted and is treated as "nothing" |
+| SPL tokens | `dart run tool/verify_spl.dart` | **PASS** — USDC and PYUSD (Token-2022) transfers simulated on mainnet with signature verification; the program accepted them and the only complaint was the funds a no-spend check does not have (checked by the error code, not by text) |
+| Aptos tokens | `dart run tool/verify_aptos_token.dart` | **PASS** — a fungible-asset and a legacy-coin transfer decoded and simulated |
 | Fallback RPC | block the first node (or point it at a dead host) | **not run live** — covered by `test/rpc_failover_test.dart` with a fake transport; a real dead node has not been tried |
 | Bitcoin RBF | send 1 sat/vB on testnet → "Speed up" → confirmation | **not run** — needs a funded testnet wallet; the replacement planner is covered by `test/bitcoin_rbf_test.dart` |
 
@@ -520,4 +542,4 @@ The same checks can be run from GitHub: **Actions → Live checks → Run workfl
 
 The WorkManager plugin currently prints a warning at build time that it applies the Kotlin Gradle Plugin itself; it is harmless today and will need a plugin update before a future Flutter release stops allowing it.
 
-Still worth doing before real funds: a Bitcoin testnet speed-up, one send of a few cents on each network the wallet signs, and the two phone checks above.
+Still worth doing before real funds: a Bitcoin testnet speed-up, one send of a few cents of an SPL token and of an Aptos token, one send of a few cents on each network the wallet signs, and the two phone checks above.
