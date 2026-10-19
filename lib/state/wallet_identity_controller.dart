@@ -810,18 +810,25 @@ class WalletIdentityController extends ChangeNotifier {
   /// Makes [id] the active wallet: loads its account settings and, for a seed
   /// wallet, derives its seed (the previous one is wiped first).
   Future<void> _activate(String id) async {
+    // Everything slow happens first, so the swap below is atomic: no caller
+    // ever sees the new id paired with the previous wallet's seed (or none).
+    final WalletAccount? seedWallet = _vaultAccount?.seedWithId(id);
+    final Uint8List? seed = seedWallet == null
+        ? null
+        : await AddressDeriver.seedFromMnemonicAsync(
+            seedWallet.mnemonic,
+            passphrase: seedWallet.passphrase,
+          );
+    final int index = await _storage.readAccountIndex(walletId: id);
+    final int count = await _storage.readAccountCount(walletId: id);
+
     _wipeSeed();
     _forgetAddresses();
     _activeId = id;
-    _account = _vaultAccount?.seedWithId(id);
-    final WalletAccount? seedWallet = _account;
-    if (seedWallet != null) {
-      _seed = await AddressDeriver.seedFromMnemonicAsync(
-        seedWallet.mnemonic,
-        passphrase: seedWallet.passphrase,
-      );
-    }
-    await _loadAccountSettings();
+    _account = seedWallet;
+    _seed = seed;
+    _accountCount = count;
+    _accountIndex = index >= count ? 0 : index;
     _loadedWalletId = id;
   }
 

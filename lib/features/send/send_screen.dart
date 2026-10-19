@@ -385,6 +385,20 @@ class _SendScreenState extends State<SendScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final WalletIdentityController identity =
+        context.watch<WalletIdentityController>();
+    if (identity.isWatchOnly) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Send')),
+        body: const EmptyState(
+          icon: Icons.visibility_outlined,
+          title: 'Watch-only wallet',
+          message: 'This wallet follows an address but holds no keys, so it '
+              'cannot send. Switch to a wallet with a recovery phrase in '
+              'Settings → Wallets.',
+        ),
+      );
+    }
     final WalletController wallet = context.watch<WalletController>();
     final NetworkConfig network =
         context.select<SettingsController, NetworkConfig>((s) => s.network);

@@ -15,6 +15,7 @@ import '../../state/wallet_controller.dart';
 import '../../state/wallet_identity_controller.dart';
 import '../lock/sensitive_auth.dart';
 import '../network/network_picker.dart';
+import '../wallets/wallets_screen.dart';
 import 'address_book_screen.dart';
 import 'addresses_screen.dart';
 import 'currency_picker.dart';
@@ -95,15 +96,19 @@ class _ProfileCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   Text(
-                    'Self-custodial wallet',
+                    identity.hasVault
+                        ? 'Self-custodial wallet'
+                        : 'Watch-only mode',
                     style:
                         text.titleMedium?.copyWith(fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    createdAt == null
-                        ? 'Encrypted on this device'
-                        : 'Created ${AppFormat.dayLabel(createdAt)}',
+                    !identity.hasVault
+                        ? 'No keys on this device'
+                        : createdAt == null
+                            ? 'Encrypted on this device'
+                            : 'Created ${AppFormat.dayLabel(createdAt)}',
                     style: text.bodySmall
                         ?.copyWith(color: scheme.onSurfaceVariant),
                   ),
@@ -117,7 +122,9 @@ class _ProfileCard extends StatelessWidget {
                       ),
                       const SizedBox(width: 4),
                       Text(
-                        'Seed encrypted with AES-256-GCM',
+                        identity.hasVault
+                            ? 'Seed encrypted with AES-256-GCM'
+                            : 'Nothing secret is stored',
                         style: text.labelSmall?.copyWith(
                           color: scheme.primary,
                           fontWeight: FontWeight.w700,
@@ -309,6 +316,7 @@ class _SecuritySectionState extends State<_SecuritySection> {
             MaterialPageRoute<void>(builder: (_) => const TokenApprovalsScreen()),
           ),
         ),
+        if (identity.hasVault)
         SwitchListTile(
           secondary: const Icon(Icons.fingerprint_rounded),
           value: identity.biometricsEnabled,
@@ -324,6 +332,7 @@ class _SecuritySectionState extends State<_SecuritySection> {
                     : 'Confirms your password once to set up',
           ),
         ),
+        if (identity.hasVault)
         ListTile(
           leading: const Icon(Icons.timer_outlined),
           title: const Text('Auto-lock'),
@@ -435,31 +444,55 @@ class _WalletSection extends StatelessWidget {
         _SettingsGroup(
           children: <Widget>[
             ListTile(
-              leading: const Icon(Icons.switch_account_rounded),
-              title: const Text('Active account'),
+              leading: Icon(
+                identity.isWatchOnly
+                    ? Icons.visibility_outlined
+                    : Icons.account_balance_wallet_outlined,
+              ),
+              title: const Text('Wallets'),
               subtitle: Text(
-                '${context.watch<SettingsController>().accountName(identity.accountIndex)}'
-                ' · ${identity.accountIndex + 1} of ${identity.accountCount}',
+                '${identity.activeWallet?.name ?? '—'}'
+                ' · ${identity.wallets.length} on this device',
               ),
               trailing: const Icon(Icons.chevron_right_rounded),
-              onTap: () => _pickAccount(context, identity),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => const WalletsScreen()),
+              ),
             ),
+            if (!identity.isWatchOnly)
+              ListTile(
+                leading: const Icon(Icons.switch_account_rounded),
+                title: const Text('Active account'),
+                subtitle: Text(
+                  '${context.watch<SettingsController>().accountName(identity.accountIndex, walletId: identity.activeWalletId)}'
+                  ' · ${identity.accountIndex + 1} of ${identity.accountCount}',
+                ),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => _pickAccount(context, identity),
+              ),
             ListTile(
               leading: const Icon(Icons.qr_code_2_rounded),
               isThreeLine: true,
-              title: const Text('Receive address'),
+              title: Text(
+                identity.isWatchOnly ? 'Followed address' : 'Receive address',
+              ),
               subtitle: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   Text(
-                    address ?? 'Wallet locked',
+                    address ??
+                        (identity.isWatchOnly ? 'No address' : 'Wallet locked'),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: text.bodyMedium?.copyWith(height: 1.35),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Derived for the active network',
+                    address == null && identity.isWatchOnly
+                        ? 'This wallet follows no address on the active network'
+                        : identity.isWatchOnly
+                            ? 'Watch-only — cannot send'
+                            : 'Derived for the active network',
                     style: text.bodySmall
                         ?.copyWith(color: scheme.onSurfaceVariant),
                   ),
@@ -489,30 +522,32 @@ class _WalletSection extends StatelessWidget {
         const SizedBox(height: 12),
         _SettingsGroup(
           children: <Widget>[
-            ListTile(
-              leading: const Icon(Icons.key_rounded),
-              title: const Text('Recovery phrase'),
-              subtitle: Text(
-                identity.account == null
-                    ? 'Locked'
-                    : '${identity.words.length}-word BIP-39 phrase',
+            if (!identity.isWatchOnly)
+              ListTile(
+                leading: const Icon(Icons.key_rounded),
+                title: const Text('Recovery phrase'),
+                subtitle: Text(
+                  identity.account == null
+                      ? 'Locked'
+                      : '${identity.words.length}-word BIP-39 phrase',
+                ),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: identity.account == null
+                    ? null
+                    : () => _revealPhrase(context),
               ),
-              trailing: const Icon(Icons.chevron_right_rounded),
-              onTap: identity.account == null
-                  ? null
-                  : () => _revealPhrase(context),
-            ),
-            ListTile(
-              leading: const Icon(Icons.password_rounded),
-              title: const Text('Change password'),
-              trailing: const Icon(Icons.chevron_right_rounded),
-              onTap: () => showModalBottomSheet<void>(
-                context: context,
-                showDragHandle: true,
-                isScrollControlled: true,
-                builder: (_) => const _ChangePinSheet(),
+            if (identity.hasVault)
+              ListTile(
+                leading: const Icon(Icons.password_rounded),
+                title: const Text('Change password'),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => showModalBottomSheet<void>(
+                  context: context,
+                  showDragHandle: true,
+                  isScrollControlled: true,
+                  builder: (_) => const _ChangePinSheet(),
+                ),
               ),
-            ),
             ListTile(
               leading: const Icon(Icons.contacts_rounded),
               title: const Text('Address book'),
@@ -524,21 +559,26 @@ class _WalletSection extends StatelessWidget {
                 ),
               ),
             ),
-            ListTile(
-              leading: const Icon(Icons.lock_outline_rounded),
-              title: const Text('Lock wallet'),
-              subtitle: const Text('Clear the decrypted seed from memory'),
-              onTap: identity.lock,
-            ),
-            ListTile(
-              leading: Icon(Icons.delete_outline_rounded, color: scheme.error),
-              title: Text(
-                'Remove wallet',
-                style: text.titleMedium?.copyWith(color: scheme.error),
+            if (identity.hasVault)
+              ListTile(
+                leading: const Icon(Icons.lock_outline_rounded),
+                title: const Text('Lock wallet'),
+                subtitle: const Text('Clear the decrypted seed from memory'),
+                onTap: identity.lock,
               ),
-              subtitle: const Text('Deletes the encrypted seed'),
-              onTap: () => _removeWallet(context),
-            ),
+            if (identity.hasVault)
+              ListTile(
+                leading: Icon(Icons.delete_outline_rounded, color: scheme.error),
+                title: Text(
+                  'Erase recovery phrases',
+                  style: text.titleMedium?.copyWith(color: scheme.error),
+                ),
+                subtitle: const Text(
+                  'Deletes every encrypted seed and the password; '
+                  'watch-only wallets stay',
+                ),
+                onTap: () => _removeWallet(context),
+              ),
           ],
         ),
       ],
@@ -580,7 +620,10 @@ class _WalletSection extends StatelessWidget {
                   RadioListTile<int>(
                     value: i,
                     title: Text(
-                      context.read<SettingsController>().accountName(i),
+                      context.read<SettingsController>().accountName(
+                            i,
+                            walletId: identity.activeWalletId,
+                          ),
                     ),
                     subtitle: i == 0 ? const Text('Default') : null,
                     secondary: IconButton(
@@ -591,12 +634,22 @@ class _WalletSection extends StatelessWidget {
                             context.read<SettingsController>();
                         final String? name = await _askAccountName(
                           dialogContext,
-                          settings.hasCustomAccountName(i)
-                              ? settings.accountName(i)
+                          settings.hasCustomAccountName(
+                            i,
+                            walletId: identity.activeWalletId,
+                          )
+                              ? settings.accountName(
+                                  i,
+                                  walletId: identity.activeWalletId,
+                                )
                               : '',
                         );
                         if (name != null) {
-                          settings.renameAccount(i, name);
+                          settings.renameAccount(
+                            i,
+                            name,
+                            walletId: identity.activeWalletId,
+                          );
                           if (dialogContext.mounted) {
                             Navigator.of(dialogContext).pop();
                           }
@@ -790,10 +843,12 @@ class _WalletSection extends StatelessWidget {
       context: context,
       builder: (dialogContext) => AlertDialog(
         icon: const Icon(Icons.warning_amber_rounded),
-        title: const Text('Remove wallet?'),
+        title: const Text('Erase every recovery phrase?'),
         content: const Text(
-          'Without the recovery phrase the funds are unrecoverable. Make sure '
-          'you have your backup before continuing.',
+          'This deletes all recovery phrases and the password from this '
+          'device. Without the backups the funds are unrecoverable. Watch-only '
+          'wallets are kept. Make sure you have your backups before '
+          'continuing.',
         ),
         actions: <Widget>[
           TextButton(
@@ -817,7 +872,7 @@ class _WalletSection extends StatelessWidget {
     }
     showAppSnackBar(
       context,
-      'Wallet removed from this device.',
+      'Recovery phrases erased from this device.',
       icon: Icons.delete_outline_rounded,
     );
     await identity.removeWallet();

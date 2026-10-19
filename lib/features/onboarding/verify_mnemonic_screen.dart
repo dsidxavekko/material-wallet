@@ -2,7 +2,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 
-import '../lock/set_pin_screen.dart';
+import '../wallets/add_wallet_screen.dart';
 
 /// Asks the user to re-type a few **randomly chosen** words to prove the
 /// recovery phrase was backed up.
@@ -126,7 +126,7 @@ class _VerifyMnemonicScreenState extends State<VerifyMnemonicScreen> {
   void _continue() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => SetPinScreen(mnemonic: widget.mnemonic),
+        builder: (_) => securityStepFor(context, mnemonic: widget.mnemonic),
       ),
     );
   }

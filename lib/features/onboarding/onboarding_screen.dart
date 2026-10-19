@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'create_wallet_screen.dart';
+import '../wallets/watch_wallet_screen.dart';
 import 'import_wallet_screen.dart';
 
 /// First screen shown when no wallet exists on the device.
@@ -73,6 +74,16 @@ class OnboardingScreen extends StatelessWidget {
                 ),
                 icon: const Icon(Icons.download_rounded),
                 label: const Text('I already have a wallet'),
+              ),
+              const SizedBox(height: 4),
+              TextButton.icon(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const WatchWalletScreen(),
+                  ),
+                ),
+                icon: const Icon(Icons.visibility_outlined),
+                label: const Text('Just watch an address'),
               ),
               const SizedBox(height: 18),
               Center(

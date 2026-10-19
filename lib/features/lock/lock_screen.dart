@@ -189,7 +189,7 @@ class _LockScreenState extends State<LockScreen> {
                 const SizedBox(height: 8),
                 TextButton(
                   onPressed: _busy ? null : _confirmReset,
-                  child: const Text('Forgot password — remove wallet'),
+                  child: const Text('Forgot password — erase recovery phrases'),
                 ),
                 const SizedBox(height: 12),
                 Text(
@@ -263,10 +263,12 @@ class _LockScreenState extends State<LockScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         icon: const Icon(Icons.warning_amber_rounded),
-        title: const Text('Remove this wallet?'),
+        title: const Text('Erase the recovery phrases?'),
         content: const Text(
-          'Without the recovery phrase the funds are unrecoverable. Make sure '
-          'you have your backup before continuing.',
+          'This deletes every recovery phrase and the password from this '
+          'device. Without the backups the funds are unrecoverable. '
+          'Watch-only wallets are kept. Make sure you have your backups '
+          'before continuing.',
         ),
         actions: <Widget>[
           TextButton(
@@ -279,7 +281,7 @@ class _LockScreenState extends State<LockScreen> {
               foregroundColor: Theme.of(dialogContext).colorScheme.onError,
             ),
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Remove'),
+            child: const Text('Erase'),
           ),
         ],
       ),
@@ -290,7 +292,7 @@ class _LockScreenState extends State<LockScreen> {
     }
     showAppSnackBar(
       context,
-      'Wallet removed from this device.',
+      'Recovery phrases erased from this device.',
       icon: Icons.delete_outline_rounded,
     );
     await identity.removeWallet();

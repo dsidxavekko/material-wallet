@@ -7,6 +7,7 @@ import '../../core/utils/feedback.dart';
 import '../../core/utils/formatters.dart';
 import '../../data/models/chain_kind.dart';
 import '../../data/networks/chain_models.dart';
+import '../../shared/widgets/empty_state.dart';
 import '../../shared/widgets/quick_actions.dart';
 import '../../shared/widgets/section_header.dart';
 import '../../state/contacts_controller.dart';
@@ -14,6 +15,7 @@ import '../../state/hidden_tokens_controller.dart';
 import '../../state/notes_controller.dart';
 import '../../state/settings_controller.dart';
 import '../../state/wallet_controller.dart';
+import '../../state/wallet_identity_controller.dart';
 import '../activity/activity_screen.dart';
 import '../activity/widgets/transaction_tile.dart';
 import '../network/network_chip.dart';
@@ -69,6 +71,8 @@ class _HomeScreenState extends State<HomeScreen> {
         context.select<SettingsController, AppCurrency>((s) => s.currency);
     final AccountSnapshot? snapshot = wallet.snapshot;
     final SettingsController settings = context.watch<SettingsController>();
+    final WalletIdentityController identity =
+        context.watch<WalletIdentityController>();
     _hideBalance = settings.hideBalances;
 
     return Scaffold(
@@ -99,6 +103,10 @@ class _HomeScreenState extends State<HomeScreen> {
               child: NetworkChip(),
             ),
             const SizedBox(height: 16),
+            if (identity.isWatchOnly) ...<Widget>[
+              _WatchOnlyBanner(name: identity.activeWallet?.name),
+              const SizedBox(height: 16),
+            ],
             if (wallet.error != null) ...<Widget>[
               ErrorCard(
                 message: wallet.error!,
@@ -109,6 +117,14 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
             if (snapshot != null)
               _content(snapshot, currency, wallet, contacts)
+            else if (wallet.address == null && identity.isWatchOnly)
+              EmptyState(
+                icon: Icons.visibility_off_outlined,
+                title: 'Nothing followed here',
+                message: 'This watch-only wallet has no address on '
+                    '${wallet.network.name}. Pick another network, or follow '
+                    'an address of this kind from Settings → Wallets.',
+              )
             else
               const LoadingCard(),
           ],
@@ -157,6 +173,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         const SizedBox(height: 16),
         QuickActions(
+          sendEnabled: context.read<WalletIdentityController>().canSign,
           onSend: () => _push(context, const SendScreen()),
           onReceive: () => _push(context, const ReceiveScreen()),
         ),
@@ -179,7 +196,8 @@ class _HomeScreenState extends State<HomeScreen> {
               currency: currency,
               hidden: _hideBalance,
               // Only ERC-20 tokens can be sent; SPL tokens are shown, not sent.
-              onTokenTap: snapshot.network.chain == ChainKind.evm
+              onTokenTap: snapshot.network.chain == ChainKind.evm &&
+                      context.read<WalletIdentityController>().canSign
                   ? (TokenBalance token) =>
                       _push(context, SendScreen(token: token))
                   : null,
@@ -203,7 +221,11 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
         ],
         const SizedBox(height: 26),
-        const SectionHeader(title: 'Your address'),
+        SectionHeader(
+          title: context.read<WalletIdentityController>().isWatchOnly
+              ? 'Followed address'
+              : 'Your address',
+        ),
         AddressCard(
           address: snapshot.address,
           networkLabel: snapshot.network.name,
@@ -247,11 +269,14 @@ class _HomeScreenState extends State<HomeScreen> {
                       context,
                       snapshot.network.explorerTx(recent[i].hash),
                     ),
-                    replacements: replacementKindsFor(
-                      original: recent[i],
-                      network: snapshot.network,
-                      tokens: snapshot.tokens,
-                    ),
+                    replacements:
+                        context.read<WalletIdentityController>().canSign
+                            ? replacementKindsFor(
+                                original: recent[i],
+                                network: snapshot.network,
+                                tokens: snapshot.tokens,
+                              )
+                            : const <ReplacementKind>[],
                     onReplace: (ReplacementKind kind) => showReplaceTransfer(
                       context,
                       network: snapshot.network,
@@ -355,6 +380,41 @@ class _NoActivity extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Reminds that the open wallet only follows addresses.
+class _WatchOnlyBanner extends StatelessWidget {
+  const _WatchOnlyBanner({this.name});
+
+  final String? name;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: scheme.secondaryContainer,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: <Widget>[
+          Icon(Icons.visibility_outlined, color: scheme.onSecondaryContainer),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              '${name ?? 'Watch-only wallet'} — you can follow this address, '
+              'but not send from it.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: scheme.onSecondaryContainer,
+                    height: 1.4,
+                  ),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -48,6 +48,20 @@ class WatchAddresses {
 
   static final RegExp _evmShape = RegExp(r'^0[xX][0-9a-fA-F]{40}$');
 
+  /// Pulls the bare address out of a pasted or scanned payment link
+  /// (`bitcoin:bc1…?amount=…`, `ethereum:0x…@1`, `solana:…`); plain addresses
+  /// pass through untouched.
+  static String extract(String raw) {
+    String value = raw.trim();
+    final RegExpMatch? scheme =
+        RegExp(r'^[a-zA-Z][a-zA-Z0-9+.-]*:(//)?').firstMatch(value);
+    if (scheme != null) {
+      value = value.substring(scheme.end);
+    }
+    final int cut = value.indexOf(RegExp(r'[?@/]'));
+    return cut < 0 ? value : value.substring(0, cut);
+  }
+
   /// Classifies [input], or returns `null` when it is no address the wallet can
   /// follow. Surrounding whitespace is ignored.
   static WatchAddress? detect(String input) {

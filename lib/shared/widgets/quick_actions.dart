@@ -9,7 +9,12 @@ class QuickActions extends StatelessWidget {
     super.key,
     required this.onSend,
     required this.onReceive,
+    this.sendEnabled = true,
   });
+
+  /// `false` for a wallet that cannot sign: Send stays visible but dimmed, and
+  /// the screen it opens explains why.
+  final bool sendEnabled;
 
   final VoidCallback onSend;
   final VoidCallback onReceive;
@@ -21,7 +26,7 @@ class QuickActions extends StatelessWidget {
         _QuickAction(
           icon: Icons.north_east_rounded,
           label: 'Send',
-          emphasized: true,
+          emphasized: sendEnabled,
           onTap: onSend,
         ),
         const SizedBox(width: 14),

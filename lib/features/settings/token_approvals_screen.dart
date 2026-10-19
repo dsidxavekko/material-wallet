@@ -121,8 +121,18 @@ class _TokenApprovalsScreenState extends State<TokenApprovalsScreen> {
   Future<void> _revoke(TokenApproval approval) async {
     final WalletController wallet = context.read<WalletController>();
     final NetworkConfig network = wallet.network;
-    final String? address = context.read<WalletIdentityController>().addressFor(network);
+    final WalletIdentityController identity =
+        context.read<WalletIdentityController>();
+    final String? address = identity.addressFor(network);
     if (address == null) {
+      return;
+    }
+    if (!identity.canSign) {
+      showAppSnackBar(
+        context,
+        'A watch-only wallet cannot revoke approvals.',
+        icon: Icons.visibility_outlined,
+      );
       return;
     }
 

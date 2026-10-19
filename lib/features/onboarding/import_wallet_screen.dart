@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../state/wallet_identity_controller.dart';
-import '../lock/set_pin_screen.dart';
+import '../wallets/add_wallet_screen.dart';
 
 /// Restores an existing wallet from a BIP-39 recovery phrase.
 class ImportWalletScreen extends StatefulWidget {
@@ -140,7 +140,8 @@ class _ImportWalletScreenState extends State<ImportWalletScreen> {
   void _continue() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => SetPinScreen(
+        builder: (_) => securityStepFor(
+          context,
           mnemonic: _normalized,
           passphrase: _passphrase,
         ),

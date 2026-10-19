@@ -49,6 +49,14 @@ Future<void> showReplaceTransfer(
   required ReplacementKind kind,
   required ChainTransaction original,
 }) async {
+  if (!context.read<WalletIdentityController>().canSign) {
+    showAppSnackBar(
+      context,
+      'A watch-only wallet cannot send or replace transfers.',
+      icon: Icons.visibility_outlined,
+    );
+    return;
+  }
   if (network.chain == ChainKind.bitcoin) {
     return _showBitcoinSpeedUp(context, network: network, original: original);
   }

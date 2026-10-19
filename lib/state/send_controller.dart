@@ -140,6 +140,9 @@ class SendController extends ChangeNotifier {
     String? tokenContract,
     BigInt? tokenAmount,
   }) async {
+    if (identity.isWatchOnly) {
+      return _fail(_watchOnlyMessage);
+    }
     if (network.chain != ChainKind.evm || !network.canSign) {
       return _fail('${network.name} does not support sending yet.');
     }
@@ -343,6 +346,9 @@ class SendController extends ChangeNotifier {
   /// would invalidate the signature, so its disappearance is checked and the
   /// send refused rather than broadcast and rejected.
   Future<bool> sendBitcoin({required BitcoinPlan plan}) async {
+    if (identity.isWatchOnly) {
+      return _fail(_watchOnlyMessage);
+    }
     if (network.chain != ChainKind.bitcoin || !network.canSign) {
       return _fail('${network.name} does not support sending yet.');
     }
@@ -482,6 +488,9 @@ class SendController extends ChangeNotifier {
     required String originalTxid,
     required BitcoinPlan plan,
   }) async {
+    if (identity.isWatchOnly) {
+      return _fail(_watchOnlyMessage);
+    }
     if (network.chain != ChainKind.bitcoin || !network.canSign) {
       return _fail('${network.name} does not support sending yet.');
     }
@@ -609,6 +618,9 @@ class SendController extends ChangeNotifier {
   /// review can never be signed. Returns `true` when the transfer went out and
   /// was not rejected; a `false` return means [error] is set.
   Future<bool> sendNative({required String to, required BigInt amount}) async {
+    if (identity.isWatchOnly) {
+      return _fail(_watchOnlyMessage);
+    }
     if (!network.canSign ||
         (network.chain != ChainKind.solana && network.chain != ChainKind.aptos)) {
       return _fail('${network.name} does not support sending yet.');
@@ -946,7 +958,14 @@ class SendController extends ChangeNotifier {
     return true;
   }
 
+  static const String _watchOnlyMessage =
+      'This is a watch-only wallet. It holds no keys and cannot send. '
+      'Nothing was sent.';
+
   Future<Uint8List> _requireSeed() async {
+    if (identity.isWatchOnly) {
+      throw const EvmSigningException(_watchOnlyMessage);
+    }
     if (!identity.unlocked) {
       throw const EvmSigningException(
         'Unlock the wallet before sending.',

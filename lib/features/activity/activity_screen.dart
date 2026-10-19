@@ -16,6 +16,7 @@ import '../../state/contacts_controller.dart';
 import '../../state/notes_controller.dart';
 import '../../state/settings_controller.dart';
 import '../../state/wallet_controller.dart';
+import '../../state/wallet_identity_controller.dart';
 import '../home/widgets/state_cards.dart';
 import '../send/replace_transfer.dart';
 import 'activity_search.dart';
@@ -220,7 +221,9 @@ class _ActivityScreenState extends State<ActivityScreen> {
     ChainTransaction tx,
     AccountSnapshot snapshot,
   ) =>
-      replacementKindsFor(
+      !context.read<WalletIdentityController>().canSign
+          ? const <ReplacementKind>[]
+          : replacementKindsFor(
         original: tx,
         network: snapshot.network,
         tokens: snapshot.tokens,
