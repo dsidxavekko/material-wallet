@@ -97,6 +97,13 @@ class NetworkConfig {
         ChainKind.solana || ChainKind.aptos => false,
       };
 
+  /// Whether this network has an address-history index. Without one (the
+  /// JSON-RPC-only BNB Chain) the activity list is empty, so everything that
+  /// starts from a history row — speed-up/cancel, confirmation notifications,
+  /// the poisoning check against past recipients — is unavailable, and the UI
+  /// says so instead of implying a safety net that is not there.
+  bool get hasHistory => rpcUrl == null;
+
   String get group => switch (chain) {
         ChainKind.bitcoin => 'Bitcoin',
         ChainKind.evm => 'EVM',
@@ -259,7 +266,9 @@ class NetworkCatalog {
 
   /// BNB Chain has no public Blockscout instance, so balance and the gas price
   /// come from a public JSON-RPC node. Without an API key there is no
-  /// address-history index, so the activity list stays empty.
+  /// address-history index, so the activity list stays empty — which also means
+  /// no speed-up/cancel (they start from a history row), no confirmation
+  /// notifications, and no history-based poisoning check. See [hasHistory].
   static const NetworkConfig bnb = NetworkConfig(
     id: 'bnb',
     name: 'BNB Chain',
@@ -272,6 +281,11 @@ class NetworkCatalog {
     color: Color(0xFFF0B90B),
     priceId: 'binancecoin',
     chainId: 56,
+    sendRpcUrls: <String>[
+      'https://bsc-rpc.publicnode.com',
+      'https://bsc-dataseed.bnbchain.org',
+      'https://bsc.drpc.org',
+    ],
   );
 
   // --- Solana --------------------------------------------------------------

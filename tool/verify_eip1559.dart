@@ -1,6 +1,10 @@
 // Manual verification of the EIP-1559 signing path against a live node.
 //
-// Run: dart run tool/verify_eip1559.dart
+// Run: dart run tool/verify_eip1559.dart [sepolia|bsc-testnet|bnb]
+//
+// With no argument it checks Sepolia. `bsc-testnet` (chain id 97) is the way to
+// prove the BNB Chain send path before real funds touch it; `bnb` checks the
+// mainnet node the wallet broadcasts through.
 //
 // Signs a type-2 transfer offline and hands it to a real Sepolia node. The
 // throwaway key holds no funds, so the node rejects the transfer for
@@ -19,8 +23,22 @@ import 'package:crypto_wallet/data/wallet/evm_signer.dart';
 import 'package:convert/convert.dart';
 import 'package:http/http.dart' as http;
 
-const String _rpc = 'https://ethereum-sepolia-rpc.publicnode.com';
-const int _expectedChainId = 11155111;
+/// Network profiles: the node to ask and the chain id it must report.
+const Map<String, ({String rpc, int chainId})> _profiles =
+    <String, ({String rpc, int chainId})>{
+  'sepolia': (
+    rpc: 'https://ethereum-sepolia-rpc.publicnode.com',
+    chainId: 11155111,
+  ),
+  'bsc-testnet': (
+    rpc: 'https://bsc-testnet-rpc.publicnode.com',
+    chainId: 97,
+  ),
+  'bnb': (rpc: 'https://bsc-rpc.publicnode.com', chainId: 56),
+};
+
+late String _rpc;
+late int _expectedChainId;
 
 Future<Object?> _result(
   http.Client client,
@@ -66,7 +84,17 @@ Future<Object?> _sendRaw(http.Client client, String raw) async {
 BigInt _hex(String value) =>
     BigInt.parse(value.substring(2), radix: 16);
 
-Future<void> main() async {
+Future<void> main(List<String> args) async {
+  final String name = args.isEmpty ? 'sepolia' : args.first;
+  final ({String rpc, int chainId})? profile = _profiles[name];
+  if (profile == null) {
+    print('Unknown network "$name". Use one of: ${_profiles.keys.join(', ')}');
+    return;
+  }
+  _rpc = profile.rpc;
+  _expectedChainId = profile.chainId;
+  print('network       : $name ($_rpc)');
+
   final http.Client client = http.Client();
   try {
     final int chainId = _hex(
@@ -79,7 +107,10 @@ Future<void> main() async {
       'eth_getBlockByNumber',
       const <Object?>['latest', false],
     ) as Map<String, Object?>;
-    final BigInt baseFee = _hex(block['baseFeePerGas']! as String);
+    // Some chains (BNB) report no base fee at all.
+    final BigInt baseFee = block['baseFeePerGas'] is String
+        ? _hex(block['baseFeePerGas']! as String)
+        : BigInt.zero;
 
     BigInt priority;
     try {

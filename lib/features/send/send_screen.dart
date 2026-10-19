@@ -399,6 +399,10 @@ class _SendScreenState extends State<SendScreen> {
                       ),
                     ),
                   ),
+                  if (!network.hasHistory) ...<Widget>[
+                    const SizedBox(height: 12),
+                    _NoHistoryNotice(network: network),
+                  ],
                   const SizedBox(height: 18),
                   TextField(
                     controller: _amountController,
@@ -1277,6 +1281,45 @@ class _SendScreenState extends State<SendScreen> {
         icon: Icons.check_circle_outline_rounded,
       );
     }
+  }
+}
+
+/// Says what is missing on a network without a history index: the safety nets
+/// that depend on past transactions are not there, and sending still works.
+class _NoHistoryNotice extends StatelessWidget {
+  const _NoHistoryNotice({required this.network});
+
+  final NetworkConfig network;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return Card(
+      color: scheme.secondaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Icon(Icons.info_outline_rounded, color: scheme.onSecondaryContainer),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                '${network.name} has no transaction history in this wallet. '
+                'You can send, but a stuck transfer cannot be sped up or '
+                'cancelled here, you will not get a confirmation notification, '
+                'and the recipient is not checked against your past payments '
+                'or scam lists. Double-check the address.',
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: scheme.onSecondaryContainer),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

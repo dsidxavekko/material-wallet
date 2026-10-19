@@ -23,6 +23,14 @@ void main() {
     200,
   );
 
+  test('BNB Chain can send, and says it has no history index (C6)', () {
+    expect(NetworkCatalog.bnb.canSign, isTrue);
+    expect(NetworkCatalog.bnb.chainId, 56);
+    expect(NetworkCatalog.bnb.hasHistory, isFalse);
+    expect(NetworkCatalog.ethereum.hasHistory, isTrue);
+    expect(NetworkCatalog.base.hasHistory, isTrue);
+  });
+
   test('every EVM network that can send lists more than one node', () {
     for (final NetworkConfig n in NetworkCatalog.all) {
       if (n.canSign && n.chainId != null) {
