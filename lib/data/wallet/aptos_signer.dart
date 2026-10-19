@@ -24,6 +24,13 @@ class AptosSigningException implements Exception {
 class AptosSigner {
   const AptosSigner._();
 
+  /// Smallest `max_gas_amount` the wallet signs. The node refuses anything
+  /// under its intrinsic minimum with
+  /// `MAX_GAS_UNITS_BELOW_MIN_TRANSACTION_GAS_UNITS`: 5 210 units on testnet
+  /// (live probe, 2026-10-19; 2 000 was refused). Mainnet was not probed, so the
+  /// floor leaves a wide margin; only gas actually used is charged.
+  static const int maxGasFloor = 10000;
+
   /// Domain separator mixed into everything that is signed:
   /// `sha3_256("APTOS::RawTransaction")`.
   static final Uint8List _rawTransactionPrefix = Hashing.sha3_256(

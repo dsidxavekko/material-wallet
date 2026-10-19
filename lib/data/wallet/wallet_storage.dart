@@ -37,6 +37,7 @@ class WalletStorage {
   static const String _hideBalancesKey = 'nova.wallet.hideBalances';
   static const String _accountNamesKey = 'nova.wallet.accountNames';
   static const String _txNotesKey = 'nova.wallet.txNotes';
+  static const String _hiddenTokensKey = 'nova.wallet.hiddenTokens';
 
   /// The encrypted recovery phrase, or `null` when no wallet exists.
   Future<String?> readVault() async {
@@ -219,6 +220,18 @@ class WalletStorage {
     await prefs.setString(_txNotesKey, json);
   }
 
+  /// Tokens the user hid from the home list, as a JSON array of
+  /// `"<networkId>:<contract>"` keys.
+  Future<String?> readHiddenTokens() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_hiddenTokensKey);
+  }
+
+  Future<void> writeHiddenTokens(String json) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_hiddenTokensKey, json);
+  }
+
   /// Reads the cached snapshot JSON for [id] (a network id), if any.
   Future<String?> readCache(String id) async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -254,6 +267,7 @@ class WalletStorage {
     // they go with it.
     await prefs.remove(_accountNamesKey);
     await prefs.remove(_txNotesKey);
+    await prefs.remove(_hiddenTokensKey);
     for (final String key in prefs.getKeys().toList()) {
       if (key.startsWith(_cachePrefix)) {
         await prefs.remove(key);

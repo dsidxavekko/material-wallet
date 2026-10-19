@@ -782,13 +782,15 @@ class SendController extends ChangeNotifier {
 
   // Aptos
 
-  /// ponytail: a flat 2× margin with a floor of 2 000 units over the simulated
-  /// gas, not a tuned figure; a transfer that needs more would run out of gas.
+  /// ponytail: a flat 2× margin over the simulated gas, not a tuned figure; a
+  /// transfer that needs more would run out of gas. The floor is the node's
+  /// intrinsic minimum plus margin ([AptosSigner.maxGasFloor]), not an
+  /// execution estimate.
   ///
-  /// Octas of gas a simulation says a transfer uses, with room to spare.
+  /// Units of gas a simulation says a transfer uses, with room to spare.
   static int _aptosMaxGas(int gasUsed) {
     final int padded = gasUsed * 2;
-    return padded < 2000 ? 2000 : padded;
+    return padded < AptosSigner.maxGasFloor ? AptosSigner.maxGasFloor : padded;
   }
 
   Future<

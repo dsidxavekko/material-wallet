@@ -1,0 +1,29 @@
+name: Live checks
+
+# Runs the signing-path checks that need public nodes. Each one only simulates
+# or reads: nothing is signed with a funded key and nothing is spent. Started by
+# hand, because it depends on third-party nodes being up.
+on:
+  workflow_dispatch:
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.7
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: EVM EIP-1559 on Sepolia
+        run: dart run tool/verify_eip1559.dart sepolia
+      - name: EVM EIP-1559 on BSC testnet
+        run: dart run tool/verify_eip1559.dart bsc-testnet
+      - name: Solana Devnet simulation
+        run: dart run tool/verify_solana.dart
+      - name: Aptos testnet simulation
+        run: dart run tool/verify_aptos.dart
+      - name: ENS resolution on mainnet
+        run: dart run tool/verify_ens.dart

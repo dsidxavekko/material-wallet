@@ -10,6 +10,7 @@ import '../../data/networks/chain_models.dart';
 import '../../shared/widgets/quick_actions.dart';
 import '../../shared/widgets/section_header.dart';
 import '../../state/contacts_controller.dart';
+import '../../state/hidden_tokens_controller.dart';
 import '../../state/notes_controller.dart';
 import '../../state/settings_controller.dart';
 import '../../state/wallet_controller.dart';
@@ -38,6 +39,27 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   /// Mirrors [SettingsController.hideBalances] for the widgets below.
   bool _hideBalance = false;
+
+  /// Whether tokens the user hid are listed (faded) so they can be restored.
+  bool _showHiddenTokens = false;
+
+  void _toggleTokenHidden(String networkId, TokenBalance token) {
+    final HiddenTokensController hiddenTokens =
+        context.read<HiddenTokensController>();
+    final bool hide = !hiddenTokens.isHidden(networkId, token);
+    hiddenTokens.setHidden(networkId, token, hide);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text('${token.symbol} ${hide ? 'hidden' : 'shown'}'),
+          action: SnackBarAction(
+            label: 'Undo',
+            onPressed: () => hiddenTokens.setHidden(networkId, token, !hide),
+          ),
+        ),
+      );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -103,6 +125,15 @@ class _HomeScreenState extends State<HomeScreen> {
   ) {
     final List<ChainTransaction> recent =
         snapshot.transactions.take(5).toList(growable: false);
+    final HiddenTokensController hiddenTokens =
+        context.watch<HiddenTokensController>();
+    final int hiddenCount =
+        hiddenTokens.hiddenCount(snapshot.network.id, snapshot.tokens);
+    final List<TokenBalance> visibleTokens = <TokenBalance>[
+      for (final TokenBalance t in snapshot.tokens)
+        if (_showHiddenTokens || !hiddenTokens.isHidden(snapshot.network.id, t))
+          t,
+    ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -142,16 +173,34 @@ class _HomeScreenState extends State<HomeScreen> {
                 ? () => _push(context, const TokenApprovalsScreen())
                 : null,
           ),
-          TokenList(
-            tokens: snapshot.tokens,
-            currency: currency,
-            hidden: _hideBalance,
-            // Only ERC-20 tokens can be sent; SPL tokens are shown, not sent.
-            onTokenTap: snapshot.network.chain == ChainKind.evm
-                ? (TokenBalance token) =>
-                    _push(context, SendScreen(token: token))
-                : null,
-          ),
+          if (visibleTokens.isNotEmpty)
+            TokenList(
+              tokens: visibleTokens,
+              currency: currency,
+              hidden: _hideBalance,
+              // Only ERC-20 tokens can be sent; SPL tokens are shown, not sent.
+              onTokenTap: snapshot.network.chain == ChainKind.evm
+                  ? (TokenBalance token) =>
+                      _push(context, SendScreen(token: token))
+                  : null,
+              onTokenLongPress: (TokenBalance token) =>
+                  _toggleTokenHidden(snapshot.network.id, token),
+              isDimmed: (TokenBalance token) =>
+                  hiddenTokens.isHidden(snapshot.network.id, token),
+            ),
+          if (hiddenCount > 0)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                onPressed: () =>
+                    setState(() => _showHiddenTokens = !_showHiddenTokens),
+                child: Text(
+                  _showHiddenTokens
+                      ? 'Hide the $hiddenCount hidden'
+                      : 'Show $hiddenCount hidden',
+                ),
+              ),
+            ),
         ],
         const SizedBox(height: 26),
         const SectionHeader(title: 'Your address'),

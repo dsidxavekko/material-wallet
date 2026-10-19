@@ -16,6 +16,7 @@
 //
 // ignore_for_file: avoid_print
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:crypto_wallet/core/crypto/hashing.dart';
@@ -171,6 +172,7 @@ Future<void> main(List<String> args) async {
       print('PASS: the node decoded the type-2 transaction and recovered the '
           'sender (rejected only for insufficient funds).');
     } else {
+      exitCode = 1;
       print('FAIL: expected an "insufficient funds" rejection, got the above.');
     }
   } finally {

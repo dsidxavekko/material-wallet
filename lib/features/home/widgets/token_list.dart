@@ -11,6 +11,8 @@ class TokenList extends StatelessWidget {
     required this.tokens,
     required this.currency,
     this.onTokenTap,
+    this.onTokenLongPress,
+    this.isDimmed,
     this.hidden = false,
   });
 
@@ -19,6 +21,12 @@ class TokenList extends StatelessWidget {
 
   /// Opens the send flow for the tapped token, when provided.
   final ValueChanged<TokenBalance>? onTokenTap;
+
+  /// Long-press on a row, for the hide / unhide action.
+  final ValueChanged<TokenBalance>? onTokenLongPress;
+
+  /// Rows the user hid, drawn faded while they are being shown.
+  final bool Function(TokenBalance token)? isDimmed;
 
   /// Privacy mode: balances render as dots.
   final bool hidden;
@@ -40,9 +48,13 @@ class TokenList extends StatelessWidget {
               hidden: hidden,
               text: text,
               scheme: scheme,
+              dimmed: isDimmed?.call(tokens[i]) ?? false,
               onTap: onTokenTap == null
                   ? null
                   : () => onTokenTap!(tokens[i]),
+              onLongPress: onTokenLongPress == null
+                  ? null
+                  : () => onTokenLongPress!(tokens[i]),
             ),
           ],
         ],
@@ -58,7 +70,9 @@ class _TokenTile extends StatelessWidget {
     required this.hidden,
     required this.text,
     required this.scheme,
+    this.dimmed = false,
     this.onTap,
+    this.onLongPress,
   });
 
   final TokenBalance token;
@@ -66,7 +80,9 @@ class _TokenTile extends StatelessWidget {
   final bool hidden;
   final TextTheme text;
   final ColorScheme scheme;
+  final bool dimmed;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -127,10 +143,11 @@ class _TokenTile extends StatelessWidget {
       ),
     );
 
-    if (onTap == null) {
-      return row;
+    final Widget shown = dimmed ? Opacity(opacity: 0.45, child: row) : row;
+    if (onTap == null && onLongPress == null) {
+      return shown;
     }
-    return InkWell(onTap: onTap, child: row);
+    return InkWell(onTap: onTap, onLongPress: onLongPress, child: shown);
   }
 }
 

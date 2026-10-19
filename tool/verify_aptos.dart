@@ -5,16 +5,19 @@
 // Builds an `aptos_account::transfer` transaction with a throwaway key and
 // POSTs it to the Aptos *testnet* `/transactions/simulate` endpoint (which
 // executes nothing and needs an all-zero signature). The account does not
-// exist, so the VM answers `SENDING_ACCOUNT_DOES_NOT_EXIST` — which proves the
-// node parsed the BCS payload and chain id. A malformed body is sent as a
+// exist, so the VM answers `SENDING_ACCOUNT_DOES_NOT_EXIST` or (current nodes)
+// `INSUFFICIENT_BALANCE_FOR_TRANSACTION_FEE` — either proves the node parsed the
+// BCS payload and chain id and accepted the gas limit. A malformed body is sent as a
 // control; it must be refused at the parse stage instead.
 //
 // Nothing is submitted and nothing is spent.
 //
 // ignore_for_file: avoid_print
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:crypto_wallet/core/crypto/hashing.dart';
 import 'package:crypto_wallet/data/wallet/aptos_signer.dart';
 import 'package:ed25519_edwards/ed25519_edwards.dart' as ed;
 import 'package:http/http.dart' as http;
@@ -44,16 +47,17 @@ Future<void> main() async {
         Uint8List.fromList(List<int>.generate(32, (int i) => (i * 11 + 5) % 256));
     final ed.PrivateKey key = ed.newKeyFromSeed(seed);
     final Uint8List publicKey = Uint8List.fromList(ed.public(key).bytes);
-    // Auth key = sha3_256(pubkey ‖ 0x00) is the address; any 32 bytes work for
-    // an account that must not exist.
-    final Uint8List sender = Uint8List.fromList(List<int>.generate(32, (int i) => i + 1));
+    // The address is the authentication key sha3_256(pubkey ‖ 0x00). A made-up
+    // sender fails earlier with INVALID_AUTH_KEY, which proves less.
+    final Uint8List sender =
+        Hashing.sha3_256(Uint8List.fromList(<int>[...publicKey, 0]));
 
     final Uint8List raw = AptosSigner.rawTransfer(
       sender: sender,
       sequenceNumber: 0,
       to: Uint8List.fromList(List<int>.generate(32, (int i) => 200 - i)),
       amount: BigInt.from(1000),
-      maxGasAmount: 2000,
+      maxGasAmount: AptosSigner.maxGasFloor,
       gasUnitPrice: 100,
       expirationTimestampSecs: now + 600,
       chainId: chainId,
@@ -72,13 +76,16 @@ Future<void> main() async {
     print('control (bad) : HTTP ${bad.statusCode} ${bad.body}');
 
     print('');
-    if (good.body.contains('SENDING_ACCOUNT_DOES_NOT_EXIST') &&
+    if ((good.body.contains('SENDING_ACCOUNT_DOES_NOT_EXIST') ||
+            good.body.contains('INSUFFICIENT_BALANCE_FOR_TRANSACTION_FEE')) &&
         bad.statusCode >= 400) {
       print('PASS: the node parsed the transaction (rejected only the missing '
           'sender); the malformed control failed to parse.');
     } else {
-      print('FAIL: expected SENDING_ACCOUNT_DOES_NOT_EXIST for the real '
-          'transaction and a parse error for the control.');
+      exitCode = 1;
+      print('FAIL: expected SENDING_ACCOUNT_DOES_NOT_EXIST or '
+          'INSUFFICIENT_BALANCE_FOR_TRANSACTION_FEE for the real transaction '
+          'and a parse error for the control.');
     }
   } finally {
     client.close();

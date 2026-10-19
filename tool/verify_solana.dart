@@ -13,6 +13,7 @@
 //
 // ignore_for_file: avoid_print
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:crypto_wallet/core/crypto/base58.dart';
@@ -101,6 +102,7 @@ Future<void> main() async {
       print('PASS: the cluster accepted the signature and rejected only the '
           'unfunded fee payer; the tampered copy failed signature verification.');
     } else {
+      exitCode = 1;
       print('FAIL: expected AccountNotFound for the real signature and a '
           'signature failure for the tampered one.');
     }

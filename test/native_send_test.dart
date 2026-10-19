@@ -380,7 +380,7 @@ void main() {
         sequenceNumber: 7,
         to: AptosSigner.addressBytes(aptRecipient),
         amount: apt(1),
-        maxGasAmount: 2000, // max(2 × 9, 2000)
+        maxGasAmount: AptosSigner.maxGasFloor, // max(2 × 9, floor)
         gasUnitPrice: 100,
         expirationTimestampSecs: 1700000600, // ledger time + 10 minutes
         chainId: 1,
@@ -397,7 +397,7 @@ void main() {
     test('refuses when the balance cannot cover the gas reserve', () async {
       final (SendController send, _FakeChain chain, String address, _) =
           await setup();
-      chain.balances[address] = BigInt.from(100000); // < 2000 × 100 reserve
+      chain.balances[address] = BigInt.from(100000); // < floor × 100 reserve
 
       final bool ok =
           await send.sendNative(to: aptRecipient, amount: BigInt.from(1000));
